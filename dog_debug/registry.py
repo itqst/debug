@@ -26,6 +26,16 @@ def _load():
     return _CATALOG
 
 
+_UAV = []
+
+
+def uav_entries():
+    """无人机的指令目录（data/uav_protocol.json）：VFC 本地指令（模拟 GW 发）和 Bridge 命令（模拟 VFC 发），各条自带 topic"""
+    if not _UAV:
+        _UAV.extend(json.loads((DATA.parent / "uav_protocol.json").read_text(encoding="utf-8"))["entries"])
+    return copy.deepcopy(_UAV)
+
+
 def entries():
     """返回独立模板副本，调用方的编辑不会修改目录"""
     return copy.deepcopy(_load())
@@ -42,8 +52,14 @@ def make_command(item):
 
 
 def refresh_ids(payload):
-    """原地换新 tid、ts，带 bid 的也换；返回 payload"""
-    payload["tid"] = str(uuid.uuid4())
+    """原地换新 tid、ts，带 bid 的也换；返回 payload
+
+    无人机 Bridge 的命令用 id 配对、不认多余的顶层字段，有 id 没有 tid 时只换 id（只能用字母、数字、_、-）
+    """
+    if "id" in payload and "tid" not in payload:
+        payload["id"] = "kunkun-" + uuid.uuid4().hex[:16]
+    else:
+        payload["tid"] = str(uuid.uuid4())
     payload["ts"] = int(time.time() * 1000)
     if "bid" in payload:
         payload["bid"] = str(uuid.uuid4())

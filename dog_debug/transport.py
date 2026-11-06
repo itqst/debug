@@ -7,6 +7,7 @@ import time
 import uuid
 
 from .core import Event
+from .uav import COMMAND_TOPICS as UAV_COMMAND_TOPICS
 from .pointcloud import demo_frame
 from .registry import UPLOAD, local_payload, route
 
@@ -22,6 +23,7 @@ class MqttTransport:
         self.sn = ""
         self.session = ""
         self.device = "dog"
+        self.uav_send = False
         self.dropped = 0
 
     def _offer(self, item):
@@ -35,6 +37,8 @@ class MqttTransport:
         import paho.mqtt.client as mqtt
         self.close()
         self.host, self.sn, self.session, self.device = host, sn, str(uuid.uuid4()), device
+        # 每次新连接都回到只读
+        self.uav_send = False
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="dog-debug-" + uuid.uuid4().hex[:12],
                              clean_session=True, reconnect_on_failure=False)
         if username:
@@ -84,9 +88,13 @@ class MqttTransport:
         """payload 为 str 时按原文发送，便于发异常报文；其他值序列化为 JSON"""
         if not self.client or not self.connected:
             raise RuntimeError("MQTT 未连接，不排队旧命令")
-        # 无人机第一期只订阅：所有发送都从这里出去（遥控、快捷键、切页补发的停止、清保留消息），一处挡住
+        # 无人机默认只读：所有发送都从这里出去（遥控、快捷键、切页补发的停止），一处挡住；
+        # 打开“允许向无人机发送”后也只放行 VFC、Bridge 的指令主题，狗的指令不会发到无人机的 Broker 上
         if self.device == "uav":
-            raise RuntimeError("连着的是无人机，第一期只读，不发送任何消息")
+            if not self.uav_send:
+                raise RuntimeError("连着的是无人机，默认只读：要发指令先在控制调试页打开“允许向无人机发送”")
+            if topic not in UAV_COMMAND_TOPICS:
+                raise RuntimeError(f"无人机只往 VFC、Bridge 的指令主题发，{topic} 不发")
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
         result = self.client.publish(topic, text, qos=0, retain=False)
         if result.rc != 0:

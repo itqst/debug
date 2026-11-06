@@ -247,6 +247,7 @@ class Studio(QMainWindow):
         # 设备类型跟着连接走（随连接配置保存）；无人机第一期只订阅本地主题、不发送
         self.device_box = QComboBox()
         self.device_box.addItems(DEVICES)
+        self.device_box.currentTextChanged.connect(lambda _: (self.control.device_changed(), self._show_observer(self.stack.currentIndex())))
         self.mode_box = QComboBox()
         self.mode_box.addItems(MODES)
         # 当前生效的模式；切换时要先按旧模式补发停止再更新，所以不直接读下拉框
@@ -431,10 +432,14 @@ class Studio(QMainWindow):
                 self.UAV: self.uav}.get(index)
         if page:
             page.shown()
-        self.scene3d.observer.setVisible(index in self.OBSERVED)
+        self._show_observer(index)
         # 窗口还没显示时不加载，showEvent 再补；测试里窗口不显示，也就不加载 OpenGL
         if index in self.OBSERVED and self.isVisible():
             self.scene3d._ensure_viewer()
+
+    def _show_observer(self, index):
+        # 3D 观察区画的是狗的模型和遥测，设备选无人机时不显示
+        self.scene3d.observer.setVisible(index in self.OBSERVED and DEVICES[self.device_box.currentText()] != "uav")
 
     def _slide_to(self, index):
         """切页：旧页截图淡出并往反方向滑走，新页从切换方向淡入滑到位（参照 host 的切页动画，260 ms）"""

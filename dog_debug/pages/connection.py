@@ -141,6 +141,8 @@ class ConnectionPanel:
             return
         self.app.mqtt.connect(self.app.host.text().strip(), self.app.port.value(), self.app.sn.text().strip(),
                           self.app.user.text(), self.app.password.text(), self.app.tls.isChecked(), device)
+        # 新连接回到只读，开关跟着关上
+        self.app.control.uav_send.setChecked(False)
         self.app.scene.reset_telemetry()
         self.app.scene.clear_cloud()
         self._set_link("连接中…", ORANGE)

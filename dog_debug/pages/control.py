@@ -8,11 +8,12 @@ from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget,
 )
 
-from ..registry import find, local_payload, make_command, MODULES, refresh_ids, route
+from ..registry import find, local_payload, make_command, MODULES, refresh_ids, route, uav_entries
 from ..trace_view import TraceView
 from ..transport import simulate
 from ..ui import (
-    button, card, CommandDelegate, GRAY, label, MODULE_COLORS, pill, RED, SCENARIOS, scroller, Segmented, Switch, tint,
+    button, card, CommandDelegate, DEVICES, GRAY, label, MODULE_COLORS, pill, RED, SCENARIOS, scroller, Segmented,
+    Switch, tint,
 )
 
 
@@ -21,6 +22,8 @@ class ControlPage:
 
     def __init__(self, app):
         self.app = app
+        self.uav_catalog = uav_entries()
+        self.form_key = "data"
         self.selected = None
         self.recent = []
         self.form_syncing = False
@@ -114,6 +117,11 @@ class ControlPage:
         actions.addWidget(button("恢复模板", lambda: self._template()))
         actions.addWidget(button("存为用例", self.app.suite._save_case))
         actions.addStretch()
+        # 无人机默认只读：打开这个开关才能往 VFC、Bridge 的指令主题发，换连接后自动关上
+        self.uav_send = Switch("允许向无人机发送")
+        self.uav_send.toggled.connect(lambda on: setattr(self.app.mqtt, "uav_send", on))
+        self.uav_send.hide()
+        actions.addWidget(self.uav_send)
         self.send_btn = button("发送", self._send, "primary")
         actions.addWidget(self.send_btn)
         mv.addLayout(actions)
@@ -168,7 +176,7 @@ class ControlPage:
         needle = self.command_search.text().lower()
         first, group = None, None
         # 目录按文档顺序登记，同一模块的方法分散在多处；按模块归拢后分节，模块内保持文档顺序
-        ordered = sorted(self.app.catalog, key=lambda item: MODULES.index(item["module"]) if item["module"] in MODULES else len(MODULES))
+        ordered = sorted(self._catalog(), key=lambda item: MODULES.index(item["module"]) if item["module"] in MODULES else len(MODULES))
         for item in ordered:
             available = item["category"] == "command" or (item["module"] == "gw" and item["method"] in {"oss_config_get", "online", "heartbeat"})
             words = " ".join((item["method"], item["module"], item["title"], item["summary"])).lower()
@@ -195,6 +203,20 @@ class ControlPage:
         if first and not self.selected:
             self.commands.setCurrentItem(first)
 
+    def _uav(self):
+        """连接卡里选的设备是不是无人机：编辑指令跟着选的设备走，实际能不能发看活动连接"""
+        return DEVICES[self.app.device_box.currentText()] == "uav"
+
+    def _catalog(self):
+        return self.uav_catalog if self._uav() else self.app.catalog
+
+    def device_changed(self):
+        """换设备类型：指令目录换成那种设备的，未发出的草稿作废（报文格式不同）"""
+        self.selected = None
+        self.app.drafts.clear()
+        self.uav_send.setVisible(self._uav())
+        self._commands()
+
     def _select_command(self, current, previous=None):
         if current and current.data(Qt.UserRole):
             if self.selected:
@@ -214,6 +236,9 @@ class ControlPage:
 
     def _topic_for(self, item):
         """直连时按 GW 对云端模板的路由选模块 Topic，例如喊话器目录归 MEDIA，GW 实际转给 audio"""
+        # 无人机的指令目录每条自带 Topic（VFC 或 Bridge 的指令主题）
+        if item.get("topic"):
+            return item["topic"]
         # pcd_switch 这类本地指令云端没有，哪种模式都发本地 Topic
         if item.get("local_only"):
             return f"local/robotdog/{item['module']}/command"
@@ -237,7 +262,9 @@ class ControlPage:
             self.form_note.setText("JSON 暂时无效，表单暂停同步；照原文仍可发送")
             self.form_area.hide()
             return
-        data = payload.get("data") if isinstance(payload, dict) else None
+        # Bridge 的命令参数在 args 里，其他协议在 data 里
+        self.form_key = "args" if isinstance(payload, dict) and "args" in payload and "data" not in payload else "data"
+        data = payload.get(self.form_key) if isinstance(payload, dict) else None
         if not isinstance(data, dict):
             self.form_note.setText("没有 data 对象，直接编辑下方 JSON")
             self.form_area.hide()
@@ -276,12 +303,12 @@ class ControlPage:
         self._form_edited(key, value)
 
     def _form_edited(self, key, value):
-        """只改 data 里这一个字段，其他字段（包括模板里没有的）原样保留"""
+        """只改 data（Bridge 为 args）里这一个字段，其他字段（包括模板里没有的）原样保留"""
         try:
             payload = json.loads(self.editor.toPlainText())
         except ValueError:
             return
-        payload["data"][key] = value
+        payload[self.form_key][key] = value
         self.form_syncing = True
         cursor = self.editor.textCursor().position()
         self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -328,6 +355,9 @@ class ControlPage:
 
     def _send(self):
         """发送编辑框内容；非对象或非法 JSON 照原文发出，沙盒里只记录不模拟"""
+        if self._uav() and self.app.mode != "direct":
+            self.app.notify("无人机只能直连：连接方式选“直连模块”")
+            return
         text, topic = self.editor.toPlainText(), self.topic.text().strip()
         try:
             payload = json.loads(text)

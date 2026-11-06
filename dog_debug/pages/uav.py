@@ -115,7 +115,9 @@ class UavPage:
         self.drawn_at = time.monotonic()
         live = self.app.mqtt.connected and self.app.mqtt.device == "uav" and self.session == self.app.mqtt.session
         if self.app.mqtt.device == "uav" and self.app.mqtt.client:
-            self.link_note.setText(f"{'已连接' if self.app.mqtt.connected else '连接中或已断开'} {self.app.mqtt.host}，只读，不会发送任何消息")
+            sending = "已打开“允许向无人机发送”，控制调试页发的指令会真的发到板上" if self.app.mqtt.uav_send else "只读，不会发送任何消息"
+            self.link_note.setText(f"{'已连接' if self.app.mqtt.connected else '连接中或已断开'} {self.app.mqtt.host}，{sending}")
+            self.link_note.setStyleSheet(f"color:{RED}" if self.app.mqtt.uav_send else "")
         elif self.app.mqtt.client:
             self.link_note.setText("当前连接按机器狗订阅（只收 local/robotdog），收不到无人机的消息：先断开，设备选“无人机”再连接")
         else:

@@ -248,3 +248,56 @@ def test_old_database_bridge_ids_upgraded_once(tmp_path):
         assert len(reader.trace(found[("", "s", "bridge:old-id")].events[0])) == 2
         reader.db.close()
         store.close()
+
+
+def test_control_page_lists_uav_commands_with_their_templates(window):
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    methods = {window.control.commands.item(i).data(0x0100)["method"] for i in range(window.control.commands.count())
+               if window.control.commands.item(i).data(0x0100)}
+    assert {"start_multi_nav_by_points", "land", "system.start", "navigation.next"} <= methods and "take_photo" not in methods
+    window.control._open_command("pause_nav")
+    payload = json.loads(window.control.editor.toPlainText())
+    assert window.control.topic.text() == "local/uav/vfc/command" and "target" not in payload and payload["tid"] and payload["ts"]
+    window.control._open_command("system.start")
+    payload = json.loads(window.control.editor.toPlainText())
+    # Bridge 不认多余的顶层字段：只有 id，没有 tid
+    assert window.control.topic.text() == "local/uav/bridge/command" and payload["id"].startswith("kunkun-") and "tid" not in payload
+    assert set(payload) == {"sn", "id", "type", "action", "args", "client", "ts"}
+    window.control._form_edited("profile", "known_navigation")
+    assert json.loads(window.control.editor.toPlainText())["args"]["profile"] == "known_navigation"
+    window.device_box.setCurrentText("机器狗")
+    assert window.control.selected["module"] != "bridge"
+
+
+def test_uav_send_needs_switch_and_only_goes_to_command_topics(window):
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.control._open_command("pause_nav")
+    window.control._send()
+    assert client.sent == []
+    window.control.uav_send.setChecked(True)
+    window.control._send()
+    assert [topic for topic, _ in client.sent] == ["local/uav/vfc/command"]
+    sent = json.loads(client.sent[0][1])
+    # VFC 回了 ACK，本次结果里看得到
+    window._ingest(Event("local/uav/vfc/ack", {"method": "pause_nav", "tid": sent["tid"], "result": 1, "msg": "当前状态 StandBy 不能暂停"},
+                         sn="", session="s1"))
+    window._refresh_tail()
+    assert "不能暂停" in window.control.result.text()
+    window.control._open_command("system.status")
+    window.control._send()
+    assert client.sent[-1][0] == "local/uav/bridge/command"
+    # 狗的指令即使开了开关也不会发到无人机的 Broker
+    assert not window._quick_send("take_photo", {}) and len(client.sent) == 2
+
+
+def test_new_connection_turns_uav_send_off(window, monkeypatch):
+    window.control.uav_send.setChecked(True)
+    window.mqtt.client = None
+    monkeypatch.setattr(window.mqtt, "connect", lambda *a: None)
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.connection._connect()
+    assert not window.control.uav_send.isChecked() and not window.mqtt.uav_send

@@ -1,0 +1,388 @@
+{
+ "entries": [
+  {
+   "id": "uav.vfc.start_multi_nav_by_points",
+   "method": "start_multi_nav_by_points",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务 · start_multi_nav_by_points",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "start_multi_nav_by_points",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "map_id": "20261023_142339",
+     "task_name": "test_route",
+     "points": [
+      {
+       "position": {
+        "x": 0.0,
+        "y": 1.0,
+        "z": 1.2
+       },
+       "orientation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.7071,
+        "w": 0.7071
+       },
+       "actions": [
+        {
+         "id": "a1",
+         "action": "pause",
+         "param": [
+          3
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "title": "开始航线",
+   "summary": "模拟 GW 下发航线：VFC 写航点文件、启动任务环境（Bridge system.start）；ack 只表示受理，进度看 nav_status",
+   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
+   "unverified": "顶层 bid 必填，作为任务 ID；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；VFC 不校验 map_id"
+  },
+  {
+   "id": "uav.vfc.pause_nav",
+   "method": "pause_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务 · pause_nav",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "pause_nav",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "暂停航线",
+   "summary": "在航线上（Active）时暂停",
+   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
+   "unverified": ""
+  },
+  {
+   "id": "uav.vfc.continue_nav",
+   "method": "continue_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务 · continue_nav",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "continue_nav",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "继续航线",
+   "summary": "已暂停，或因放行结果不确定停在 Holding 时继续",
+   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
+   "unverified": ""
+  },
+  {
+   "id": "uav.vfc.stop_nav",
+   "method": "stop_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务 · stop_nav",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "stop_nav",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "结束航线",
+   "summary": "取消后续航点，飞机原地悬停，不降落（VFC 让 Bridge navigation.pause）",
+   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
+   "unverified": ""
+  },
+  {
+   "id": "uav.vfc.start_nav_return_home",
+   "method": "start_nav_return_home",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务 · start_nav_return_home",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "start_nav_return_home",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "返航",
+   "summary": "在空中任何状态都可以（Bridge navigation.return_home）",
+   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
+   "unverified": ""
+  },
+  {
+   "id": "uav.vfc.land",
+   "method": "land",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务 · land",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "land",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "降落",
+   "summary": "只在航点上悬停或返航完成时接受（Bridge flight.land）",
+   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
+   "unverified": "无人机新增指令，平台暂时不发"
+  },
+  {
+   "id": "uav.bridge.system.status",
+   "method": "system.status",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · system.status",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "system",
+    "action": "system.status",
+    "args": {},
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "读状态快照",
+   "summary": "只读，回 confirmed/STATUS_SNAPSHOT，detail 里是六个领域的完整状态",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.system.start",
+   "method": "system.start",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · system.start",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "system",
+    "action": "system.start",
+    "args": {
+     "profile": "online_navigation",
+     "waypoint_file": "kino_waypoints.yaml",
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "启动任务环境",
+   "summary": "异步：先 accepted，再 succeeded/failed；只在 READY 且没有别的任务时启动",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": "confirm 必须为 true，表示操作员确认飞机在地面静止"
+  },
+  {
+   "id": "uav.bridge.system.stop",
+   "method": "system.stop",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · system.stop",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "system",
+    "action": "system.stop",
+    "args": {
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "停止任务环境",
+   "summary": "异步；只能停 Bridge 管理的环境",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": "confirm 必须为 true，表示已确认落地上锁"
+  },
+  {
+   "id": "uav.bridge.job.cancel",
+   "method": "job.cancel",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · job.cancel",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "job",
+    "action": "job.cancel",
+    "args": {
+     "job_id": ""
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "取消启动任务",
+   "summary": "只能取消正在进行的 system.start",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": "job_id 填 system.start 回执里的 job_id"
+  },
+  {
+   "id": "uav.bridge.relocalization.start",
+   "method": "relocalization.start",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · relocalization.start",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "relocalization",
+    "action": "relocalization.start",
+    "args": {},
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "延后重定位",
+   "summary": "known_navigation + relocalization=deferred、stage=BASE_READY 且稳定悬停时可用",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.navigation.next",
+   "method": "navigation.next",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · navigation.next",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "navigation",
+    "action": "navigation.next",
+    "args": {
+     "expect_state": "IDLE"
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "放行下一个航点",
+   "summary": "confirmed/GOAL_RECEIPT 只表示航点指令被接收；uncertain 时不要盲目重发",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": "expect_state 可删掉，不做状态相等检查"
+  },
+  {
+   "id": "uav.bridge.navigation.pause",
+   "method": "navigation.pause",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · navigation.pause",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "navigation",
+    "action": "navigation.pause",
+    "args": {},
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "暂停导航",
+   "summary": "同步，FSM 接受回 confirmed/FSM_ACCEPTED",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.navigation.resume",
+   "method": "navigation.resume",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · navigation.resume",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "navigation",
+    "action": "navigation.resume",
+    "args": {},
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "恢复导航",
+   "summary": "同步，发送前检查起飞完成、重定位就绪、坐标锁定",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.navigation.return_home",
+   "method": "navigation.return_home",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · navigation.return_home",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "navigation",
+    "action": "navigation.return_home",
+    "args": {},
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "返航",
+   "summary": "同步，只表示返航请求被接受；返航完成看 state/navigation=8",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.navigation.uncertain_clear",
+   "method": "navigation.uncertain_clear",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · navigation.uncertain_clear",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "navigation",
+    "action": "navigation.uncertain_clear",
+    "args": {},
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "解除 next 不确定锁",
+   "summary": "操作员先核实飞机实际状态再执行；不自动重发航点",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.flight.land",
+   "method": "flight.land",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge · flight.land",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "flight",
+    "action": "flight.land",
+    "args": {
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "降落（AUTO.LAND）",
+   "summary": "MODE_CONFIRMED 不是落地确认，还要看 state/flight 的 landed 和 armed",
+   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "unverified": ""
+  }
+ ]
+}
