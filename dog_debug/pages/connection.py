@@ -82,6 +82,10 @@ class ConnectionPanel:
         if self.app.ssh:
             active = f"已经远程连接 {self.app.ssh.host} · {self.app.mqtt.sn}"
             edited = self.app.sn.text().strip() != self.app.mqtt.sn
+        elif self.app.mqtt.device == "uav":
+            # 无人机按连上的 Broker 认设备，板上的 sn 现在是空串
+            active = f"已连接无人机 {self.app.mqtt.host}"
+            edited = self.app.host.text().strip() != self.app.mqtt.host
         else:
             active = f"已连接 {self.app.mqtt.host} · {self.app.mqtt.sn}"
             edited = (self.app.host.text().strip(), self.app.sn.text().strip()) != (self.app.mqtt.host, self.app.mqtt.sn)
