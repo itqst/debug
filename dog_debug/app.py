@@ -31,8 +31,8 @@ from .scene import Scene
 from .trace_view import Step
 from .transport import MqttTransport, simulate
 from .ui import (
-    APP_NAME, apply_theme, button, dot, FAILED, glyph_icon, GRAY, guard_wheel, label, logo_icon, logo_image, MODES,
-    NavDelegate, ORANGE, press_feedback, SCENARIOS, scroller, settings, setup_fonts, Switch, tint, Toast, tone,
+    APP_NAME, apply_theme, button, DEVICES, dot, FAILED, glyph_icon, GRAY, guard_wheel, label, logo_icon, logo_image,
+    MODES, NavDelegate, ORANGE, press_feedback, SCENARIOS, scroller, settings, setup_fonts, Switch, tint, Toast, tone,
 )
 from .pages.connection import ConnectionPanel
 from .pages.control import ControlPage
@@ -44,11 +44,12 @@ from .pages.scene3d import ScenePanel
 from .pages.status import StatusPage
 from .pages.suite import SuitePage
 from .pages.teleop import TeleopPage
+from .pages.uav import UavPage
 
 
 class Studio(QMainWindow):
-    PAGES = ["遥控", "控制调试", "导航与文件", "消息追踪", "状态总览", "日志排障", "回归测试", "协议覆盖"]
-    REMOTE, CONTROL, MISSION, MESSAGES, STATUS, LOGS, SUITE, COVERAGE = range(8)
+    PAGES = ["遥控", "控制调试", "导航与文件", "消息追踪", "状态总览", "无人机", "日志排障", "回归测试", "协议覆盖"]
+    REMOTE, CONTROL, MISSION, MESSAGES, STATUS, UAV, LOGS, SUITE, COVERAGE = range(9)
     # 这些页旁边显示 3D 观察区；其余是分析页，整宽显示
     OBSERVED = (REMOTE, CONTROL)
 
@@ -64,6 +65,7 @@ class Studio(QMainWindow):
         self.logs = LogsPage(self)
         self.suite = SuitePage(self)
         self.coverage = CoveragePage(self)
+        self.uav = UavPage(self)
         self.setWindowTitle(APP_NAME)
         self.resize(1480, 940)
         self.setMinimumSize(1180, 720)
@@ -122,7 +124,7 @@ class Studio(QMainWindow):
         observer = self.scene3d._observer()
         self.stack = QStackedWidget()
         for page in (self.teleop._remote_page(), self.control._control_page(), self.mission._mission_page(),
-                     self.messages._message_page(), self.status._status_page(),
+                     self.messages._message_page(), self.status._status_page(), self.uav._uav_page(),
                      self.logs._logs_page(), self.suite._suite_page(), self.coverage._coverage_page()):
             self.stack.addWidget(page)
         # 观察区放在页面栈外，切页时模型、镜头和轨迹都不动；比例可拖
@@ -242,6 +244,9 @@ class Studio(QMainWindow):
         more.setMenu(menu)
         saved.addWidget(more)
         form.addLayout(saved)
+        # 设备类型跟着连接走（随连接配置保存）；无人机第一期只订阅本地主题、不发送
+        self.device_box = QComboBox()
+        self.device_box.addItems(DEVICES)
         self.mode_box = QComboBox()
         self.mode_box.addItems(MODES)
         # 当前生效的模式；切换时要先按旧模式补发停止再更新，所以不直接读下拉框
@@ -286,6 +291,7 @@ class Studio(QMainWindow):
         account = QHBoxLayout()
         account.addWidget(self.user)
         account.addWidget(self.password)
+        form.addWidget(self.device_box)
         form.addWidget(self.mode_box)
         form.addLayout(broker)
         form.addWidget(self.sn)
@@ -378,6 +384,7 @@ class Studio(QMainWindow):
         self.store.add(event)
         self.module_touched[event.module] = self.module_touched.get(event.module, 0) + 1
         self.mission.missions.observe(event)
+        self.uav.observe(event)
         # 回放期间不让实时 OSD 把画面拉走
         if self._current_device(event) and not self.scene3d.replay:
             self.scene.telemetry(event)
@@ -420,7 +427,8 @@ class Studio(QMainWindow):
 
     def _page(self, index):
         self._slide_to(index)
-        page = {self.STATUS: self.status, self.MESSAGES: self.messages, self.LOGS: self.logs, self.REMOTE: self.teleop}.get(index)
+        page = {self.STATUS: self.status, self.MESSAGES: self.messages, self.LOGS: self.logs, self.REMOTE: self.teleop,
+                self.UAV: self.uav}.get(index)
         if page:
             page.shown()
         self.scene3d.observer.setVisible(index in self.OBSERVED)
@@ -614,6 +622,8 @@ class Studio(QMainWindow):
         self.scene3d.tick(now)
         if self.stack.currentIndex() == self.STATUS:
             self.status.tick(now)
+        elif self.stack.currentIndex() == self.UAV:
+            self.uav.tick(now)
         changed = False
         # 每次最多处理约 60 ms，剩下的留到下一轮，避免大批导入时界面无响应
         deadline = time.monotonic() + 0.06

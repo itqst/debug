@@ -54,6 +54,8 @@ def redact(value):
 
 # 事件 ID 只需在本进程内唯一（界面靠它恢复选中行）；uuid4 在大日志导入里占两成耗时
 _EVENT_PREFIX = uuid.uuid4().hex[:10] + "-"
+# 无人机本地 MQTT 和 ROS 之间的 Bridge，报文外壳和狗、VFC 都不一样（`nav/MQTT接口字段说明_20261105_源码版.md`）
+BRIDGE = "local/uav/bridge/"
 _EVENT_COUNTER = itertools.count()
 
 
@@ -81,6 +83,9 @@ class Event:
 
     @property
     def method(self):
+        # 无人机 Bridge 的指令和回执用 action 指明动作，状态和事件用 type
+        if self.topic.startswith(BRIDGE):
+            return str(self.payload.get("action") or self.payload.get("type") or "未解析")
         value = self.payload.get("method") or self.payload.get("type")
         # 内部抓拍回复的契约不要求带 method，按所在 Topic 归到它回复的请求
         if not value and self.topic.endswith("/detect/ack"):
@@ -97,6 +102,9 @@ class Event:
 
     @property
     def tid(self):
+        # Bridge 按 id 配对指令和回执（同一个 id 先回 accepted 再回 final），当作请求号
+        if self.topic.startswith(BRIDGE):
+            return str(self.payload.get("id") or "")
         return str(self.payload.get("tid", ""))
 
     @property
@@ -107,7 +115,8 @@ class Event:
             return "指令"
         if self.topic.endswith("/events"):
             return "事件"
-        if self.topic.endswith(("/state", "/heartbeat", "/data", "/osd")):
+        # Bridge 的状态分领域发在 state/<领域> 下
+        if self.topic.endswith(("/state", "/heartbeat", "/data", "/osd")) or self.topic.startswith(BRIDGE + "state/"):
             return "状态"
         return "日志"
 
@@ -148,7 +157,7 @@ STATIC_DEFAULTS = {f.name: f.default for f in fields(Event) if f.default is not 
 
 
 def infer_module(topic, payload):
-    match = re.search(r"local/robotdog/(\w+)/", topic)
+    match = re.search(r"local/(?:robotdog|uav)/(\w+)/", topic)
     if match:
         return match[1]
     data = payload.get("data", {})

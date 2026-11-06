@@ -25,6 +25,7 @@ from .registry import find
 DATA = Path(__file__).parent / "data"
 APP_NAME = "坤坤调试台"
 STYLE = (DATA / "style.qss").read_text(encoding="utf-8").replace("@DATA", DATA.as_posix())
+DEVICES = {"机器狗": "dog", "无人机": "uav"}
 MODES = {"沙盒 · 全链路模拟": "sandbox", "云端 → 真实 GW": "gw",
          "直连模块": "direct", "离线日志分析": "offline"}
 SCENARIOS = [("正常", "success"), ("执行失败", "failure"), ("无 ACK", "no_ack"),
@@ -671,6 +672,12 @@ def nav_icon(painter, name, x, y, color):
         line((8, 6), (14, 6))
         p.drawEllipse(QPointF(11, 12), 3, 3)
         line((13.5, 14.5), (20, 21))
+    elif name == "无人机":
+        for cx, cy in ((5, 5), (19, 5), (5, 19), (19, 19)):
+            p.drawEllipse(QPointF(cx, cy), 3.2, 3.2)
+        line((7.5, 7.5), (16.5, 16.5))
+        line((16.5, 7.5), (7.5, 16.5))
+        p.drawRoundedRect(QRectF(9.5, 9.5, 5, 5), 1.5, 1.5)
     elif name == "回归测试":
         line((8, 2), (16, 2))
         line((10, 2), (10, 9), (4, 19), (5, 21), (19, 21), (20, 19), (14, 9), (14, 2))

@@ -21,6 +21,7 @@ class MqttTransport:
         self.host = ""
         self.sn = ""
         self.session = ""
+        self.device = "dog"
         self.dropped = 0
 
     def _offer(self, item):
@@ -29,10 +30,11 @@ class MqttTransport:
         except queue.Full:
             self.dropped += 1
 
-    def connect(self, host, port, sn, username="", password="", tls=False):
+    def connect(self, host, port, sn, username="", password="", tls=False, device="dog"):
+        """device 为 "dog" 时订阅狗的本地和云端主题，"uav" 时订阅无人机本地主题（VFC 和 Bridge），只读"""
         import paho.mqtt.client as mqtt
         self.close()
-        self.host, self.sn, self.session = host, sn, str(uuid.uuid4())
+        self.host, self.sn, self.session, self.device = host, sn, str(uuid.uuid4()), device
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="dog-debug-" + uuid.uuid4().hex[:12],
                              clean_session=True, reconnect_on_failure=False)
         if username:
@@ -53,7 +55,10 @@ class MqttTransport:
         self.connected = reason == 0
         self._offer(("connection", "已连接，只读" if self.connected else "连接失败 " + str(reason)))
         if self.connected:
-            client.subscribe([(f"tta/robotdog/{self.sn}/#", 0), ("local/robotdog/#", 0)])
+            if self.device == "uav":
+                client.subscribe([("local/uav/#", 0)])
+            else:
+                client.subscribe([(f"tta/robotdog/{self.sn}/#", 0), ("local/robotdog/#", 0)])
 
     def _disconnected(self, client, userdata, flags, reason, properties):
         self.connected = False
@@ -79,6 +84,9 @@ class MqttTransport:
         """payload 为 str 时按原文发送，便于发异常报文；其他值序列化为 JSON"""
         if not self.client or not self.connected:
             raise RuntimeError("MQTT 未连接，不排队旧命令")
+        # 无人机第一期只订阅：所有发送都从这里出去（遥控、快捷键、切页补发的停止、清保留消息），一处挡住
+        if self.device == "uav":
+            raise RuntimeError("连着的是无人机，第一期只读，不发送任何消息")
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
         result = self.client.publish(topic, text, qos=0, retain=False)
         if result.rc != 0:

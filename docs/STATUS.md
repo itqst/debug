@@ -692,3 +692,15 @@ GPT 核过第一、二步（ROOT_SPLIT_REVIEW_20261106.md：199/201 个方法搬
 - 外壳只调页面方法：切页调各页 shown()；事件队列分发调 _preview_done、_export_done、_import_finished、_import_note、_fetch_progress、_follow_failed、_connected、_lost、_ssh_failed；定时项调 scene3d.tick、status.tick；本次结果和状态页刷新调 control.refresh_result、status.refresh_if_changed；点云解析和外观切换调 scene3d.take_cloud、set_dark
 - app.py 932 → 853 行；剩下外壳碰页面的地方是信号连线、调面板方法（teleop.remote.halt、mission.missions.observe）和少量读页面状态
 - 290 项全过，旅程通过，全部验收截图脚本能跑，新包自检通过（含 3D），注释检查无问题
+
+### 无人机第一期（只读）
+
+用户说开始；目前没有 FRP，只做局域网。依据 nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md v0.3、nav/MQTT接口字段说明_20261105_源码版.md 和 nav/tta_vfc 源码；nav 指挥家 11-06 回答了关联、SN、清保留消息、文档版本，并给了三份板上抓包；GPT 给了六条准确性意见，都采纳。
+- 连接卡加“设备：机器狗 / 无人机”，随连接配置和保存的配置走。无人机只允许直连、不开 FRP；连上只订阅 local/uav/#，自动切到“无人机”页
+- 只读：MqttTransport.publish 在活动连接是无人机时直接拒绝，遥控、快捷键、切页补发的停止、控制调试等所有发送入口一处挡住。清保留消息的按钮这期不做，横幅里写明用 MQTTX 清；等第五项（模拟 GW 发 VFC 指令）有发送开关时一起做
+- core.Event：local/uav/bridge/ 下 method 取 action（没有就 type），请求号取 id，state/<领域> 算状态；模块从 local/(robotdog|uav)/<模块>/ 取。狗的行为不变
+- 新模块 dog_debug/uav.py：状态卡归属、显示内容、时效（实时 / 超时没收到 / 保留快照，在线和航点进度不按时效判断）和数据质量（正常 / 失败 / 未知 / 不适用，DISABLED 为不适用）分开；指令主题上的保留消息；VFC 指令和 Bridge 命令的对应（同动作、5 s 内、未配过的最近一条；VFC 的 ACK 里带了 Bridge 回执状态和原因码就算已对上；next/stop/status 标 VFC 自动；client 不是 vfc 的标外部）；Bridge 结论取 final 的那条，迟到的 accepted 不回退，result 2 写“结果不确定”
+- 新页 pages/uav.py：红色常驻横幅、11 张状态卡、指令时间线（双击到消息追踪看整条请求）。只收当前活动连接（会话）的消息，换连接重来；断开后卡片写“已断开”
+- 测试 tests/test_uav.py 10 项，用 nav/coordination/抓包 下三份板上真实抓包（复制到 tests/data/uav/）：解析、按抓包配对（中间插了未知指令也配对正确）、VFC 自动、final 不回退和结果不确定、时效和质量分开（实时 STALE 仍为未知、DISABLED 不适用、无 ts 的遗嘱 OFFLINE）、页面卡片和断开、保留指令告警和换连接清掉、无人机连接上所有发送入口假 publish 为 0、只订阅 local/uav/#、无人机必须直连。300 项全过
+- 截图 docs/acceptance/uav_*.png（1180 浅深色、1480 浅色），脚本 tools/acceptance/uav_shots.py
+- 没做：第五项模拟 GW 发 VFC 指令（要发送开关）、清保留消息按钮、云端 tta/uav、视频、建图选图、FRP；飞行中的报文（到点、next 回执）还没有样本

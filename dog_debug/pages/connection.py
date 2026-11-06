@@ -6,7 +6,7 @@ import threading
 from PySide6.QtWidgets import QInputDialog
 
 from ..remote import Remote
-from ..ui import broker_target, GRAY, GREEN, MODES, ORANGE, RED, settings
+from ..ui import broker_target, DEVICES, GRAY, GREEN, MODES, ORANGE, RED, settings
 
 
 class ConnectionPanel:
@@ -47,6 +47,7 @@ class ConnectionPanel:
         self.app.user.setText(config["user"])
         self.app.tls.setChecked(config["tls"])
         self.app.frp.setChecked(config.get("frp", False))
+        self.app.device_box.setCurrentText(next(k for k, v in DEVICES.items() if v == config.get("device", "dog")))
         self.app.password.clear()
 
     def _save_profile(self):
@@ -56,7 +57,8 @@ class ConnectionPanel:
             return
         self.app.store.save_connection(name.strip(), {"mode": self.app.mode, "host": self.app.host.text().strip(), "port": self.app.port.value(),
                                                   "sn": self.app.sn.text().strip(), "user": self.app.user.text().strip(),
-                                                  "tls": self.app.tls.isChecked()})
+                                                  "tls": self.app.tls.isChecked(),
+                                                  "device": DEVICES[self.app.device_box.currentText()]})
         self._load_profiles(name.strip())
         self.app.notify(f"已保存连接配置：{name.strip()}")
 
@@ -125,16 +127,20 @@ class ConnectionPanel:
         if self.app.mode in {"sandbox", "offline"}:
             self.app.notify("先在上面选择“云端 → 真实 GW”或“直连模块”")
             return
+        device = DEVICES[self.app.device_box.currentText()]
+        if device == "uav" and (self.app.mode != "direct" or self.app.frp.isChecked()):
+            self.app.notify("无人机第一期只支持局域网直连：方式选“直连模块”，不开“经远程（FRP）”")
+            return
         # 记住这次的连接（含密码，本机自用），下次启动自动填上
         settings().setValue("connection", json.dumps({
             "mode": self.app.mode, "host": self.app.host.text().strip(), "port": self.app.port.value(), "sn": self.app.sn.text().strip(),
             "user": self.app.user.text(), "password": self.app.password.text(), "tls": self.app.tls.isChecked(),
-            "frp": self.app.frp.isChecked()}))
+            "frp": self.app.frp.isChecked(), "device": device}))
         if self.app.mode == "direct" and self.app.frp.isChecked():
             self._connect_frp()
             return
         self.app.mqtt.connect(self.app.host.text().strip(), self.app.port.value(), self.app.sn.text().strip(),
-                          self.app.user.text(), self.app.password.text(), self.app.tls.isChecked())
+                          self.app.user.text(), self.app.password.text(), self.app.tls.isChecked(), device)
         self.app.scene.reset_telemetry()
         self.app.scene.clear_cloud()
         self._set_link("连接中…", ORANGE)
@@ -183,7 +189,10 @@ class ConnectionPanel:
     def _connected(self, note):
         if self.app.mqtt.connected:
             self._connection_hint()
-            self.app.status._zlm_follow()
+            if self.app.mqtt.device == "uav":
+                self.app._go(self.app.UAV)
+            else:
+                self.app.status._zlm_follow()
         else:
             self._set_link(str(note), RED)
 
