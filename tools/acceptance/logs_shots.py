@@ -6,12 +6,13 @@ import time
 sys.path.insert(0, sys.argv[1])
 from PySide6.QtWidgets import QApplication
 import dog_debug.app as A
+import dog_debug.ui as U
 
 app = QApplication([])
 app.setStyle("Fusion")
-A.setup_fonts(app)
+U.setup_fonts(app)
 dark = sys.argv[5] == "dark"
-A.apply_theme(app, dark)
+U.apply_theme(app, dark)
 w = A.Studio(":memory:")
 w.resize(int(sys.argv[3]), int(sys.argv[4]))
 w.show()

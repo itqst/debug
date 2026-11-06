@@ -3,7 +3,7 @@ import tempfile
 
 from PySide6.QtCore import QSettings
 
-import dog_debug.app as app_module
+import dog_debug.ui as ui_module
 
-app_module.SETTINGS_FORMAT = QSettings.IniFormat
+ui_module.SETTINGS_FORMAT = QSettings.IniFormat
 QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, tempfile.mkdtemp(prefix="kunkun-test-settings-"))

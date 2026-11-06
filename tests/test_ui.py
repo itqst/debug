@@ -261,7 +261,7 @@ def test_map_list_ack_fills_combo_and_loads(window):
 
 
 def test_single_nav_heading_becomes_quaternion():
-    from dog_debug.app import pose
+    from dog_debug.pages.mission import pose
     goal = pose(1.0, 2.0, 90)
     assert goal["position"] == {"x": 1.0, "y": 2.0, "z": 0.0}
     assert abs(goal["orientation"]["z"] - 0.707107) < 1e-6 and abs(goal["orientation"]["w"] - 0.707107) < 1e-6

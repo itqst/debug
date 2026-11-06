@@ -6,12 +6,13 @@ sys.path.insert(0, sys.argv[1])
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 import dog_debug.app as A
+import dog_debug.ui as U
 from dog_debug.core import Event
 
 app = QApplication([])
 app.setStyle("Fusion")
-A.setup_fonts(app)
-A.apply_theme(app, True)
+U.setup_fonts(app)
+U.apply_theme(app, True)
 w = A.Studio(":memory:")
 w.resize(int(sys.argv[3]) if len(sys.argv) > 3 else 1480, int(sys.argv[4]) if len(sys.argv) > 4 else 940)
 w.show()

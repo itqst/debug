@@ -20,6 +20,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QPlainTextEdit, QPushButton  # noqa: E402
 
 import dog_debug.app as A  # noqa: E402
+import dog_debug.ui as U  # noqa: E402
 
 out = sys.argv[2]
 base = os.path.join(out, "验收 数据")
@@ -44,9 +45,9 @@ def check(ok, text):
 
 app = QApplication([])
 app.setStyle("Fusion")
-app.setPalette(A.light_palette())
-A.setup_fonts(app)
-app.setStyleSheet(A.STYLE)
+app.setPalette(U.light_palette())
+U.setup_fonts(app)
+app.setStyleSheet(U.STYLE)
 # step 记最近一次 check 的检查项，最长停顿发生时它就是停顿前刚完成的那一步，用来定位卡在哪
 beat = {"last": time.monotonic(), "gap": 0.0, "step": "启动", "where": ""}
 

@@ -11,6 +11,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 import dog_debug.app as app_module
+import dog_debug.ui as ui_module
 import dog_debug.remote as remote
 from dog_debug.app import Studio
 from dog_debug.core import Event
@@ -194,7 +195,7 @@ def test_old_live_follow_batches_are_dropped(window):
 def test_frp_tunnels_to_broker_from_device_config(window, monkeypatch):
     """FRP 登进去的板子不是 Broker 时（NX 登录、Broker 在 192.168.234.1），隧道按 mqttBroker.cfg 转到 GW 实际连的 Broker"""
     FakeRemote.made.clear()
-    FakeRemote.files = {app_module.BROKER_CFG: json.dumps({"local_host": "192.168.234.1", "local_port": 1883})}
+    FakeRemote.files = {ui_module.BROKER_CFG: json.dumps({"local_host": "192.168.234.1", "local_port": 1883})}
     monkeypatch.setattr(app_module, "Remote", FakeRemote)
     connected = []
     monkeypatch.setattr(window.mqtt, "connect", lambda *a: connected.append(a) or setattr(window.mqtt, "client", object()))

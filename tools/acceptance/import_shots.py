@@ -5,13 +5,14 @@ sys.path.insert(0, sys.argv[1]); sys.path.insert(0, os.path.join(sys.argv[1], "t
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 import dog_debug.app as A
+import dog_debug.ui as U
 from test_models import URDF, cube, write_stl, STEP
 out = sys.argv[2]
 def main():
     app = QApplication([])
-    app.setStyle("Fusion"); app.setPalette(A.light_palette())
-    A.setup_fonts(app)
-    app.setStyleSheet(A.STYLE)
+    app.setStyle("Fusion"); app.setPalette(U.light_palette())
+    U.setup_fonts(app)
+    app.setStyleSheet(U.STYLE)
     work = tempfile.mkdtemp()
     root = os.path.join(work, "工作区", "my_pkg"); os.makedirs(os.path.join(root, "urdf")); os.makedirs(os.path.join(root, "meshes"))
     open(os.path.join(root, "urdf", "测试臂.urdf"), "w", encoding="utf-8").write(URDF)
