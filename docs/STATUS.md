@@ -704,3 +704,13 @@ GPT 核过第一、二步（ROOT_SPLIT_REVIEW_20261106.md：199/201 个方法搬
 - 测试 tests/test_uav.py 10 项，用 nav/coordination/抓包 下三份板上真实抓包（复制到 tests/data/uav/）：解析、按抓包配对（中间插了未知指令也配对正确）、VFC 自动、final 不回退和结果不确定、时效和质量分开（实时 STALE 仍为未知、DISABLED 不适用、无 ts 的遗嘱 OFFLINE）、页面卡片和断开、保留指令告警和换连接清掉、无人机连接上所有发送入口假 publish 为 0、只订阅 local/uav/#、无人机必须直连。300 项全过
 - 截图 docs/acceptance/uav_*.png（1180 浅深色、1480 浅色），脚本 tools/acceptance/uav_shots.py
 - 没做：第五项模拟 GW 发 VFC 指令（要发送开关）、清保留消息按钮、云端 tta/uav、视频、建图选图、FRP；飞行中的报文（到点、next 回执）还没有样本
+
+### 无人机第一期：GPT 复核后修三处
+
+GPT 用 6ebe26d 冻结快照复现了三处（root-uav-20261106）：
+- Bridge 回执的结果在 status/final 和 info 里，core.diagnose 原来只认 data.result，消息追踪里结论成了“契约待核”。加 Bridge 分支：accepted/in_progress 为受理中，confirmed 为请求已处理（只说明确认了这一步），succeeded 为完成，rejected/failed/cancelled 为失败，uncertain 为结果不确定；summarize 有 final 时取最后一条 final，迟到的 accepted 不回退
+- 时间线没限定当前连接：Store.query 加 session 条件，无人机页只取当前这次连接的指令和回执，在 SQL 里限定后再取条数
+- VFC 的 tid 和 Bridge 的 id 是同一个字符串时会并成一个请求：Bridge 的请求号改成“bridge:”+ id，查询、证据链、仅此请求、备注、导出都按这个，页面上显示原 id
+- 无人机页在当前连接是按机器狗订阅时写明“先断开，设备选无人机再连接”
+- 新增 4 项回归；GPT 的探针复制到本机跑，三处都按预期。304 项全过，旅程通过
+- 更正：拆分第一到第三步交回里说的“新包自检通过”测的是旧包。build_windows.bat 早已直接输出到仓库 dist/，我每次又把 %TEMP% 里 11-02 的旧包复制回 dist/ 再自检。这次改为直接对 dist/ 自检，16:45 的新包自检通过（0.1.1，含 3D）

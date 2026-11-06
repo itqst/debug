@@ -60,7 +60,8 @@ class StubClient:
 def test_bridge_messages_parse_as_requests_and_states():
     ack = Event("local/uav/bridge/ack", {"sn": "", "id": "vfc-1-2", "action": "system.start", "status": "rejected", "final": True})
     state = Event("local/uav/bridge/state/navigation", {"sn": "", "type": "navigation", "state": 0, "info": {}})
-    assert (ack.kind, ack.method, ack.tid) == ("ACK", "system.start", "vfc-1-2")
+    # Bridge 的 id 带前缀当请求号，和 VFC 的 tid 分开
+    assert (ack.kind, ack.method, ack.tid) == ("ACK", "system.start", "bridge:vfc-1-2")
     assert (state.kind, state.method) == ("状态", "navigation")
 
 
@@ -69,7 +70,7 @@ def test_vfc_commands_linked_to_bridge_commands_from_board_capture():
     children = {row["parent"][2]: row for row in rows.values() if row["parent"]}
     # 中间插了一条未知指令（bt-005），system.start 仍配到发出航线的 bt-004
     assert children["bt-004"]["action"] == "system.start" and children["bt-004"]["confirmed"]
-    assert children["bt-006"]["key"][2] == "vfc-1793736584573-3" and children["bt-006"]["confirmed"]
+    assert children["bt-006"]["key"][2] == "bridge:vfc-1793736584573-3" and children["bt-006"]["confirmed"]
     assert children["bt-007"]["action"] == "navigation.return_home" and children["bt-008"]["action"] == "flight.land"
     assert not {"bt-001", "bt-002", "bt-003", "bt-005"} & set(children)
     assert outcome(children["bt-004"])[1] == 1 and "BAD_WAYPOINTS" in outcome(children["bt-004"])[0]
@@ -169,3 +170,49 @@ def test_uav_needs_direct_mode(window, monkeypatch):
     window.mode_box.setCurrentText("直连模块")
     window.connection._connect()
     assert called and called[0][-1] == "uav"
+
+
+def test_bridge_ack_diagnosis_and_final_wins():
+    from dog_debug.core import diagnose, summarize
+    ack = lambda status, final, result, data, at: Event("local/uav/bridge/ack", {
+        "sn": "", "id": "p1", "action": "navigation.pause", "status": status, "final": final,
+        "info": {"result": result, "data": data, "msg": "说明"}}, session="s", timestamp=at)
+    assert diagnose(ack("rejected", True, 1, "WRONG_STATE", 1)).status == "失败"
+    assert diagnose(ack("accepted", False, 0, "JOB_ACCEPTED", 1)).status == "受理中"
+    assert diagnose(ack("uncertain", True, 2, "NO_RECEIPT", 1)).status == "结果不确定"
+    assert diagnose(ack("confirmed", True, 0, "FSM_ACCEPTED", 1)).status == "请求已处理"
+    command = Event("local/uav/bridge/command", {"sn": "", "id": "p1", "action": "navigation.pause"}, session="s", timestamp=0)
+    late = [command, ack("succeeded", True, 0, "READY", 2), ack("accepted", False, 0, "JOB_ACCEPTED", 3)]
+    assert summarize(late).status == "完成"
+
+
+def test_vfc_tid_and_bridge_id_with_same_string_stay_separate():
+    from dog_debug.core import Store, requests
+    store = Store(":memory:")
+    for e in (Event("local/uav/vfc/command", {"method": "pause_nav", "tid": "shared-id"}, sn="", session="s"),
+              Event("local/uav/vfc/ack", {"method": "pause_nav", "tid": "shared-id", "result": 1, "msg": "不能暂停"}, sn="", session="s"),
+              Event("local/uav/bridge/ack", {"sn": "", "id": "shared-id", "action": "navigation.pause", "status": "rejected",
+                                             "final": True, "info": {"result": 1, "data": "WRONG_STATE", "msg": "状态不允许暂停"}},
+                    sn="", session="s")):
+        store.add(e)
+    store.flush()
+    found = requests(store, store.query(limit=10))
+    assert len(found) == 2
+    bridge = next(r for r in found if r.events[0].topic.startswith("local/uav/bridge/"))
+    assert [e.topic for e in bridge.events] == ["local/uav/bridge/ack"] and bridge.status == "失败"
+
+
+def test_timeline_only_shows_current_connection(window):
+    window._ingest(Event("local/uav/vfc/command", {"method": "pause_nav", "tid": "a1"}, sn="", session="s1"))
+    window.uav.render()
+    assert [r["key"][2] for r in window.uav.rows] == ["a1"]
+    window.mqtt.session = "s2"
+    window._ingest(Event("local/uav/vfc/command", {"method": "stop_nav", "tid": "b1"}, sn="", session="s2"))
+    window.uav.render()
+    assert [r["key"][2] for r in window.uav.rows] == ["b1"]
+
+
+def test_dog_connection_explains_how_to_see_uav(window):
+    window.mqtt.device = "dog"
+    window.uav.render()
+    assert "按机器狗订阅" in window.uav.link_note.text()

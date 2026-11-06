@@ -102,9 +102,10 @@ class Event:
 
     @property
     def tid(self):
-        # Bridge 按 id 配对指令和回执（同一个 id 先回 accepted 再回 final），当作请求号
+        # Bridge 按 id 配对指令和回执（同一个 id 先回 accepted 再回 final），当作请求号；
+        # 加前缀和 VFC 的 tid 分开：tid 由上游随意给，可能和某个 Bridge id 是同一个字符串
         if self.topic.startswith(BRIDGE):
-            return str(self.payload.get("id") or "")
+            return "bridge:" + str(self.payload["id"]) if self.payload.get("id") else ""
         return str(self.payload.get("tid", ""))
 
     @property
@@ -236,7 +237,7 @@ class Store:
     def flush(self):
         self.db.commit()
 
-    def query(self, module="", method="", kind="", text="", limit=1000, before=None, sn="", live=False, methods=None):
+    def query(self, module="", method="", kind="", text="", limit=1000, before=None, sn="", live=False, methods=None, session=""):
         """按条件取最新的 limit 条，返回 [(行号, 事件)]；before 为行号时只取更早的，用于翻页
 
         kind 可以是一组类型；methods 为列表时只要这些方法。条件都在 SQL 里，先筛再取 limit 条，不会被别的消息挤掉
@@ -256,6 +257,9 @@ class Store:
             params.append(sn)
         if live:
             clauses.append("session NOT LIKE 'import-%'")
+        if session:
+            clauses.append("session=?")
+            params.append(session)
         if before is not None:
             clauses.append("id<?")
             params.append(before)
@@ -502,6 +506,8 @@ def diagnose(event):
                          "stream_status 的 result=1 表示正在推流")
     if event.kind == "状态" and event.method not in UPLOAD_STATES:
         return Diagnosis("状态观测", "收到 " + event.method, "")
+    if event.kind == "ACK" and event.topic.startswith(BRIDGE):
+        return _bridge_ack(p)
     view = p.get("data", {})
     if isinstance(view, dict) and isinstance(view.get("data"), dict) and "result" in view["data"]:
         view = view["data"]
@@ -571,7 +577,7 @@ def trace_report(events):
 
 
 # 请求列表的排序：失败最前，其次没收到回复的，再按最近时间
-REQUEST_ORDER = {"失败": 0, "无 ACK": 1, "契约待核": 2}
+REQUEST_ORDER = {"失败": 0, "无 ACK": 1, "结果不确定": 1, "契约待核": 2}
 # 这些来源的时间戳都是本机接收时间，可以相减算耗时；导入日志跨主机时钟不可比
 LOCAL_CLOCK = {"mqtt", "sandbox", "mock-gw"}
 
@@ -607,6 +613,25 @@ def occurred(event):
     return None if event.session.startswith("import-") else event.timestamp
 
 
+def _bridge_ack(p):
+    """Bridge 回执：结果在 status/final 和 info 里，不在 data.result；同一 id 先回 accepted，再回 final"""
+    info = p.get("info") if isinstance(p.get("info"), dict) else {}
+    status, code, msg = str(p.get("status", "")), str(info.get("data", "")), str(info.get("msg", ""))
+    text = f"{status} {code}：{msg}" if code else f"{status}：{msg}"
+    if not p.get("final"):
+        return Diagnosis("受理中", "Bridge " + text, "等同一 id 的最终回执")
+    if status == "succeeded":
+        return Diagnosis("完成", text, "")
+    if status == "confirmed":
+        # 比如 navigation.next 的 GOAL_RECEIPT 只说明航点指令被接收，到没到点看状态和事件
+        return Diagnosis("请求已处理", text, "confirmed 只说明 Bridge 确认了这一步，结果看状态和事件")
+    if status in ("rejected", "failed", "cancelled"):
+        return Diagnosis("失败", text, "看原因码 info.data 和 Bridge 日志")
+    if status == "uncertain":
+        return Diagnosis("结果不确定", text, "先查现场和状态，不要盲目重发")
+    return Diagnosis("契约待核", "Bridge 回执的 status 不认识：" + text, "看原始 JSON")
+
+
 def summarize(events):
     """把同一请求（同设备、同会话、同 tid）的事件归成一行结论
 
@@ -622,7 +647,9 @@ def summarize(events):
         focus, d = next(((e, d) for e, d in failed if e.module != "gw"), failed[0])
         status, summary = "失败", f"{focus.module.upper()}：{d.summary}"
     elif acks:
-        d = diagnose((module_acks or acks)[-1])
+        # Bridge 同一 id 会先回 accepted 再回 final，重复回执或迟到的 accepted 不能把终态退回受理中
+        finals = [e for e in (module_acks or acks) if e.topic.startswith(BRIDGE) and e.payload.get("final")]
+        d = diagnose((finals or module_acks or acks)[-1])
         status, summary = d.status, d.summary
         # ACK 只代表受理；同请求后续的上传状态是业务终态，以最后一条为准
         progress = [e for e in events if e.kind == "状态" and e.method in UPLOAD_STATES]

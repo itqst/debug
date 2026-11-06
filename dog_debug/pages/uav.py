@@ -116,6 +116,8 @@ class UavPage:
         live = self.app.mqtt.connected and self.app.mqtt.device == "uav" and self.session == self.app.mqtt.session
         if self.app.mqtt.device == "uav" and self.app.mqtt.client:
             self.link_note.setText(f"{'已连接' if self.app.mqtt.connected else '连接中或已断开'} {self.app.mqtt.host}，只读，不会发送任何消息")
+        elif self.app.mqtt.client:
+            self.link_note.setText("当前连接按机器狗订阅（只收 local/robotdog），收不到无人机的消息：先断开，设备选“无人机”再连接")
         else:
             self.link_note.setText("还没连无人机：左侧连接卡里设备选“无人机”、方式选“直连模块”，填板上 Broker 地址")
         self._render_alerts()
@@ -160,10 +162,12 @@ class UavPage:
         self.banner.show()
 
     def _render_timeline(self):
+        # 只看当前这次无人机连接的；之前的连接到消息追踪里查
         events = []
-        for module in ("vfc", "bridge"):
-            events += [e for _, e in self.app.store.query(module=module, kind=("指令", "ACK"), limit=400, live=True)
-                       if e.topic.startswith("local/uav/")]
+        if self.session:
+            for module in ("vfc", "bridge"):
+                events += [e for _, e in self.app.store.query(module=module, kind=("指令", "ACK"), limit=400, session=self.session)
+                           if e.topic.startswith("local/uav/")]
         rows = link(events)
         # 新的在前；配上的 Bridge 行紧跟在它的 VFC 指令下面
         ordered = []
@@ -176,7 +180,7 @@ class UavPage:
             text, result = outcome(row)
             related = row["origin"] + ("　已对上" if row["confirmed"] else "")
             cells = (time.strftime("%H:%M:%S", time.localtime(row["at"])), row["source"],
-                     ("　└ " if row["parent"] else "") + row["action"], row["key"][2], related, text)
+                     ("　└ " if row["parent"] else "") + row["action"], row["key"][2].removeprefix("bridge:"), related, text)
             for column, value in enumerate(cells):
                 item = QTableWidgetItem(value)
                 item.setToolTip(value)
