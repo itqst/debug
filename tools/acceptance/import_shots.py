@@ -22,20 +22,20 @@ def main():
     steps = []
     def wait_import(then):
         def check():
-            if w.importing:
+            if w.scene3d.importing:
                 QTimer.singleShot(100, check)
             else:
                 QTimer.singleShot(400, then)
         QTimer.singleShot(100, check)
     def s1():
         w.grab().save(f"{out}/imp_{sys.argv[5]}_l2.png")
-        w.import_model("urdf", broken); wait_import(s2)
+        w.scene3d.import_model("urdf", broken); wait_import(s2)
     def s2():
         w.grab().save(f"{out}/imp_{sys.argv[5]}_missing.png")
-        w.import_model("urdf", root); wait_import(s3)
+        w.scene3d.import_model("urdf", root); wait_import(s3)
     def s3():
-        w.scene.set_joint("shoulder", 0.6); w.scene.set_joint("rail", 0.12); w._sync_joints()
-        QTimer.singleShot(300, lambda: (w.grab().save(f"{out}/imp_{sys.argv[5]}_urdf.png"), w.import_model("step", STEP), wait_import(s4)))
+        w.scene.set_joint("shoulder", 0.6); w.scene.set_joint("rail", 0.12); w.scene3d._sync_joints()
+        QTimer.singleShot(300, lambda: (w.grab().save(f"{out}/imp_{sys.argv[5]}_urdf.png"), w.scene3d.import_model("step", STEP), wait_import(s4)))
     def s4():
         w.grab().save(f"{out}/imp_{sys.argv[5]}_step.png"); w.close(); app.quit()
     QTimer.singleShot(200, lambda: w._go(w.REMOTE))

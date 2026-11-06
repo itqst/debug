@@ -117,10 +117,10 @@ def test_live_mark_expires_without_new_messages(app, monkeypatch):
     window = live_studio()
     monkeypatch.setattr(scene_module.time, "monotonic", lambda: 1000.0)
     window._ingest(osd(batteryRemain=50))
-    assert "OSD 实时" in window.position_pill.text()
+    assert "OSD 实时" in window.scene3d.position_pill.text()
     monkeypatch.setattr(scene_module.time, "monotonic", lambda: 1004.0)
     window._drain()
-    assert "演示" in window.position_pill.text() and "OSD 已停" in window.device_meta.text()
+    assert "演示" in window.scene3d.position_pill.text() and "OSD 已停" in window.device_meta.text()
     window.mqtt.connected = False
     window.close()
 

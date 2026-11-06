@@ -34,7 +34,7 @@ def start():
     QTimer.singleShot(600, seek)
 
 def seek():
-    w.replay_slider.setValue(61)
+    w.scene3d.replay_slider.setValue(61)
     QTimer.singleShot(900, shot)
 
 def shot():

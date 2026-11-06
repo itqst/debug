@@ -20,13 +20,13 @@ out = sys.argv[2]
 prefix = sys.argv[5] if len(sys.argv) > 5 else "page"
 
 def prepare():
-    w._demo()
-    w._run_suite()
+    w.control._demo()
+    w.suite._run_suite()
     w.store.add(Event("local/robotdog/media/state", {"type": "stream_status", "info": {"index": "1", "result": 1, "msg": "pushing"}}, sn="TEST_DOG_001", session="s", module="media"))
     w.store.flush()
     w.missions.send("get_map_list", {}); w.missions.send("get_media_filelist", {})
     w.missions.send("ir_metering_point_set", {"x": 0.5, "y": 0.5})
-    w._go(w.CONTROL); w.scenario.set_index(1); w._send(); w.scenario.set_index(0)
+    w._go(w.CONTROL); w.scenario.set_index(1); w.control._send(); w.scenario.set_index(0)
     w._quick_send("stand_up", {})
     w._ingest(Event("tta/robotdog/TEST_DOG_001/osd", {"x": 0.0, "y": 0.0, "heading": 0, "batteryRemain": 76, "speed": 0.0}))
     w._go(w.REMOTE)

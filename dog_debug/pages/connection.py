@@ -1,0 +1,181 @@
+"""左侧连接卡：连接方式、连接配置、经 FRP 的 SSH 隧道和连接状态"""
+
+import json
+import threading
+
+from PySide6.QtWidgets import QInputDialog
+
+from ..remote import Remote
+from ..ui import broker_target, GRAY, GREEN, MODES, ORANGE, settings
+
+
+class ConnectionPanel:
+    """左侧连接卡：连接方式、配置、FRP/SSH 登录、连接状态文字"""
+
+    def __init__(self, app):
+        self.app = app
+
+    def restore_connection(self):
+        """填回上次点“连接”时的连接参数；只填不连，没记过就保持默认的沙盒"""
+        saved = settings().value("connection", "")
+        if not saved:
+            return
+        config = json.loads(saved)
+        self._profile_chosen_config(config)
+        self.app.password.setText(config.get("password", ""))
+
+    def _load_profiles(self, select=None):
+        self.app.profile_box.clear()
+        self.app.profile_box.addItem("手动填写", None)
+        for name, config in self.app.store.connections().items():
+            self.app.profile_box.addItem(name, config)
+        if select:
+            self.app.profile_box.setCurrentText(select)
+
+    def _profile_chosen(self, index):
+        config = self.app.profile_box.itemData(index)
+        if config:
+            self._profile_chosen_config(config)
+
+    def _profile_chosen_config(self, config):
+        # 旧版的“模拟 GW → 真实模块”发出的内容和直连一样，已合并到“直连模块”
+        mode = "direct" if config["mode"] == "mock_gw" else config["mode"]
+        self.app.mode_box.setCurrentText(next(k for k, v in MODES.items() if v == mode))
+        self.app.host.setText(config["host"])
+        self.app.port.setValue(config["port"])
+        self.app.sn.setText(config["sn"])
+        self.app.user.setText(config["user"])
+        self.app.tls.setChecked(config["tls"])
+        self.app.frp.setChecked(config.get("frp", False))
+        self.app.password.clear()
+
+    def _save_profile(self):
+        default = self.app.profile_box.currentText() if self.app.profile_box.currentData() else f"{self.app.host.text().strip()} · {self.app.sn.text().strip()}"
+        name, ok = QInputDialog.getText(self.app, "保存连接配置", "名称（密码不保存）", text=default)
+        if not ok or not name.strip():
+            return
+        self.app.store.save_connection(name.strip(), {"mode": self.app.mode, "host": self.app.host.text().strip(), "port": self.app.port.value(),
+                                                  "sn": self.app.sn.text().strip(), "user": self.app.user.text().strip(),
+                                                  "tls": self.app.tls.isChecked()})
+        self._load_profiles(name.strip())
+        self.app.notify(f"已保存连接配置：{name.strip()}")
+
+    def _delete_profile(self):
+        if self.app.profile_box.currentData():
+            self.app.store.delete_connection(self.app.profile_box.currentText())
+            self._load_profiles()
+
+    def _set_link(self, text, color):
+        self.app.link.setText(text)
+        self.app.link_dot.setStyleSheet(f"background:{color};border-radius:4px")
+        self.app.connect_btn.setText("断开" if self.app.mqtt.client else "连接")
+        self.app.connect_btn.setObjectName("danger" if self.app.mqtt.client else "primary")
+        self.app.connect_btn.style().polish(self.app.connect_btn)
+        self.app.scene3d._device_card()
+
+    def _connection_hint(self):
+        """连接中修改了 Broker/SN 时提示仍按旧连接收发，重连后才切换"""
+        if not self.app.mqtt.connected:
+            return
+        if self.app.ssh:
+            active = f"已经远程连接 {self.app.ssh.host} · {self.app.mqtt.sn}"
+            edited = self.app.sn.text().strip() != self.app.mqtt.sn
+        else:
+            active = f"已连接 {self.app.mqtt.host} · {self.app.mqtt.sn}"
+            edited = (self.app.host.text().strip(), self.app.sn.text().strip()) != (self.app.mqtt.host, self.app.mqtt.sn)
+        self._set_link(active + ("\n左侧修改在重连后生效" if edited else ""), GREEN)
+
+    def _mode_changed(self):
+        mode = MODES[self.app.mode_box.currentText()]
+        # 沙盒和离线不接实时数据：断开前还按原模式发停止，否则停止会被离线拦下或被沙盒吞掉
+        if mode in {"sandbox", "offline"}:
+            if self.app.mqtt.client:
+                self._connect()
+            self.app.zlm_timer.stop()
+        self.app.mode = mode
+        self.app.ssh_row.setVisible(mode == "direct")
+        sandbox = self.app.mode == "sandbox"
+        self.app.scenario_row.setVisible(sandbox)
+        self.app.send_btn.setEnabled(self.app.mode != "offline")
+        self.app.send_btn.setText("模拟发送" if sandbox else "发送")
+        if not self.app.mqtt.client:
+            self._set_link({"sandbox": "沙盒模式，不联网", "offline": "离线分析，不发送"}.get(self.app.mode, "未连接"), GRAY)
+        self.app.drafts.clear()
+        self.app.control._template()
+        if self.app.mode == "offline":
+            self.app._go(self.app.LOGS)
+            self.app.notify("离线分析只看本地历史：在这里导入日志文件")
+
+    def _frp_toggled(self, on):
+        # 经远程时 Broker 就是狗自己，地址由整机 SN 定，不用填
+        self.app.host.setEnabled(not on)
+        self.app.port.setEnabled(not on)
+
+    def _connect(self):
+        if self.app.ssh_connecting:
+            self.app.notify("正在登录设备，稍等")
+            return
+        if self.app.mqtt.client:
+            # 断开前先发停止，断开后就发不出了
+            self.app.remote.halt()
+            self.app.mqtt.close()
+            self._close_ssh()
+            self._set_link("已断开", GRAY)
+            return
+        if self.app.mode in {"sandbox", "offline"}:
+            self.app.notify("先在上面选择“云端 → 真实 GW”或“直连模块”")
+            return
+        # 记住这次的连接（含密码，本机自用），下次启动自动填上
+        settings().setValue("connection", json.dumps({
+            "mode": self.app.mode, "host": self.app.host.text().strip(), "port": self.app.port.value(), "sn": self.app.sn.text().strip(),
+            "user": self.app.user.text(), "password": self.app.password.text(), "tls": self.app.tls.isChecked(),
+            "frp": self.app.frp.isChecked()}))
+        if self.app.mode == "direct" and self.app.frp.isChecked():
+            self._connect_frp()
+            return
+        self.app.mqtt.connect(self.app.host.text().strip(), self.app.port.value(), self.app.sn.text().strip(),
+                          self.app.user.text(), self.app.password.text(), self.app.tls.isChecked())
+        self.app.scene.reset_telemetry()
+        self.app.scene.clear_cloud()
+        self._set_link("连接中…", ORANGE)
+
+    def _open_ssh(self, via_frp):
+        """在后台线程里调用：按当前填写登录设备的 SSH；远程走 FRP，局域网连 Broker 地址的 22 端口"""
+        sn = self.app.sn.text().strip()
+        host = self.app.host.text().strip()
+        keys = json.loads(settings().value("ssh_host_keys", "{}"))
+        name = sn if via_frp else host
+        return Remote(sn, host, self.app.ssh_user.text().strip(), self.app.ssh_password.text(), keys.get(name, ""), via_frp), name
+
+    def _connect_frp(self):
+        """经 FRP 登录狗、把 1883 和 80 转到本机，再按直连的方式连 Broker；登录在后台，结果进 inbox"""
+        self.app.ssh_connecting = True
+        self._set_link(f"正在经 FRP 登录 {self.app.sn.text().strip()}…", ORANGE)
+
+        def work():
+            try:
+                remote, name = self._open_ssh(True)
+                host, port = broker_target(remote)
+                self.app.inbox.put(("ssh_ready", remote, (name, remote.forward(port, host), remote.forward(80), f"{host}:{port}")))
+            except Exception as error:
+                # 代理、网络、认证出错的类型各不相同，原样告诉用户
+                self.app.inbox.put(("ssh_error", f"远程登录失败：{error}"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ssh_ready(self, remote, name, mqtt_port, zlm_port, broker):
+        self.app.ssh_connecting = False
+        keys = json.loads(settings().value("ssh_host_keys", "{}"))
+        keys[name] = remote.host_key
+        settings().setValue("ssh_host_keys", json.dumps(keys))
+        self.app.ssh, self.app.ssh_zlm = remote, zlm_port
+        # 设备身份仍是整机 SN；127.0.0.1 只是隧道的本机入口
+        self.app.mqtt.connect("127.0.0.1", mqtt_port, self.app.sn.text().strip(), self.app.user.text(), self.app.password.text(), False)
+        self.app.scene.reset_telemetry()
+        self._set_link(f"已登录设备，正在连 Broker {broker}…", ORANGE)
+
+    def _close_ssh(self):
+        self.app.logs._stop_follow()
+        if self.app.ssh:
+            self.app.ssh.close()
+        self.app.ssh, self.app.ssh_zlm, self.app.ssh_rtsp = None, 0, {}

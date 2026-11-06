@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import diagnose
+from ..registry import find, local_payload, make_command
 from ..ui import (
-    BLUE, button, card, FAILED, FlowGrid, GRAY, GREEN, guard_wheel, label, MODULE_COLORS, ORANGE, pill, Switch,
+    BLUE, button, card, FAILED, FlowGrid, GRAY, GREEN, guard_wheel, label, MODULE_COLORS, ORANGE, pill, scroller,
+    Switch,
 )
 
 
@@ -568,3 +570,31 @@ class MissionPanel(QWidget):
                 yield from self._walk(node.get("children"), path + "/")
             else:
                 yield path, node.get("file_size") or 0
+
+
+class MissionPage:
+    """导航与文件页外框：放导航面板，表单报文带到控制页"""
+
+    def __init__(self, app):
+        self.app = app
+
+    def _mission_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.app._page_header(layout, "导航与文件", "建图定位、航点导航、文件同步、红外测温和喊话；设备回复的地图、文件和温度会自动回填",
+                          self.app._quick_view())
+        self.app.missions = MissionPanel(self.app._quick_send, self._edit_payload, lambda: self.app.remote.camera(),
+                                     lambda: (self.app.scene.x, self.app.scene.y, self.app.scene.heading))
+        self.app.scene.changed.connect(self.app.missions.update_robot)
+        layout.addWidget(scroller(self.app.missions), 1)
+        return page
+
+    def _edit_payload(self, method, data):
+        """把表单组好的报文带到控制页，继续手改后再发"""
+        self.app.control._open_command(method)
+        payload = make_command(find(method))
+        payload["data"] = data
+        if self.app.mode == "direct":
+            payload = local_payload(payload)
+        self.app.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))

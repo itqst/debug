@@ -11,6 +11,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 import dog_debug.app as app_module
+import dog_debug.pages.connection as connection_module
 import dog_debug.ui as ui_module
 import dog_debug.remote as remote
 from dog_debug.app import Studio
@@ -120,7 +121,7 @@ def drain_until(window, cond, seconds=5):
 def test_frp_connect_tunnels_mqtt_and_zlm_and_closes(window, monkeypatch):
     FakeRemote.made.clear()
     FakeRemote.files = {}
-    monkeypatch.setattr(app_module, "Remote", FakeRemote)
+    monkeypatch.setattr(connection_module, "Remote", FakeRemote)
     connected = []
     monkeypatch.setattr(window.mqtt, "connect", lambda *a: connected.append(a) or setattr(window.mqtt, "client", object()))
     monkeypatch.setattr(window.mqtt, "close", lambda: setattr(window.mqtt, "client", None))
@@ -129,7 +130,7 @@ def test_frp_connect_tunnels_mqtt_and_zlm_and_closes(window, monkeypatch):
     window.frp.setChecked(True)
     window.ssh_user.setText("u")
     window.ssh_password.setText("p")
-    window._connect()
+    window.connection._connect()
     assert drain_until(window, lambda: connected)
     # 设备身份还是整机 SN，127.0.0.1 只是隧道入口
     assert connected[0][:3] == ("127.0.0.1", 41883, "10300262998249")
@@ -137,48 +138,48 @@ def test_frp_connect_tunnels_mqtt_and_zlm_and_closes(window, monkeypatch):
     window.mqtt.connected, window.mqtt.host, window.mqtt.sn = True, "127.0.0.1", "10300262998249"
     window.inbox.put(("connection", "ok"))
     window._drain()
-    assert window.zlm_host.text() == "127.0.0.1:40080" and "10300262998249.tta_edge.com" in window.link.text()
-    window._connect()
+    assert window.status.zlm_host.text() == "127.0.0.1:40080" and "10300262998249.tta_edge.com" in window.link.text()
+    window.connection._connect()
     assert FakeRemote.made[0].closed and window.ssh is None
 
 
 def test_device_logs_download_and_show_on_logs_page(window, monkeypatch, tmp_path):
     from PySide6.QtCore import QStandardPaths
-    monkeypatch.setattr(app_module, "Remote", FakeRemote)
+    monkeypatch.setattr(connection_module, "Remote", FakeRemote)
     monkeypatch.setattr(QStandardPaths, "writableLocation", lambda kind: str(tmp_path))
     window.mode_box.setCurrentText("直连模块")
     window.frp.setChecked(True)
     window.sn.setText("DOG")
-    window.fetch_device_logs(["gateway", "media"], time.time() - 1800)
-    assert drain_until(window, lambda: not window.fetching and window.import_thread and not window.import_thread.is_alive()
-                       and window.log_model.rows, 10)
+    window.logs.fetch_device_logs(["gateway", "media"], time.time() - 1800)
+    assert drain_until(window, lambda: not window.logs.fetching and window.logs.import_thread and not window.logs.import_thread.is_alive()
+                       and window.logs.log_model.rows, 10)
     # 当前文件 tta.log 不重复取；文件留在本机
     assert sorted(p.name for p in (tmp_path / "设备日志" / "DOG").rglob("*.log")) == ["GATEWAY_0000001_20261102-150000.log",
                                                                                      "MEDIA_0000001_20261102-150000.log"]
-    rows = window.log_model.rows
+    rows = window.logs.log_model.rows
     assert len(rows) == 4 and {e.module for _, e, _ in rows} == {"gw", "media"}
-    window.log_errors.setChecked(True)
+    window.logs.log_errors.setChecked(True)
     window._drain()
-    assert [e.module for _, e, _ in window.log_model.rows] == ["gw", "media"]
+    assert [e.module for _, e, _ in window.logs.log_model.rows] == ["gw", "media"]
 
 
 def test_live_follow_lines_appear_in_their_own_batch(window, monkeypatch):
-    monkeypatch.setattr(app_module, "Remote", FakeRemote)
+    monkeypatch.setattr(connection_module, "Remote", FakeRemote)
     window.mode_box.setCurrentText("直连模块")
     window.frp.setChecked(True)
     window.sn.setText("DOG")
     window._go(window.LOGS)
-    window.live_follow.setChecked(True)
-    assert drain_until(window, lambda: len(window.log_model.rows) == 3)
-    assert window.log_batch.currentText().startswith("实时跟随中") and window.log_model.rows[2][1].module == "gw"
-    window.live_follow.setChecked(False)
-    assert window.follow_stops == []
-    assert drain_until(window, lambda: window.log_batch.findText("3 条", app_module.Qt.MatchEndsWith) >= 0)
+    window.logs.live_follow.setChecked(True)
+    assert drain_until(window, lambda: len(window.logs.log_model.rows) == 3)
+    assert window.logs.log_batch.currentText().startswith("实时跟随中") and window.logs.log_model.rows[2][1].module == "gw"
+    window.logs.live_follow.setChecked(False)
+    assert window.logs.follow_stops == []
+    assert drain_until(window, lambda: window.logs.log_batch.findText("3 条", app_module.Qt.MatchEndsWith) >= 0)
 
 
 def test_old_live_follow_batches_are_dropped(window):
     """实时跟随的批次最后一行超过 48 小时就删掉，连同备注；导入的批次再旧也留着"""
-    old = time.time() - app_module.LIVE_KEEP - 60
+    old = time.time() - ui_module.LIVE_KEEP - 60
     for session in ("import-live-old", "import-live-new", "import-file"):
         stamp = old if session != "import-live-new" else time.time()
         window.store.add(Event("", {}, sn="DOG", session=session, raw="x", file="a.log", timestamp=stamp))
@@ -186,8 +187,8 @@ def test_old_live_follow_batches_are_dropped(window):
     window.store.flush()
     window.sn.setText("DOG")
     window._go(window.LOGS)
-    assert drain_until(window, lambda: window.log_batch.count() == 3)
-    sessions = {key[1] for key in (window.log_batch.itemData(i) for i in range(window.log_batch.count()))}
+    assert drain_until(window, lambda: window.logs.log_batch.count() == 3)
+    sessions = {key[1] for key in (window.logs.log_batch.itemData(i) for i in range(window.logs.log_batch.count()))}
     assert sessions == {"", "import-live-new", "import-file"}
     assert window.store.note(("DOG", "import-live-old", "t")) is None
 
@@ -196,7 +197,7 @@ def test_frp_tunnels_to_broker_from_device_config(window, monkeypatch):
     """FRP 登进去的板子不是 Broker 时（NX 登录、Broker 在 192.168.234.1），隧道按 mqttBroker.cfg 转到 GW 实际连的 Broker"""
     FakeRemote.made.clear()
     FakeRemote.files = {ui_module.BROKER_CFG: json.dumps({"local_host": "192.168.234.1", "local_port": 1883})}
-    monkeypatch.setattr(app_module, "Remote", FakeRemote)
+    monkeypatch.setattr(connection_module, "Remote", FakeRemote)
     connected = []
     monkeypatch.setattr(window.mqtt, "connect", lambda *a: connected.append(a) or setattr(window.mqtt, "client", object()))
     monkeypatch.setattr(window.mqtt, "close", lambda: setattr(window.mqtt, "client", None))
@@ -204,9 +205,9 @@ def test_frp_tunnels_to_broker_from_device_config(window, monkeypatch):
     window.sn.setText("10300262026905")
     window.frp.setChecked(True)
     window.ssh_user.setText("robot")
-    window._connect()
+    window.connection._connect()
     assert drain_until(window, lambda: connected)
     assert FakeRemote.made[0].forwards == [("192.168.234.1", 1883), ("127.0.0.1", 80)]
     assert connected[0][:2] == ("127.0.0.1", 41883) and "192.168.234.1:1883" in window.link.text()
-    window._connect()
+    window.connection._connect()
     FakeRemote.files = {}

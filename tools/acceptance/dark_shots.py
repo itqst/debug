@@ -18,8 +18,8 @@ w.resize(int(sys.argv[3]) if len(sys.argv) > 3 else 1480, int(sys.argv[4]) if le
 w.show()
 
 def prepare():
-    w._demo()
-    w._go(w.CONTROL); w.scenario.set_index(1); w._send(); w.scenario.set_index(0)
+    w.control._demo()
+    w._go(w.CONTROL); w.scenario.set_index(1); w.control._send(); w.scenario.set_index(0)
     w.mode_box.setCurrentText("云端 → 真实 GW")
     w.mqtt.connected, w.mqtt.sn, w.mqtt.session = True, "TEST_DOG_001", "s"
     for i in range(12):

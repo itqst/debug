@@ -2,10 +2,12 @@
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QGridLayout, QHBoxLayout, QLineEdit, QPushButton, QSlider, QSpinBox, QVBoxLayout, QWidget,
+    QAbstractSpinBox, QGridLayout, QHBoxLayout, QLineEdit, QPushButton, QSlider, QSpinBox, QStackedWidget, QVBoxLayout,
+    QWidget,
 )
 
-from ..ui import button, card, FlowGrid, label, MODULE_COLORS, pill, Segmented
+from ..robot import POSES
+from ..ui import button, card, fade_to, FlowGrid, label, MODULE_COLORS, pill, scroller, Segmented, Switch
 
 
 class RemotePanel(QWidget):
@@ -333,3 +335,62 @@ class RemotePanel(QWidget):
     def hideEvent(self, event):
         self.halt()
         super().hideEvent(event)
+
+
+class TeleopPage:
+    """遥控页：常用指令面板和 3D 观察区"""
+
+    def __init__(self, app):
+        self.app = app
+
+    def _remote_page(self):
+        """遥控和模型设置两栏切换；切到“模型”时遥控面板隐藏，按住的方向会按松手处理"""
+        page = QWidget()
+        sv = QVBoxLayout(page)
+        sv.setContentsMargins(0, 0, 0, 0)
+        sv.setSpacing(12)
+        self.app._page_header(sv, "遥控", "", self.app._quick_view())
+        self.side_tabs = Segmented(["遥控", "模型"])
+        sv.addWidget(self.side_tabs)
+        self.side_stack = QStackedWidget()
+        self.side_tabs.changed.connect(lambda i: fade_to(self.side_stack, i))
+        self.app.remote = RemotePanel(self.app._quick_send)
+        self.side_stack.addWidget(scroller(self.app.remote))
+        model_side = QWidget()
+        ms = QVBoxLayout(model_side)
+        ms.setContentsMargins(0, 0, 0, 0)
+        ms.setSpacing(14)
+        self.side_stack.addWidget(model_side)
+        sv.addWidget(self.side_stack, 1)
+
+        self.app.pose_card, pv = card(10, 16)
+        pv.addWidget(label("演示姿态", "sectionTitle"))
+        row = QGridLayout()
+        row.setSpacing(8)
+        for index, name in enumerate(POSES):
+            row.addWidget(button(name, lambda checked=False, name=name: self.app.scene.pose(name), "tile"), 0, index)
+        pv.addLayout(row)
+        pv.addWidget(label("只改 3D 演示，不发指令。遥控发站立、趴下、跳跃、打招呼、move 时模型同步演示", "caption", True))
+        ms.addWidget(self.app.pose_card)
+
+        joints, jv = card(8, 16)
+        head = QHBoxLayout()
+        self.app.joint_title = label("关节", "sectionTitle")
+        head.addWidget(self.app.joint_title)
+        head.addStretch()
+        self.app.follow = Switch("镜头跟随")
+        self.app.follow.setChecked(True)
+        self.app.follow.toggled.connect(lambda on: setattr(self.app.viewer, "follow", on) if self.app.viewer else None)
+        head.addWidget(self.app.follow)
+        jv.addLayout(head)
+        holder = QWidget()
+        self.app.joint_box = QVBoxLayout(holder)
+        self.app.joint_box.setContentsMargins(0, 0, 6, 0)
+        self.app.joint_box.setSpacing(4)
+        jv.addWidget(scroller(holder), 1)
+        actions = QHBoxLayout()
+        actions.addWidget(button("关节归零", lambda: self.app.scene.pose("零位")))
+        actions.addWidget(button("清除轨迹", self.app.scene.clear_trail))
+        jv.addLayout(actions)
+        ms.addWidget(joints, 1)
+        return page

@@ -200,7 +200,7 @@ def test_sandbox_switch_shows_cloud_and_card(window):
     window.missions.cloud_state.setText("")
     assert window._quick_send("pcd_switch", {"enable": True})
     assert window.scene.cloud is not None and window.scene.cloud_live
-    assert window.cloud_pill.text() == "点云 · 实时" and "点" in window.cloud_info.text()
+    assert window.scene3d.cloud_pill.text() == "点云 · 实时" and "点" in window.cloud_info.text()
     assert "采集中" in window.missions.cloud_state.text() and "操作成功" in window.missions.cloud_ack.text()
     assert window.quick.topic == "local/robotdog/ros2bridge/command"
     window._quick_send("pcd_switch", {"enable": False})
@@ -211,7 +211,7 @@ def test_pcd_switch_goes_to_local_topic_in_every_mode(window):
     item = find("pcd_switch")
     for text in ("云端 → 真实 GW", "直连模块", "沙盒 · 全链路模拟"):
         window.mode_box.setCurrentText(text)
-        assert window._topic_for(item) == "local/robotdog/ros2bridge/command"
+        assert window.control._topic_for(item) == "local/robotdog/ros2bridge/command"
     window.mode_box.setCurrentText("直连模块")
     # 没连 Broker 时照常报错、不排队
     assert not window._quick_send("pcd_switch", {"enable": True})
