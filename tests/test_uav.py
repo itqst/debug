@@ -44,10 +44,11 @@ def window():
 
 class StubClient:
     def __init__(self):
-        self.sent = []
+        self.sent, self.options = [], []
 
     def publish(self, topic, text, qos, retain):
         self.sent.append((topic, text))
+        self.options.append((qos, retain))
         return type("Result", (), {"rc": 0})()
 
     def disconnect(self):
@@ -301,3 +302,99 @@ def test_new_connection_turns_uav_send_off(window, monkeypatch):
     window.mode_box.setCurrentText("直连模块")
     window.connection._connect()
     assert not window.control.uav_send.isChecked() and not window.mqtt.uav_send
+
+
+def test_flight_capture_changes_include_arming_takeoff_and_mode(window):
+    """同事真飞的抓包（只定位模式）：flight 整体一直 STALE，解锁、离地、落地、模式变化照样记下来"""
+    for e in capture("flight.jsonl"):
+        window._ingest(e)
+    texts = [text for _, text, _ in window.uav.log]
+    assert "飞控解锁 否 → 是" in texts and "飞控落地 是 → 否" in texts and "飞控落地 否 → 是" in texts
+    assert "飞控模式 OFFBOARD → POSCTL" in texts and "任务环境 STOPPING → READY" in texts
+    assert any(text.startswith("VFC 任务 Failed：VFC 重启后不续飞") for text in texts)
+    flying = next(e for e in capture("flight.jsonl") if e.topic.endswith("state/flight") and e.payload["info"].get("detail", {}).get("armed"))
+    extra = reading(flying)[3]
+    assert reading(flying)[0] == "STALE" and "解锁 是" in extra and "整体 STALE，detail 仍在更新" in extra
+
+
+def test_waypoint_release_moments_are_loud(window):
+    nav = lambda state, word, last: Event("local/uav/bridge/state/navigation", {"sn": "", "type": "navigation", "state": state,
+        "info": {"result": 0, "msg": "", "data": word, "detail": {"session_id": "s", "waypoint_total": 3, "waypoint_last_completed": last}}},
+        sn="", session="s1")
+    flight = lambda word: Event("local/uav/bridge/state/flight", {"sn": "", "type": "flight", "state": 6,
+        "info": {"result": 0, "msg": "", "data": word, "detail": {"armed": True}}}, sn="", session="s1")
+    for e in (nav(4, "ACTIVE", -1), nav(5, "WAYPOINT_COMPLETE_WAITING_EXTERNAL_TRIGGER", 0), flight("PRE_YAW"), flight("HOLD"),
+              Event("local/uav/bridge/command", {"sn": "", "id": "vfc-1-9", "action": "navigation.next", "client": "vfc"}, sn="", session="s1"),
+              Event("local/uav/bridge/events", {"sn": "", "type": "waypoint_complete", "state": 1,
+                                                "info": {"result": 0, "data": "waypoint=1 arrival_yaw_complete"}}, sn="", session="s1")):
+        window._ingest(e)
+    loud = {text for _, text, flag in window.uav.log if flag}
+    assert "导航 ACTIVE → WAYPOINT_COMPLETE_WAITING_EXTERNAL_TRIGGER（到点，等待放行）" in loud
+    assert "最后完成航点编号 -1 → 0" in loud and "飞控 PRE_YAW → HOLD（转向完成，可以放行）" in loud
+    assert "发出 navigation.next（vfc，id vfc-1-9）" in loud and "Bridge 到点事件：waypoint=1 arrival_yaw_complete" in loud
+    window.uav.render()
+    assert window.uav.cards["navigation"][0].text() == "5 · 到点，等待放行"
+
+
+def test_quick_buttons_send_with_current_task_bid_at_qos1(window):
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window._ingest(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "msg": "", "data": "Active",
+                                                                                              "flight_id": "task-7"}}, sn="", session="s1"))
+    window.uav._quick("pause_nav")
+    assert client.sent == []
+    window.uav.send_switch.setChecked(True)
+    assert window.control.uav_send.isChecked()
+    window.uav._quick("pause_nav")
+    topic, text = client.sent[-1]
+    payload = json.loads(text)
+    assert topic == "local/uav/vfc/command" and payload["method"] == "pause_nav" and payload["bid"] == "task-7" and payload["tid"]
+    # VFC 和 Bridge 的指令主题按协议 QoS 1，不带 retain
+    assert client.options[-1] == (1, False)
+
+
+def test_route_editor_converts_yaw_and_actions(window, monkeypatch):
+    from dog_debug.pages.uav import RouteDialog, parse_actions, quaternion
+    from PySide6.QtWidgets import QDialog
+    assert quaternion(90) == {"x": 0.0, "y": 0.0, "z": 0.707107, "w": 0.707107}
+    assert parse_actions("pause 5; take_photo; gimbal_action 1,1") == [
+        {"id": "a1", "action": "pause", "param": [5]}, {"id": "a2", "action": "take_photo", "param": []},
+        {"id": "a3", "action": "gimbal_action", "param": [1, 1]}]
+    dialog = RouteDialog(window)
+    dialog._add(("2", "3", "1.5", "180", "take_photo"))
+    data, bid = dialog.route()
+    assert len(data["points"]) == 2 and data["points"][1]["position"] == {"x": 2.0, "y": 3.0, "z": 1.5}
+    assert data["points"][1]["orientation"]["w"] == 0.0 and data["points"][1]["orientation"]["z"] == 1.0 and bid
+    dialog.table.item(0, 0).setText("abc")
+    dialog._accept()
+    assert "第 1 个航点" in dialog.error.text()
+    # 点“发送航线”后发出的是 start_multi_nav_by_points，bid 用对话框里的
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.control.uav_send.setChecked(True)
+    monkeypatch.setattr(RouteDialog, "exec", lambda self: QDialog.Accepted)
+    window.uav._edit_route()
+    payload = json.loads(client.sent[-1][1])
+    assert payload["method"] == "start_multi_nav_by_points" and payload["data"]["points"][0]["orientation"]["z"] == 0.707107
+
+
+def test_export_session_messages_as_jsonl(window, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+    for e in capture("commands.jsonl"):
+        window._ingest(e)
+    window.store.flush()
+    path = tmp_path / "out.jsonl"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(path), ""))
+    window.uav._export()
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == len(capture("commands.jsonl")) and rows[0]["topic"] == "local/uav/bridge/state/system" and rows[0]["retain"]
+
+
+def test_capture_jsonl_imports_on_logs_page(tmp_path):
+    from dog_debug.logs import import_log
+    events = list(import_log(DATA / "commands.jsonl", "", "import-x"))
+    acks = [e for e in events if e.topic == "local/uav/bridge/ack"]
+    assert acks and acks[0].tid.startswith("bridge:vfc-") and acks[0].source_time == "14:51:21"
+    assert events[0].retained and events[0].module == "bridge"

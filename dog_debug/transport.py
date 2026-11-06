@@ -82,7 +82,8 @@ class MqttTransport:
         self._offer(("event", event))
 
     def _published(self, client, userdata, mid, reason, properties):
-        self._offer(("transport", f"客户端发送完成 mid={mid}，QoS 0 无 Broker PUBACK"))
+        # QoS 0 只表示客户端写出去了；QoS 1 是收到 Broker 的 PUBACK 之后才回调。都不代表对端执行了
+        self._offer(("transport", f"客户端发送完成 mid={mid}（QoS 0 只表示已写出，QoS 1 表示 Broker 已收到）"))
 
     def publish(self, topic, payload):
         """payload 为 str 时按原文发送，便于发异常报文；其他值序列化为 JSON"""
@@ -96,9 +97,14 @@ class MqttTransport:
             if topic not in UAV_COMMAND_TOPICS:
                 raise RuntimeError(f"无人机只往 VFC、Bridge 的指令主题发，{topic} 不发")
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
-        result = self.client.publish(topic, text, qos=0, retain=False)
+        result = self.client.publish(topic, text, qos=self.qos_for(topic), retain=False)
         if result.rc != 0:
             raise RuntimeError("MQTT 未接受发布 rc=" + str(result.rc))
+
+    @staticmethod
+    def qos_for(topic):
+        """无人机 VFC、Bridge 的指令主题按它们的协议用 QoS 1（Bridge 字段说明第 6 节；VFC 订阅和转发 Bridge 都是 1），狗照旧 0"""
+        return 1 if topic in UAV_COMMAND_TOPICS else 0
 
     def close(self):
         client, self.client = self.client, None

@@ -520,7 +520,7 @@ class Studio(QMainWindow):
             sn = self.mqtt.sn
             # 模块按实际发往的 Topic / target 记，和 Broker 回显的那条一致；协议表里的归类（如文件类归 FSVR、target 是 gw）不算
             sent = Event(topic, wire if isinstance(wire, dict) else {}, "发送", "mqtt", sn, self.mqtt.session,
-                         infer_module(topic, wire) if isinstance(wire, dict) else module, qos=0, raw=text)
+                         infer_module(topic, wire) if isinstance(wire, dict) else module, qos=self.mqtt.qos_for(topic), raw=text)
             self.store.add(sent)
             self.module_touched[sent.module] = self.module_touched.get(sent.module, 0) + 1
         self.store.flush()

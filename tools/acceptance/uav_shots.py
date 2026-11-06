@@ -1,4 +1,4 @@
-"""无人机页截图：参数 源码目录 输出目录 宽 高 dark|light；把板上抓包当成刚收到的实时消息灌进去，再加一条残留的保留指令"""
+"""无人机页截图：参数 源码目录 输出目录 宽 高 dark|light；把板上抓包（真飞和指令测试）当成刚收到的实时消息灌进去，再加一条残留的保留指令"""
 import json
 import os
 import sys
@@ -21,7 +21,7 @@ w.show()
 w.mqtt.connected, w.mqtt.device, w.mqtt.session, w.mqtt.host = True, "uav", "shot", "192.168.1.230"
 w.mqtt.client = object()
 data = Path(sys.argv[1]) / "tests" / "data" / "uav"
-for name in ("idle.jsonl", "commands.jsonl"):
+for name in ("flight.jsonl", "commands.jsonl"):
     rows = [json.loads(l) for l in (data / name).read_text(encoding="utf-8").splitlines()]
     rows = [r for r in rows if "topic" in r]
     first = rows[0].get("t", rows[0].get("mono"))

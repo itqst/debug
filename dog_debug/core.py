@@ -335,6 +335,11 @@ class Store:
             params.append(text)
         return " AND ".join(clauses), params
 
+    def session_events(self, session):
+        """一次连接（会话）里的全部消息，按入库顺序逐条产出"""
+        for (body,) in self.db.execute("SELECT body FROM events WHERE session=? ORDER BY id", (session,)):
+            yield load_event(body)
+
     def event_at(self, row_id):
         return load_event(self.db.execute("SELECT body FROM events WHERE id=?", (row_id,)).fetchone()[0])
 

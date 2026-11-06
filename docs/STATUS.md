@@ -726,3 +726,16 @@ GPT 用 6ebe26d 冻结快照复现了三处（root-uav-20261106）：
 - 旧库兼容（GPT 复测发现）：6ebe26d 存的 Bridge 行请求号没有前缀，Store 打开时按 module='bridge' 补上，备注只在这个编号只属于 Bridge 时跟着改，再打开不重复改（f014627）
 - 新增测试 4 项（目录和模板、开关和只放行指令主题、新连接关开关、旧库升级）。308 项全过。截图 docs/acceptance/uav_control_*.png
 - nav 同事真机飞行期间要求严格只读，没有连板上 Broker 测发送
+
+### 无人机：真飞测试要用的功能（nav 指挥家列的清单）
+
+老大定 VFC 真飞测试用上位机做；nav 指挥家列了要用的功能，同事今天真飞的全程记录在 nav/coordination/抓包/板上_同事飞行_20261106.jsonl（复制到 tests/data/uav/flight.jsonl）。
+- 无人机页工具条：“允许向无人机发送”（和控制调试页是同一个开关，两边同步）、“编辑航线…”、暂停/继续/结束航线/返航/降落、“导出本次报文”。快捷指令带新 tid 和当前任务的 bid（VFC 任务状态里的 flight_id，没有就新生成）
+- 编辑航线：表格填 x、y、z、偏航角（度）、动作（“pause 5; take_photo”这种写法），偏航角换成绕 z 轴的四元数，生成 start_multi_nav_by_points 的 data；填错时写明第几个航点
+- 关键变化：状态词变化、navigation 的 waypoint_last_completed 变化、到 5（WAYPOINT_COMPLETE_WAITING_EXTERNAL_TRIGGER）标“到点，等待放行”、flight 从 PRE_YAW 到 HOLD/WAITING_TRAJECTORY 标“转向完成，可以放行”、navigation.next 发出、Bridge waypoint_complete 事件、飞控的解锁/落地/模式/起飞完成变化、VFC 任务状态和说明原文；到点放行相关的标蓝加粗。保留消息不记成变化
+- 导航卡在 state=5 时写“5 · 到点，等待放行”并标蓝；飞控卡加起飞完成，整体 STALE 但 detail 在更新时写明（只定位模式真飞时就是这样）；位姿保留两位小数
+- 导出本次报文：这次连接的全部消息，一行一条 {t, wall, direction, topic, retain, body}
+- 日志导入认这种订阅记录格式（{t/wall, topic, retain, body}），nav 的抓包可以直接拖进日志排障页看
+- QoS（GPT 复核指出）：Bridge 字段说明第 6 节要求 command QoS 1，VFC 订阅 command 和发 Bridge 也是 QoS 1；MqttTransport 对这两个指令主题用 QoS 1，狗照旧 0，本机发送记录的 qos 跟实际一致
+- 测试新增 6 项（真飞抓包里的解锁/离地/落地/模式/任务环境/VFC 说明、到点放行醒目、快捷指令 bid 和 QoS 1、航线编辑、导出、抓包导入）。314 项全过，旅程通过
+- 老大说这一版不给 GPT 测，直接测试；下一版再给 GPT

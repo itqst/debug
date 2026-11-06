@@ -79,15 +79,67 @@ def reading(event):
         extra = " · ".join(f"{name} {detail[name]}" for name in ("profile", "stage", "session_id", "ros") if detail.get(name))
     elif key == "flight" and detail:
         battery = detail.get("battery_percent")
-        extra = (f"模式 {detail.get('mode') or '—'} · 解锁 {detail.get('armed')} · 落地 {detail.get('landed')}"
+        extra = (f"模式 {detail.get('mode') or '—'} · 解锁 {_yes(detail.get('armed'))} · 落地 {_yes(detail.get('landed'))}"
+                 f" · 起飞完成 {_yes(detail.get('takeoff_complete'))}"
                  + (f" · 电量 {battery:.0f}%" if isinstance(battery, (int, float)) else ""))
+        # 只定位模式飞的时候整体一直是 STALE，detail 照样在更新
+        if info.get("data") == "STALE":
+            extra += "（整体 STALE，detail 仍在更新）"
     elif key == "localization" and detail:
         extra = f"对齐 {detail.get('aligned')} · 坐标锁定 {detail.get('frame_locked')}"
     elif key == "relocalization" and detail.get("text"):
         extra = str(detail["text"])
     elif key == "pose" and detail:
-        extra = " ".join(f"{name}={detail[name]}" for name in ("x", "y", "z", "yaw_deg", "speed") if name in detail)
+        extra = " ".join(f"{name}={detail[name]:.2f}" if isinstance(detail[name], (int, float)) else f"{name}={detail[name]}"
+                         for name in ("x", "y", "z", "yaw_deg", "speed") if name in detail)
     return str(info.get("data", "")), msg, result, extra
+
+
+def _yes(value):
+    return {True: "是", False: "否", None: "—"}.get(value, str(value))
+
+
+# 到点放行要醒目：航点完成等待放行、控制桥转向完成可以放行
+WAITING_NEXT = "WAYPOINT_COMPLETE_WAITING_EXTERNAL_TRIGGER"
+YAW_DONE = {"HOLD", "WAITING_TRAJECTORY"}
+FLIGHT_FLAGS = (("armed", "解锁"), ("landed", "落地"), ("mode", "模式"), ("takeoff_complete", "起飞完成"))
+
+
+def changes(before, event):
+    """和这一领域的上一条比，有哪些值得记下来的变化：[(文字, 是否醒目)]；before 为 None 时是第一次收到
+
+    只记状态词、导航航点进度、飞控的解锁/落地/模式/起飞、VFC 任务状态的说明这些人会关心的，电量和位姿每次都变不记
+    """
+    key = domain(event)
+    name = DOMAINS.get(key, (key, None))[0]
+    word, msg, _, _ = reading(event)
+    old = reading(before) if before else None
+    out = []
+    if key in ("nav_status", "nav_status_progress"):
+        if key == "nav_status_progress":
+            out.append((f"航点进度 {word}：{msg}", True))
+        elif not old or (word, msg) != old[:2]:
+            out.append((f"VFC 任务 {word}：{msg}", "已到达" in msg))
+        return out
+    if key in ("subsystem_status", "pose"):
+        return out
+    if not old or word != old[0]:
+        text = f"{name} {old[0] if old else '—'} → {word}"
+        if key == "navigation" and word == WAITING_NEXT:
+            text += "（到点，等待放行）"
+        if key == "flight" and old and old[0] == "PRE_YAW" and word in YAW_DONE:
+            text += "（转向完成，可以放行）"
+        out.append((text, key == "navigation" and word == WAITING_NEXT or key == "flight" and bool(old) and old[0] == "PRE_YAW"))
+    info = event.payload.get("info") if isinstance(event.payload.get("info"), dict) else {}
+    detail = info.get("detail") if isinstance(info.get("detail"), dict) else {}
+    was = ((before.payload.get("info") or {}).get("detail") or {}) if before else {}
+    if key == "navigation" and "waypoint_last_completed" in detail and detail.get("waypoint_last_completed") != was.get("waypoint_last_completed"):
+        out.append((f"最后完成航点编号 {was.get('waypoint_last_completed', '—')} → {detail['waypoint_last_completed']}", True))
+    if key == "flight":
+        for field, label in FLIGHT_FLAGS:
+            if before and field in detail and was.get(field) != detail[field]:
+                out.append((f"飞控{label} {_yes(was.get(field))} → {_yes(detail[field])}", False))
+    return out
 
 
 def freshness(event, now):
