@@ -216,3 +216,35 @@ def test_dog_connection_explains_how_to_see_uav(window):
     window.mqtt.device = "dog"
     window.uav.render()
     assert "按机器狗订阅" in window.uav.link_note.text()
+
+
+def test_old_database_bridge_ids_upgraded_once(tmp_path):
+    """旧版库里 Bridge 的请求号没有前缀：打开时补上，证据链、请求列表、备注都对得上；同串的 VFC 请求和它的备注不动；再打开不重复改"""
+    from dog_debug.core import Store, requests
+    path = tmp_path / "old.sqlite3"
+    store = Store(path)
+    rows = [Store.row(e) for e in (
+        Event("local/uav/bridge/command", {"sn": "", "id": "old-id", "action": "navigation.pause"}, sn="", session="s"),
+        Event("local/uav/bridge/ack", {"sn": "", "id": "old-id", "action": "navigation.pause", "status": "rejected", "final": True,
+                                       "info": {"result": 1, "data": "WRONG_STATE", "msg": "不允许"}}, sn="", session="s"),
+        Event("local/uav/vfc/command", {"method": "pause_nav", "tid": "same"}, sn="", session="s"),
+        Event("local/uav/bridge/ack", {"sn": "", "id": "same", "action": "navigation.pause", "status": "rejected", "final": True,
+                                       "info": {"result": 1, "data": "X", "msg": "x"}}, sn="", session="s"))]
+    # 旧版的 tid 列是不带前缀的原 id
+    rows = [row[:5] + (row[5].removeprefix("bridge:"),) + row[6:] for row in rows]
+    store.add_rows(rows)
+    store.set_note(("", "s", "old-id"), {"remark": "Bridge 的备注"})
+    store.set_note(("", "s", "same"), {"remark": "分不清是谁的"})
+    store.flush()
+    store.close()
+    for _ in range(2):
+        store = Store(path)
+        found = {r.key: r for r in requests(store, store.query(limit=10))}
+        assert found[("", "s", "bridge:old-id")].status == "失败" and len(found[("", "s", "bridge:old-id")].events) == 2
+        assert ("", "s", "same") in found and ("", "s", "bridge:same") in found
+        assert store.note(("", "s", "bridge:old-id"))["remark"] == "Bridge 的备注"
+        assert store.note(("", "s", "same"))["remark"] == "分不清是谁的"
+        reader = store.reader()
+        assert len(reader.trace(found[("", "s", "bridge:old-id")].events[0])) == 2
+        reader.db.close()
+        store.close()

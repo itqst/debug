@@ -196,6 +196,25 @@ class Store:
         self.db.execute("CREATE TABLE IF NOT EXISTS notes (sn TEXT, session TEXT, tid TEXT, body TEXT, updated REAL, "
                         "PRIMARY KEY (sn, session, tid))")
         self.db.execute("CREATE TABLE IF NOT EXISTS connections (name TEXT PRIMARY KEY, body TEXT)")
+        self._prefix_bridge_ids()
+
+    def _prefix_bridge_ids(self):
+        """旧版存的 Bridge 请求号没有“bridge:”前缀，打开时补上，和现在 Event.tid 一致；再打开时已补过的不动
+
+        按 module 列找 Bridge 的行（走 by_module_kind 索引），大库也快。备注只在这个编号只属于 Bridge 时跟着改；
+        同一会话里 VFC 也用了同一个字符串时，旧备注分不清是谁的，留在原编号上
+        """
+        old = "module='bridge' AND tid!='' AND tid NOT LIKE 'bridge:%'"
+        keys = self.db.execute(f"SELECT DISTINCT sn, session, tid FROM events WHERE {old}").fetchall()
+        if not keys:
+            return
+        for sn, session, tid in keys:
+            shared = self.db.execute("SELECT 1 FROM events WHERE sn=? AND session=? AND tid=? AND module!='bridge' LIMIT 1",
+                                     (sn, session, tid)).fetchone()
+            if not shared:
+                self.db.execute("UPDATE OR IGNORE notes SET tid='bridge:'||tid WHERE sn=? AND session=? AND tid=?", (sn, session, tid))
+        self.db.execute(f"UPDATE events SET tid='bridge:'||tid WHERE {old}")
+        self.db.commit()
 
     @staticmethod
     def row(event):
