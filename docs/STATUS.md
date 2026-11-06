@@ -672,3 +672,14 @@ Root 冻结快照做完整功能测试（FUNCTIONAL_AUDIT_20261102_1720.md），
   - ZLM 查询远程时超时 10 s（局域网仍 2.5 s）；播放打开超时 40 s、读 20 s；播放窗口状态行加“收到 N kbps”（按包统计），远程卡时能看出是带宽不够
   - remote._pipe 收尾关通道时吞掉所有异常（关已断开的 paramiko 通道会抛非 OSError），不再在关隧道时刷堆栈
   - 实测（修改后，经 FRP）：vision.cfg 两路相机直连和 ZLM live/video0 都出画面，用时 14~21 s
+
+### 拆分 app.py（第一、二步）
+
+用户同意直接改结构，仍用 Python。项目已建 git，每步一个提交：3c66475 拆分前 → ee836f3 第一步 → c3ebb1e 第二步。
+- 第一步：常量、小控件、表格模型、提示条、配色和本机设置搬到 ui.py；证据链视图到 trace_view.py；遥控面板到 pages/teleop.py；导航与文件面板到 pages/mission.py
+- 第二步：Studio 的 201 个方法按页面搬进页面对象（pages/ 下 connection、control、teleop、scene3d、mission、messages、status、logs、suite、coverage），主窗口在 __init__ 一开始建好各页面对象。页面通过 self.app 用主窗口；实例属性除 __init__ 外只在一个页面里用到的归那个页面，跨页写成 app.<页>.x。app.py 从 6463 行降到 932 行，只留建窗口、侧栏、主题、切页、后台任务、发送入口（_emit/_quick_send）、事件队列分发、窗口事件和自检
+- 做法：脚本按行号和方法清单搬代码，用 tokenize 改 self.x 引用（f-string 在 3.10 里是整个 token，单独用正则改），用 pyflakes 补齐和删掉 import；只搬代码、改引用，不改行为。测试和验收脚本跟着改引用（window.x → window.<页>.x，monkeypatch 指向实际读这个名字的模块），断言不改
+- 只有截图才查出的一处：3D 观察区里方法内的 `from .viewer import` 搬进 pages/ 后要改成 `from ..viewer`，测试不加载 OpenGL 所以没覆盖，打包自检会渲染 3D，已过
+- 验证：290 项全过，旅程通过，全部验收截图脚本都能跑、各页画面正常；新包 14:13 中文路径隐藏自检 exit 0（含 3D 渲染）
+- 顺手修了 tools/acceptance/logs_shots.py：示例日志写死 2026-11-02，截图选“今天”就筛不出，改用当天日期
+- 还没做（第三步）：外壳的事件分发还直接碰几个页面控件（viewer、editor、table、request_table 等），所以它们仍挂在主窗口上，页面里写 self.app.xxx。下一步改成外壳调页面方法，把这些控件收回各自页面
