@@ -584,10 +584,10 @@ class MissionPage:
         layout.setContentsMargins(0, 0, 0, 0)
         self.app._page_header(layout, "导航与文件", "建图定位、航点导航、文件同步、红外测温和喊话；设备回复的地图、文件和温度会自动回填",
                           self.app._quick_view())
-        self.app.missions = MissionPanel(self.app._quick_send, self._edit_payload, lambda: self.app.remote.camera(),
+        self.missions = MissionPanel(self.app._quick_send, self._edit_payload, lambda: self.app.teleop.remote.camera(),
                                      lambda: (self.app.scene.x, self.app.scene.y, self.app.scene.heading))
-        self.app.scene.changed.connect(self.app.missions.update_robot)
-        layout.addWidget(scroller(self.app.missions), 1)
+        self.app.scene.changed.connect(self.missions.update_robot)
+        layout.addWidget(scroller(self.missions), 1)
         return page
 
     def _edit_payload(self, method, data):
@@ -597,4 +597,4 @@ class MissionPage:
         payload["data"] = data
         if self.app.mode == "direct":
             payload = local_payload(payload)
-        self.app.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+        self.app.control.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))

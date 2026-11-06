@@ -138,17 +138,17 @@ try:
                if (w.control.commands.item(i).data(Qt.UserRole) or {}).get("method") == "take_photo")
     QTest.mouseClick(w.control.commands.viewport(), Qt.LeftButton, Qt.NoModifier, w.control.commands.visualItemRect(w.control.commands.item(row)).center())
     check(wait(lambda: not w.control.picker.isVisible() and w.control.selected["method"] == "take_photo"), "1 点选“拍照”后目录收起，当前指令为 take_photo")
-    check(w.observer.isVisible(), "1 控制页同屏显示 3D 观察区")
-    click(w.scenario.group.button(1))
-    click(w.send_btn)
-    check(wait(lambda: "相机连接超时" in w.result.text()), "1 控制页点“模拟发送”(执行失败)，本次结果显示“相机连接超时”")
+    check(w.scene3d.observer.isVisible(), "1 控制页同屏显示 3D 观察区")
+    click(w.control.scenario.group.button(1))
+    click(w.control.send_btn)
+    check(wait(lambda: "相机连接超时" in w.control.result.text()), "1 控制页点“模拟发送”(执行失败)，本次结果显示“相机连接超时”")
     shot(w, "1_send")
     # 2 日志排障页点“选择文件…”导入 GBK 中文日志
     click_nav(w, w.LOGS)
     click(button(w.stack.currentWidget(), "选择文件…"))
-    imported = wait(lambda: "导入完成" in w.import_info.toPlainText() and not w.logs.import_thread.is_alive() and w.inbox.empty(), 30)
+    imported = wait(lambda: "导入完成" in w.logs.import_info.toPlainText() and not w.logs.import_thread.is_alive() and w.inbox.empty(), 30)
     w._drain()
-    record = next((l for l in w.import_info.toPlainText().splitlines() if "编码" in l), "")
+    record = next((l for l in w.logs.import_info.toPlainText().splitlines() if "编码" in l), "")
     check(imported and "gb18030" in record, "2 日志排障页点“选择文件…”导入 GBK 日志，识别为 " + record.split("编码 ")[-1][:8])
     # 导入后就在日志排障页看：列表有这批的两行，点失败那行右边出详情
     check(wait(lambda: len(w.logs.log_model.rows) == 2) and w.stack.currentIndex() == w.LOGS, "2 导入后本页直接列出这一批 2 行")
@@ -157,12 +157,12 @@ try:
     shot(w, "2_logs")
     # 3 消息页按请求，失败置顶
     click_nav(w, w.MESSAGES)
-    click(w.view_mode.group.button(0))
-    wait(lambda: w.request_model.rows)
-    rows = w.request_model.rows
+    click(w.messages.view_mode.group.button(0))
+    wait(lambda: w.messages.request_model.rows)
+    rows = w.messages.request_model.rows
     check(len(rows) >= 2 and all(r.status == "失败" for r in rows[:2]), f"3 按请求视图：{len(rows)} 个请求，失败排在前面")
     log_row = next(i for i, r in enumerate(rows) if r.events[0].tid == "日志tid")
-    click_row(w.request_table, log_row)
+    click_row(w.messages.request_table, log_row)
     check(wait(lambda: "MEDIA 返回失败" in w.messages.details.text()), "4 单击失败请求，证据链结论卡为“MEDIA 返回失败”")
     shot(w, "2_request")
     # 5 点证据链里的 ACK 步骤，再点“原文附近”
@@ -181,17 +181,17 @@ try:
     check("第 2 行" in dialog_text.get("title", "") and "西4楼宇" in dialog_text.get("text", ""),
           "5 点“原文附近”：定位第 2 行，GBK 中文原文可读")
     # 6 双击请求进逐条，点筛选条回全部
-    click_row(w.request_table, log_row, double=True)
-    scoped = wait(lambda: w.views.currentIndex() == 1) and {(e.sn, e.session, e.tid) for _, e, _ in w.model.rows}
+    click_row(w.messages.request_table, log_row, double=True)
+    scoped = wait(lambda: w.messages.views.currentIndex() == 1) and {(e.sn, e.session, e.tid) for _, e, _ in w.messages.model.rows}
     check(scoped and len(scoped) == 1 and w.messages.scope_chip.isVisible(), "6 双击请求：逐条视图只剩这次请求，出现“仅此请求”筛选条")
     shot(w, "4_scoped")
     click(w.messages.scope_chip)
-    check(w.scope is None and len(w.model.rows) > 2, f"7 点“仅此请求 ✕”回到全部：{len(w.model.rows)} 条")
+    check(w.messages.scope is None and len(w.messages.model.rows) > 2, f"7 点“仅此请求 ✕”回到全部：{len(w.messages.model.rows)} 条")
     # 8 点“备注这次请求”，在对话框里逐字输入，点“保存”
-    click(w.view_mode.group.button(0))
-    wait(lambda: w.request_model.rows)
-    log_row = next(i for i, r in enumerate(w.request_model.rows) if r.events[0].tid == "日志tid")
-    click_row(w.request_table, log_row)
+    click(w.messages.view_mode.group.button(0))
+    wait(lambda: w.messages.request_model.rows)
+    log_row = next(i for i, r in enumerate(w.messages.request_model.rows) if r.events[0].tid == "日志tid")
+    click_row(w.messages.request_table, log_row)
 
     def fill_note(d):
         edits = d.findChildren(QPlainTextEdit)
@@ -204,7 +204,7 @@ try:
     on_dialog(lambda d: d.windowTitle() == "问题备注", fill_note)
     click(w.messages.note_btn)
     check(wait(lambda: "复现于西4楼宇" in w.messages.details.text())
-          and w.request_model.data(w.request_model.index(log_row, 5)).startswith("【备注】"),
+          and w.messages.request_model.data(w.messages.request_model.index(log_row, 5)).startswith("【备注】"),
           "8 点“备注这次请求”，按输入法提交中文并点“保存”：证据链顶部出现备注卡，列表标【备注】")
     shot(w, "6_noted")
     # 9 点“导出诊断包”：等后台概览统计完，点“选择位置并导出”
@@ -217,7 +217,7 @@ try:
 
     on_dialog(lambda d: d.windowTitle() == "导出诊断包", accept_preview)
     click(button(w.stack.currentWidget(), "导出诊断包"))
-    exported = wait(lambda: not w.export_running and os.path.exists(target), 60)
+    exported = wait(lambda: not w.messages.export_running and os.path.exists(target), 60)
     notes, summary = [], ""
     if exported:
         with zipfile.ZipFile(target) as archive:
@@ -226,7 +226,7 @@ try:
     check(exported and len(notes) == 1 and "【有备注】" in summary,
           f"9 点“导出诊断包”→ 概览 → “选择位置并导出”：{os.path.basename(target)} 含备注 {len(notes)} 条")
     # 10 点“检测链路”分段和“沙盒演示检测链路”，点第一行
-    click(w.view_mode.group.button(2))
+    click(w.messages.view_mode.group.button(2))
     click(button(w.stack.currentWidget(), "沙盒演示检测链路"))
     wait(lambda: w.messages.chain_model.rows)
     click_row(w.messages.chain_table, 0)
@@ -241,9 +241,9 @@ try:
     w2.show()
     wait(w2.isVisible)
     click_nav(w2, w2.MESSAGES)
-    wait(lambda: w2.request_model.rows)
-    row = next(i for i, r in enumerate(w2.request_model.rows) if r.events[0].tid == "日志tid")
-    click_row(w2.request_table, row)
+    wait(lambda: w2.messages.request_model.rows)
+    row = next(i for i, r in enumerate(w2.messages.request_model.rows) if r.events[0].tid == "日志tid")
+    click_row(w2.messages.request_table, row)
     check(wait(lambda: "复现于西4楼宇" in w2.messages.details.text()), "11 关窗后重开同一库：请求和备注都在")
     shot(w2, "9_reopen")
     w2.close()

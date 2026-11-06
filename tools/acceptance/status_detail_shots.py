@@ -27,11 +27,11 @@ for index, sn in ((0, "001"), (1, "002")):
     w._ingest(Event("local/robotdog/media/state", {"type": "stream_status", "info": {"index": index, "sn": sn, "type": "video", "result": 1}},
                     sn="TEST_DOG_001", session=w.session))
 w._quick_send("take_photo", {})
-w.scenario.set_index(1)
+w.control.scenario.set_index(1)
 w._quick_send("camera_recording", {"state": 1})
-w.scenario.set_index(2)
+w.control.scenario.set_index(2)
 w._quick_send("camera_livestream", {"state": 1})
-w.scenario.set_index(0)
+w.control.scenario.set_index(0)
 w._ingest(Event("local/robotdog/media/ack", {"method": "camera_focal_length_set", "tid": "only-ack", "data": {"result": 0}},
                 sn="TEST_DOG_001", session=w.session))
 w._go(w.STATUS)

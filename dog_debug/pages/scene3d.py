@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from .mission import spin
 from .. import cad, robot as model_module
 from ..core import diagnose
-from ..pointcloud import summary as cloud_summary
+from ..pointcloud import CloudError, decode as decode_cloud, summary as cloud_summary
 from ..robot import VARIANTS
 from ..scene import LIVE_SECONDS, osd_fields
 from ..ui import (
@@ -28,11 +28,22 @@ class ScenePanel:
 
     def __init__(self, app):
         self.app = app
+        self.joint_sliders = {}
+        self.importing = None
+        self.step_timer = QTimer(app)
+        self.step_timer.timeout.connect(self._poll_step)
+        self.shown_live = False
+        # None 未加载，False 加载中，否则为 RobotView
+        self.viewer = None
+        self.spark_at, self.compass = 0.0, None
+        self.replay = None
+        # 最近一次点云解析错误（同样的错误不重复提示）和点云标签上次按时效刷新的时刻
+        self.cloud_error, self.cloud_aged = "", 0.0
 
     def _observer(self):
         """3D 观察区：模型选择、视图和遥测；遥控页和控制调试页共用同一个"""
-        self.app.observer = QWidget()
-        mv = QVBoxLayout(self.app.observer)
+        self.observer = QWidget()
+        mv = QVBoxLayout(self.observer)
         mv.setContentsMargins(0, 0, 0, 0)
         mv.setSpacing(12)
         self.model_box = QComboBox()
@@ -62,8 +73,8 @@ class ScenePanel:
         top.addWidget(self.joint_pill)
         top.addStretch()
         self.view_bar = Segmented(["适合", "前", "侧", "顶", "等轴"])
-        self.view_bar.changed.connect(lambda i: self.app.viewer and self.app.viewer.view(["等轴", "前", "侧", "顶", "等轴"][i]) if i else
-                                      self.app.viewer and self.app.viewer.fit())
+        self.view_bar.changed.connect(lambda i: self.viewer and self.viewer.view(["等轴", "前", "侧", "顶", "等轴"][i]) if i else
+                                      self.viewer and self.viewer.fit())
         top.addWidget(self.view_bar)
         self.stage.addLayout(top)
         self.model_info = label("", "caption", True)
@@ -122,7 +133,7 @@ class ScenePanel:
         mv.addWidget(stats)
         self.app.scene.changed.connect(self._device_changed)
         self.app.scene.posed.connect(self._sync_joints)
-        return self.app.observer
+        return self.observer
 
     def _cloud_bar(self):
         """3D 区的点云一行：是否在收、显示开关、着色、雷达离地高度；下面一行是最近一帧的点数、频率和多久前"""
@@ -152,14 +163,14 @@ class ScenePanel:
         row.addWidget(self.lidar_height)
         row.addWidget(button("清除", self.app.scene.clear_cloud, "link"))
         box.addLayout(row)
-        self.app.cloud_info = label("ros2bridge 采集时（GW 建图中，或导航与文件页手动打开）收到的点云挂在机身位置上显示", "caption", True)
-        box.addWidget(self.app.cloud_info)
+        self.cloud_info = label("ros2bridge 采集时（GW 建图中，或导航与文件页手动打开）收到的点云挂在机身位置上显示", "caption", True)
+        box.addWidget(self.cloud_info)
         self.app.scene.clouded.connect(self._cloud_status)
         return box
 
     def _cloud_options(self, *_):
-        if self.app.viewer:
-            self.app.viewer.set_cloud_options(self.cloud_show.isChecked(), ["高度", "强度"][self.cloud_mode.index()],
+        if self.viewer:
+            self.viewer.set_cloud_options(self.cloud_show.isChecked(), ["高度", "强度"][self.cloud_mode.index()],
                                           self.lidar_height.value(), self.cloud_map_show.isChecked())
 
     def _cloud_status(self):
@@ -177,10 +188,10 @@ class ScenePanel:
                 text += f" · 地图 {len(acc.xyz)} 点" + ("（已满，不再累加）" if acc.full else "") + f"、走了 {acc.distance:.1f} m"
             else:
                 text += f" · {cloud.meta.get('frame_id', '')} 坐标系，跟着机身位置画"
-            self.app.cloud_info.setText(text)
+            self.cloud_info.setText(text)
         # 停发后点变淡，最后一帧留着
-        if self.app.viewer and self.app.viewer.cloud.visible() and self.app.viewer.cloud_stale == live:
-            self.app.viewer.sync_cloud()
+        if self.viewer and self.viewer.cloud.visible() and self.viewer.cloud_stale == live:
+            self.viewer.sync_cloud()
 
     def _replay_bar(self):
         """回放条：拖动或播放逐帧显示历史 OSD，下面列出到这一帧为止最近的消息"""
@@ -234,7 +245,7 @@ class ScenePanel:
         for _, _, fields in frames:
             x, y = float(fields.get("x", x)), float(fields.get("y", y))
             trail.append((x, y))
-        self.app.replay = {"frames": frames, "trail": trail, "sn": sn, "session": session}
+        self.replay = {"frames": frames, "trail": trail, "sn": sn, "session": session}
         self.replay_bar.show()
         self.replay_slider.blockSignals(True)
         self.replay_slider.setRange(0, len(frames) - 1)
@@ -243,14 +254,14 @@ class ScenePanel:
         self._replay_seek(0)
 
     def _replay_seek(self, index):
-        frames = self.app.replay["frames"]
+        frames = self.replay["frames"]
         row_id, e, fields = frames[index]
-        self.app.scene.replay(fields, self.app.replay["trail"][:index + 1])
+        self.app.scene.replay(fields, self.replay["trail"][:index + 1])
         stamp = lambda m: m.source_time or time.strftime("%H:%M:%S", time.localtime(m.timestamp))
         self.replay_label.setText(f"第 {index + 1} / {len(frames)} 帧　{stamp(e)}")
         after = frames[index - 1][0] if index else 0
         self.replay_list.clear()
-        for found_id, m in self.app.store.recent_before(self.app.replay["sn"], self.app.replay["session"], row_id):
+        for found_id, m in self.app.store.recent_before(self.replay["sn"], self.replay["session"], row_id):
             item = QListWidgetItem(f"{stamp(m)}　{m.module.upper()} {m.kind} · {method_label(m.method)} · {diagnose(m).status}")
             item.setData(Qt.UserRole, m)
             if found_id > after:
@@ -279,22 +290,22 @@ class ScenePanel:
     def _replay_open(self, item):
         event = item.data(Qt.UserRole)
         if event and event.tid:
-            self.app.filter_text.setText(event.tid)
+            self.app.messages.filter_text.setText(event.tid)
             self.app._go(self.app.MESSAGES)
 
     def _replay_exit(self):
         self.replay_timer.stop()
         self.replay_play.setText("▶")
-        self.app.replay = None
+        self.replay = None
         self.replay_bar.hide()
         self.app.scene.reset_telemetry()
         self.app.scene.clear_trail()
 
     def _ensure_viewer(self):
         """观察区首次显示才加载模型和 OpenGL，先显示加载中，避免拖慢启动"""
-        if self.app.viewer is not None:
+        if self.viewer is not None:
             return
-        self.app.viewer = False
+        self.viewer = False
         self.stage_hint.setText("正在加载模型…")
         QTimer.singleShot(40, self._load_viewer)
 
@@ -303,17 +314,17 @@ class ScenePanel:
             from ..viewer import RobotView
         except ImportError as error:
             self.stage_hint.setText("3D 需要安装 numpy、PyOpenGL、pyqtgraph（见 requirements.txt）\n" + str(error))
-            self.app.viewer = None
+            self.viewer = None
             return
         if not self.app.scene.robot:
             self.app.scene.set_variant(self.model_box.currentData())
-        self.app.viewer = RobotView(self.app.scene)
-        self.app.viewer.follow = self.app.follow.isChecked()
-        self.compass = Compass(self.app.viewer)
-        self.app.viewer.set_dark(self.app.dark)
+        self.viewer = RobotView(self.app.scene)
+        self.viewer.follow = self.app.teleop.follow.isChecked()
+        self.compass = Compass(self.viewer)
+        self.viewer.set_dark(self.app.dark)
         self._cloud_options()
         self.stage_hint.hide()
-        self.stage.insertWidget(self.stage.indexOf(self.stage_hint), self.app.viewer, 1)
+        self.stage.insertWidget(self.stage.indexOf(self.stage_hint), self.viewer, 1)
         self._model_loaded()
 
     def _model_chosen(self, index):
@@ -345,20 +356,20 @@ class ScenePanel:
         self.model_info.setToolTip(robot.source)
         self._build_joints()
         self._device_card()
-        if self.app.viewer:
-            self.app.viewer.fit()
+        if self.viewer:
+            self.viewer.fit()
 
     def _build_joints(self):
-        while self.app.joint_box.count():
-            item = self.app.joint_box.takeAt(0)
+        while self.app.teleop.joint_box.count():
+            item = self.app.teleop.joint_box.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         self.joint_sliders = {}
         robot = self.app.scene.robot
         if robot.kind in ("STEP", "STL"):
-            self.app.joint_title.setText("部件")
+            self.app.teleop.joint_title.setText("部件")
             note = "STEP 是结构外形，文件里没有关节定义，这里只做结构查看" if robot.kind == "STEP" else "STL 只有网格，没有部件和关节信息"
-            self.app.joint_box.addWidget(label(note, "caption", True))
+            self.app.teleop.joint_box.addWidget(label(note, "caption", True))
             parts = QListWidget()
             parts.setObjectName("commands")
             for name, link in robot.links.items():
@@ -367,13 +378,13 @@ class ScenePanel:
                     item.setData(Qt.UserRole, name)
                     parts.addItem(item)
             # 点部件在 3D 里高亮
-            parts.currentItemChanged.connect(lambda item, _: self.app.viewer and self.app.viewer.highlight(item.data(Qt.UserRole) if item else None))
-            self.app.joint_box.addWidget(parts, 1)
+            parts.currentItemChanged.connect(lambda item, _: self.viewer and self.viewer.highlight(item.data(Qt.UserRole) if item else None))
+            self.app.teleop.joint_box.addWidget(parts, 1)
             self.part_list = parts
             return
-        self.app.joint_title.setText("关节")
+        self.app.teleop.joint_title.setText("关节")
         if not robot.movable:
-            self.app.joint_box.addWidget(label("这个模型没有可动关节", "caption"))
+            self.app.teleop.joint_box.addWidget(label("这个模型没有可动关节", "caption"))
         l2 = robot.kind == "L2"
         legs = {"FBL": "左前", "FAR": "右前", "RBL": "左后", "RAR": "右后"}
         parts = {"ABAD": "侧摆", "HIP": "髋", "KNEE": "膝", "FOOT": "轮"}
@@ -383,7 +394,7 @@ class ScenePanel:
                 leg, part = joint.name[:3], joint.name.split("_")[-2]
                 if leg != current:
                     current = leg
-                    self.app.joint_box.addWidget(label(legs.get(leg, leg) + "腿", "groupHeader"))
+                    self.app.teleop.joint_box.addWidget(label(legs.get(leg, leg) + "腿", "groupHeader"))
                 caption = parts.get(part, part)
             else:
                 caption = joint.name
@@ -406,13 +417,13 @@ class ScenePanel:
             slider.valueChanged.connect(lambda v, name=joint.name, shown=value, s=scale, j=joint: (
                 shown.setText(self._joint_text(j, v / s)), self.app.scene.set_joint(name, v / s)))
             # 拖动时把对应连杆染成强调色，松手恢复
-            slider.sliderPressed.connect(lambda child=joint.child: self.app.viewer and self.app.viewer.highlight(child))
-            slider.sliderReleased.connect(lambda: self.app.viewer and self.app.viewer.highlight(None))
+            slider.sliderPressed.connect(lambda child=joint.child: self.viewer and self.viewer.highlight(child))
+            slider.sliderReleased.connect(lambda: self.viewer and self.viewer.highlight(None))
             rl.addWidget(slider, 1)
             rl.addWidget(value)
-            self.app.joint_box.addWidget(row)
+            self.app.teleop.joint_box.addWidget(row)
             self.joint_sliders[joint.name] = (slider, value, scale, joint)
-        self.app.joint_box.addStretch()
+        self.app.teleop.joint_box.addStretch()
         self._sync_joints()
 
     @staticmethod
@@ -509,7 +520,7 @@ class ScenePanel:
         self.model_box.addItem(f"{robot.name}（{robot.kind}）", robot)
         self.model_box.setCurrentIndex(self.model_box.count() - 1)
         self.app.scene.set_robot(robot)
-        if self.app.observer.isVisible():
+        if self.observer.isVisible():
             self._ensure_viewer()
         self._model_loaded()
         self.app.notify(f"已导入 {robot.name}" + (f"，{len(robot.missing)} 个网格缺失未显示" if robot.missing else ""))
@@ -559,10 +570,10 @@ class ScenePanel:
     def _device_changed(self):
         """刷新遥测卡和侧栏设备卡；动画期间每帧都会调用，只做文字更新"""
         scene, osd = self.app.scene, self.app.scene.osd
-        live = self.app.shown_live = scene.live
-        state = "回放" if self.app.replay else "OSD 实时" if live else "演示"
+        live = self.shown_live = scene.live
+        state = "回放" if self.replay else "OSD 实时" if live else "演示"
         self.position_pill.setText("位置 · " + state)
-        color = PURPLE if self.app.replay else GREEN if live else GRAY
+        color = PURPLE if self.replay else GREEN if live else GRAY
         self.position_pill.setStyleSheet(f"background:{tint(color, 34)};color:{color};border-radius:9px;"
                                          "padding:2px 9px;font-size:11px;font-weight:600")
         modes = {1: "SDK 巡航", 2: "手柄遥控", 3: "普通 SDK"}
@@ -585,9 +596,9 @@ class ScenePanel:
                 if isinstance(osd.get(key), (int, float)):
                     spark.add(now, float(osd[key]))
         if self.compass:
-            speed = osd.get("speed", 0.0) if live or self.app.replay else math.hypot(*scene.velocity[:2])
+            speed = osd.get("speed", 0.0) if live or self.replay else math.hypot(*scene.velocity[:2])
             self.compass.set(math.degrees(scene.heading) % 360, float(speed), state)
-        if self.app.replay:
+        if self.replay:
             self.osd_note.setText("回放中：显示历史 OSD，实时 OSD 暂不驱动模型")
         elif osd:
             self.osd_note.setText("OSD 实时，位置跟随设备" if live else f"OSD 已超过 {LIVE_SECONDS:.0f} 秒没更新，显示最后一次数值")
@@ -604,3 +615,26 @@ class ScenePanel:
         parts.append("OSD 实时" if live else "未收到 OSD" if not osd else "OSD 已停")
         self.app.device_meta.setText("  ·  ".join(parts))
         self.app.device_dot.setStyleSheet(f"background:{GREEN if live else '#C7C7CC'};border-radius:4px")
+
+    def set_dark(self, dark):
+        if self.viewer:
+            self.viewer.set_dark(dark)
+
+    def take_cloud(self, data):
+        """当前设备的一帧点云交给 3D；同一个解析错误连着来只提示一次，中间解出过好帧再出错会再提示"""
+        try:
+            self.app.scene.set_cloud(decode_cloud(data))
+            self.cloud_error = ""
+        except CloudError as error:
+            if str(error) != self.cloud_error:
+                self.cloud_error = str(error)
+                self.app.notify("点云解析失败：" + self.cloud_error)
+                self.cloud_info.setText("最近一帧没解出来：" + self.cloud_error)
+
+    def tick(self, now):
+        """事件队列每轮调用：OSD 停发后没有新消息也没有动画，这里按时效退掉“实时”标记，点云标签每秒刷一次"""
+        if self.app.scene.live != self.shown_live:
+            self._device_changed()
+        if self.app.scene.cloud and now - self.cloud_aged >= 1:
+            self.cloud_aged = now
+            self._cloud_status()

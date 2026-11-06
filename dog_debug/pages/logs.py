@@ -31,6 +31,7 @@ class LogsPage:
 
     def __init__(self, app):
         self.app = app
+        self.import_thread = None
 
     def _logs_page(self):
         """导入后就在本页看：上面选批次和筛选，左边逐条日志，右边详情；只看导入的批次，不混实时和沙盒消息"""
@@ -107,20 +108,20 @@ class LogsPage:
         self.log_batch.currentIndexChanged.connect(self._log_refresh)
         self.log_module.currentIndexChanged.connect(self._log_refresh)
         self.log_errors.toggled.connect(self._log_refresh)
-        self.app.import_bar = QProgressBar()
-        self.app.import_bar.setRange(0, 1000)
-        self.app.import_bar.setTextVisible(False)
-        self.app.import_bar.setFixedHeight(4)
-        self.app.import_state = label("", "caption")
+        self.import_bar = QProgressBar()
+        self.import_bar.setRange(0, 1000)
+        self.import_bar.setTextVisible(False)
+        self.import_bar.setFixedHeight(4)
+        self.import_state = label("", "caption")
         # 进度条、进度文字和停止按钮只在导入时出现
-        self.app.import_row = QWidget()
-        progress = QHBoxLayout(self.app.import_row)
+        self.import_row = QWidget()
+        progress = QHBoxLayout(self.import_row)
         progress.setContentsMargins(0, 2, 0, 2)
-        progress.addWidget(self.app.import_bar, 1)
-        progress.addWidget(self.app.import_state)
+        progress.addWidget(self.import_bar, 1)
+        progress.addWidget(self.import_state)
         progress.addWidget(button("停止导入", self.app.import_cancel.set, "link"))
-        layout.addWidget(self.app.import_row)
-        self.app.import_row.hide()
+        layout.addWidget(self.import_row)
+        self.import_row.hide()
         layout.addSpacing(4)
 
         # 没有导入批次时中间是拖入提示，有了就是日志表和详情
@@ -176,14 +177,14 @@ class LogsPage:
         foot.addWidget(self.store_size)
         foot.addWidget(button("清空本地数据", self._clear_store, "link"))
         layout.addLayout(foot)
-        self.app.import_info = QPlainTextEdit()
-        self.app.import_info.setObjectName("plain")
-        self.app.import_info.setReadOnly(True)
-        self.app.import_info.setFixedHeight(120)
-        self.app.import_info.setPlaceholderText("还没有导入。导入时的设备 SN 取左侧连接设置，混合设备的日志请分批导入")
-        self.app.import_info.hide()
-        layout.addWidget(self.app.import_info)
-        self.log_version, self.log_selected, self.app.log_loaded, self.log_undated = 0, None, False, 0
+        self.import_info = QPlainTextEdit()
+        self.import_info.setObjectName("plain")
+        self.import_info.setReadOnly(True)
+        self.import_info.setFixedHeight(120)
+        self.import_info.setPlaceholderText("还没有导入。导入时的设备 SN 取左侧连接设置，混合设备的日志请分批导入")
+        self.import_info.hide()
+        layout.addWidget(self.import_info)
+        self.log_version, self.log_selected, self.log_loaded, self.log_undated = 0, None, False, 0
         self.fetching, self.follow_stops, self.live_session, self.live_lines = False, [], "", {}
         return page
 
@@ -258,19 +259,19 @@ class LogsPage:
                     remote.close()
 
         threading.Thread(target=work, daemon=True).start()
-        self.app.import_bar.setValue(0)
-        self.app.import_row.show()
-        self.app.import_state.setText("正在连接设备…")
+        self.import_bar.setValue(0)
+        self.import_row.show()
+        self.import_state.setText("正在连接设备…")
         self.app._go(self.app.LOGS)
 
     def _fetch_done(self, paths, note):
         self.fetching = False
-        self.app.import_info.appendPlainText(time.strftime("%H:%M:%S  ") + note)
+        self.import_info.appendPlainText(time.strftime("%H:%M:%S  ") + note)
         self.app.notify(note)
         if paths:
             self.start_import(paths)
         else:
-            self.app.import_row.hide()
+            self.import_row.hide()
 
     def _toggle_follow(self, on):
         if not on:
@@ -303,7 +304,7 @@ class LogsPage:
             self.live_follow.setChecked(False)
             self.live_follow.blockSignals(False)
         # 停了以后这一批名字改成起止时间和条数
-        if stops and self.app.log_loaded:
+        if stops and self.log_loaded:
             self._log_batches()
 
     def _live_line(self, folder, text, sn, session):
@@ -330,8 +331,8 @@ class LogsPage:
             self.app.notify(f"已复制 {len(rows)} 行")
 
     def _toggle_history(self):
-        shown = not self.app.import_info.isVisible()
-        self.app.import_info.setVisible(shown)
+        shown = not self.import_info.isVisible()
+        self.import_info.setVisible(shown)
         self.history_btn.setText("导入记录 ▾" if shown else "导入记录 ▸")
 
     def _log_batches(self, newest=False):
@@ -384,7 +385,7 @@ class LogsPage:
             self.log_batch.setCurrentIndex(keys.index(current[:2]) if keep else fresh if batches else -1)
         self.log_batch.blockSignals(False)
         self.log_views.setCurrentIndex(1 if batches else 0)
-        self.app.log_loaded = True
+        self.log_loaded = True
         self._log_refresh()
 
     def _log_period_changed(self, text):
@@ -487,7 +488,7 @@ class LogsPage:
             widget.blockSignals(False)
         self.log_want = (first.sn, "")
         # 第一次进日志页时切页本身就会列批次
-        loaded = self.app.log_loaded
+        loaded = self.log_loaded
         self.app._go(self.app.LOGS)
         if loaded:
             self._log_batches()
@@ -516,7 +517,7 @@ class LogsPage:
         if answer != QMessageBox.Yes:
             return
         self.app.store.clear()
-        self.app.current_event, self.app.current_request, self.app.scope, self.app.watch, self.app.quick = None, None, None, None, None
+        self.app.messages.current_event, self.app.messages.current_request, self.app.messages.scope, self.app.control.watch, self.app.quick = None, None, None, None, None
         self.app.messages._first_page()
         self._show_store_size()
         self._log_batches()
@@ -525,8 +526,8 @@ class LogsPage:
     def _import_progress(self, done, total, count, started):
         rate = done / max(time.monotonic() - started, 0.001)
         left = (total - done) / rate if rate else 0
-        self.app.import_bar.setValue(int(done * 1000 / total) if total else 0)
-        self.app.import_state.setText(f"{done / 1e6:.0f} / {total / 1e6:.0f} MB　{count} 条　{rate / 1e6:.1f} MB/s　约剩 {left:.0f} 秒")
+        self.import_bar.setValue(int(done * 1000 / total) if total else 0)
+        self.import_state.setText(f"{done / 1e6:.0f} / {total / 1e6:.0f} MB　{count} 条　{rate / 1e6:.1f} MB/s　约剩 {left:.0f} 秒")
 
     def _import(self):
         paths, _ = QFileDialog.getOpenFileNames(self.app, "导入日志", "", "日志 (*.log *.txt *.jsonl);;所有文件 (*)")
@@ -585,8 +586,33 @@ class LogsPage:
 
         self.import_thread = threading.Thread(target=work, daemon=True)
         self.import_thread.start()
-        self.app.import_info.appendPlainText(time.strftime("%H:%M:%S  开始导入\n") + "\n".join(paths))
-        self.app.import_bar.setValue(0)
-        self.app.import_row.show()
-        self.app.import_state.setText(f"准备读取 {total / 1e6:.1f} MB")
+        self.import_info.appendPlainText(time.strftime("%H:%M:%S  开始导入\n") + "\n".join(paths))
+        self.import_bar.setValue(0)
+        self.import_row.show()
+        self.import_state.setText(f"准备读取 {total / 1e6:.1f} MB")
         self.app._go(self.app.LOGS)
+
+    def shown(self):
+        self._show_store_size()
+        if not self.log_loaded:
+            self._log_batches()
+
+    def _import_finished(self):
+        self.import_row.hide()
+        self.import_state.setText("")
+        self._show_store_size()
+        # 后台用另一个只读连接查批次，先把这一批最后几行提交，否则可能查不到
+        self.app.store.flush()
+        self._log_batches(newest=True)
+
+    def _import_note(self, note):
+        self.import_info.appendPlainText(time.strftime("%H:%M:%S  ") + note)
+        self.app.notify(note)
+
+    def _fetch_progress(self, done, total, name):
+        self.import_bar.setValue(int(done * 1000 / total))
+        self.import_state.setText(f"从设备取 {name}　{done / 1e6:.1f} / {total / 1e6:.1f} MB")
+
+    def _follow_failed(self, note):
+        self._stop_follow()
+        self.app.notify(note)

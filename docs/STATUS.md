@@ -683,3 +683,12 @@ Root 冻结快照做完整功能测试（FUNCTIONAL_AUDIT_20261102_1720.md），
 - 验证：290 项全过，旅程通过，全部验收截图脚本都能跑、各页画面正常；新包 14:13 中文路径隐藏自检 exit 0（含 3D 渲染）
 - 顺手修了 tools/acceptance/logs_shots.py：示例日志写死 2026-11-02，截图选“今天”就筛不出，改用当天日期
 - 还没做（第三步）：外壳的事件分发还直接碰几个页面控件（viewer、editor、table、request_table 等），所以它们仍挂在主窗口上，页面里写 self.app.xxx。下一步改成外壳调页面方法，把这些控件收回各自页面
+
+### 拆分 app.py（第三步）
+
+GPT 核过第一、二步（ROOT_SPLIT_REVIEW_20261106.md：199/201 个方法搬后同体、另 2 处核过，没发现拆分回归），同意第三步：外壳调页面方法、控件收回页面，只处理现有实际调用，不加事件总线或服务层。
+- 归属：页面建的控件和状态归建它的页面（scene3d 的 viewer、observer、replay；control 的 editor、result、scenario、watch；messages 的筛选、表格、scope、导出状态；logs 的导入进度和记录；status 的 detail_module、时效；teleop 的 remote、关节；connection 的 SSH 状态）。mode、ssh、quick、刷新节流这类全局的留在主窗口
+- 页面自己的初始状态挪进页面 __init__，外壳 __init__ 不再替页面赋值
+- 外壳只调页面方法：切页调各页 shown()；事件队列分发调 _preview_done、_export_done、_import_finished、_import_note、_fetch_progress、_follow_failed、_connected、_lost、_ssh_failed；定时项调 scene3d.tick、status.tick；本次结果和状态页刷新调 control.refresh_result、status.refresh_if_changed；点云解析和外观切换调 scene3d.take_cloud、set_dark
+- app.py 932 → 853 行；剩下外壳碰页面的地方是信号连线、调面板方法（teleop.remote.halt、mission.missions.observe）和少量读页面状态
+- 290 项全过，旅程通过，全部验收截图脚本能跑，新包自检通过（含 3D），注释检查无问题

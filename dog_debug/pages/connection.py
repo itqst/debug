@@ -6,7 +6,7 @@ import threading
 from PySide6.QtWidgets import QInputDialog
 
 from ..remote import Remote
-from ..ui import broker_target, GRAY, GREEN, MODES, ORANGE, settings
+from ..ui import broker_target, GRAY, GREEN, MODES, ORANGE, RED, settings
 
 
 class ConnectionPanel:
@@ -91,13 +91,13 @@ class ConnectionPanel:
         if mode in {"sandbox", "offline"}:
             if self.app.mqtt.client:
                 self._connect()
-            self.app.zlm_timer.stop()
+            self.app.status.zlm_timer.stop()
         self.app.mode = mode
         self.app.ssh_row.setVisible(mode == "direct")
         sandbox = self.app.mode == "sandbox"
-        self.app.scenario_row.setVisible(sandbox)
-        self.app.send_btn.setEnabled(self.app.mode != "offline")
-        self.app.send_btn.setText("模拟发送" if sandbox else "发送")
+        self.app.control.scenario_row.setVisible(sandbox)
+        self.app.control.send_btn.setEnabled(self.app.mode != "offline")
+        self.app.control.send_btn.setText("模拟发送" if sandbox else "发送")
         if not self.app.mqtt.client:
             self._set_link({"sandbox": "沙盒模式，不联网", "offline": "离线分析，不发送"}.get(self.app.mode, "未连接"), GRAY)
         self.app.drafts.clear()
@@ -112,12 +112,12 @@ class ConnectionPanel:
         self.app.port.setEnabled(not on)
 
     def _connect(self):
-        if self.app.ssh_connecting:
+        if self.ssh_connecting:
             self.app.notify("正在登录设备，稍等")
             return
         if self.app.mqtt.client:
             # 断开前先发停止，断开后就发不出了
-            self.app.remote.halt()
+            self.app.teleop.remote.halt()
             self.app.mqtt.close()
             self._close_ssh()
             self._set_link("已断开", GRAY)
@@ -149,7 +149,7 @@ class ConnectionPanel:
 
     def _connect_frp(self):
         """经 FRP 登录狗、把 1883 和 80 转到本机，再按直连的方式连 Broker；登录在后台，结果进 inbox"""
-        self.app.ssh_connecting = True
+        self.ssh_connecting = True
         self._set_link(f"正在经 FRP 登录 {self.app.sn.text().strip()}…", ORANGE)
 
         def work():
@@ -164,11 +164,11 @@ class ConnectionPanel:
         threading.Thread(target=work, daemon=True).start()
 
     def _ssh_ready(self, remote, name, mqtt_port, zlm_port, broker):
-        self.app.ssh_connecting = False
+        self.ssh_connecting = False
         keys = json.loads(settings().value("ssh_host_keys", "{}"))
         keys[name] = remote.host_key
         settings().setValue("ssh_host_keys", json.dumps(keys))
-        self.app.ssh, self.app.ssh_zlm = remote, zlm_port
+        self.app.ssh, self.ssh_zlm = remote, zlm_port
         # 设备身份仍是整机 SN；127.0.0.1 只是隧道的本机入口
         self.app.mqtt.connect("127.0.0.1", mqtt_port, self.app.sn.text().strip(), self.app.user.text(), self.app.password.text(), False)
         self.app.scene.reset_telemetry()
@@ -178,4 +178,22 @@ class ConnectionPanel:
         self.app.logs._stop_follow()
         if self.app.ssh:
             self.app.ssh.close()
-        self.app.ssh, self.app.ssh_zlm, self.app.ssh_rtsp = None, 0, {}
+        self.app.ssh, self.ssh_zlm, self.ssh_rtsp = None, 0, {}
+
+    def _connected(self, note):
+        if self.app.mqtt.connected:
+            self._connection_hint()
+            self.app.status._zlm_follow()
+        else:
+            self._set_link(str(note), RED)
+
+    def _lost(self, note):
+        """MQTT 掉线：先收尾遥控再关连接和隧道"""
+        self.app.teleop.remote.halt()
+        self.app.mqtt.close()
+        self._close_ssh()
+        self._set_link(str(note), RED)
+
+    def _ssh_failed(self, note):
+        self.ssh_connecting = False
+        self._set_link(note, RED)

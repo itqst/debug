@@ -21,6 +21,10 @@ class ControlPage:
 
     def __init__(self, app):
         self.app = app
+        self.selected = None
+        self.recent = []
+        self.form_syncing = False
+        self.watch, self.watch_size = None, 0
 
     def _control_page(self):
         page = QWidget()
@@ -89,29 +93,29 @@ class ControlPage:
         self.form_area.setMaximumHeight(120)
         mv.addWidget(self.form_area)
         mv.addWidget(label("Payload", "groupHeader"))
-        self.app.editor = QPlainTextEdit()
-        self.app.editor.setObjectName("code")
+        self.editor = QPlainTextEdit()
+        self.editor.setObjectName("code")
         self.form_timer = QTimer(self.app)
         self.form_timer.setSingleShot(True)
         self.form_timer.setInterval(300)
         self.form_timer.timeout.connect(self._rebuild_form)
-        self.app.editor.textChanged.connect(lambda: None if self.form_syncing else self.form_timer.start())
-        mv.addWidget(self.app.editor, 1)
-        self.app.scenario_row = QWidget()
-        sr = QHBoxLayout(self.app.scenario_row)
+        self.editor.textChanged.connect(lambda: None if self.form_syncing else self.form_timer.start())
+        mv.addWidget(self.editor, 1)
+        self.scenario_row = QWidget()
+        sr = QHBoxLayout(self.scenario_row)
         sr.setContentsMargins(0, 4, 0, 0)
         sr.addWidget(label("沙盒结果", "caption"))
-        self.app.scenario = Segmented([name for name, _ in SCENARIOS])
-        sr.addWidget(self.app.scenario)
+        self.scenario = Segmented([name for name, _ in SCENARIOS])
+        sr.addWidget(self.scenario)
         sr.addStretch()
-        mv.addWidget(self.app.scenario_row)
+        mv.addWidget(self.scenario_row)
         actions = QHBoxLayout()
         actions.addWidget(button("换新 tid", self._new_tid))
         actions.addWidget(button("恢复模板", lambda: self._template()))
         actions.addWidget(button("存为用例", self.app.suite._save_case))
         actions.addStretch()
-        self.app.send_btn = button("发送", self._send, "primary")
-        actions.addWidget(self.app.send_btn)
+        self.send_btn = button("发送", self._send, "primary")
+        actions.addWidget(self.send_btn)
         mv.addLayout(actions)
         # 编辑在上、回复在下，发送后不用转头找结果
         work = QSplitter(Qt.Vertical)
@@ -125,9 +129,9 @@ class ControlPage:
         rh.addStretch()
         rh.addWidget(button("在消息页打开", self._open_watch, "link"))
         rv.addLayout(rh)
-        self.app.result = TraceView("发送后在这里看 ACK、状态和失败原因")
-        self.app.result.original.connect(self.app._original)
-        rv.addWidget(self.app.result, 1)
+        self.result = TraceView("发送后在这里看 ACK、状态和失败原因")
+        self.result.original.connect(self.app._original)
+        rv.addWidget(self.result, 1)
         work.addWidget(right)
         work.setSizes([560, 400])
         layout.addWidget(work, 1)
@@ -194,7 +198,7 @@ class ControlPage:
     def _select_command(self, current, previous=None):
         if current and current.data(Qt.UserRole):
             if self.selected:
-                self.app.drafts[self.selected["method"]] = (self.topic.text(), self.app.editor.toPlainText())
+                self.app.drafts[self.selected["method"]] = (self.topic.text(), self.editor.toPlainText())
             self.selected = current.data(Qt.UserRole)
             self._template(self.app.drafts.pop(self.selected["method"], None))
 
@@ -228,7 +232,7 @@ class ControlPage:
                 widget.hide()
                 widget.deleteLater()
         try:
-            payload = json.loads(self.app.editor.toPlainText())
+            payload = json.loads(self.editor.toPlainText())
         except ValueError:
             self.form_note.setText("JSON 暂时无效，表单暂停同步；照原文仍可发送")
             self.form_area.hide()
@@ -274,29 +278,29 @@ class ControlPage:
     def _form_edited(self, key, value):
         """只改 data 里这一个字段，其他字段（包括模板里没有的）原样保留"""
         try:
-            payload = json.loads(self.app.editor.toPlainText())
+            payload = json.loads(self.editor.toPlainText())
         except ValueError:
             return
         payload["data"][key] = value
         self.form_syncing = True
-        cursor = self.app.editor.textCursor().position()
-        self.app.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
-        cursor_obj = self.app.editor.textCursor()
-        cursor_obj.setPosition(min(cursor, len(self.app.editor.toPlainText())))
-        self.app.editor.setTextCursor(cursor_obj)
+        cursor = self.editor.textCursor().position()
+        self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+        cursor_obj = self.editor.textCursor()
+        cursor_obj.setPosition(min(cursor, len(self.editor.toPlainText())))
+        self.editor.setTextCursor(cursor_obj)
         self.form_syncing = False
 
     def _new_tid(self):
         """只换 tid、ts（有 bid 也换），参数和其他字段保持；用于同样参数再发一次"""
         try:
-            payload = json.loads(self.app.editor.toPlainText())
+            payload = json.loads(self.editor.toPlainText())
         except ValueError:
             payload = None
         if not isinstance(payload, dict):
             self.app.notify("不是 JSON 对象，没法换 tid，原文保持不变")
             return
         refresh_ids(payload)
-        self.app.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+        self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
 
     def _template(self, draft=None):
         """显示当前指令；draft 为之前没发出的 (Topic, 正文)，没有时按目录生成新模板（新 tid）"""
@@ -312,19 +316,19 @@ class ControlPage:
         self.contract.setText(self.selected["summary"] + ("　·　" + note if note else ""))
         self.contract.setToolTip(self.selected["label"].split(" · ")[0] + "　·　" + self.selected["source"])
         if draft:
-            self.app.editor.setPlainText(draft[1])
+            self.editor.setPlainText(draft[1])
             self.topic.setText(draft[0])
         else:
             payload = make_command(self.selected)
             if self.app.mode == "direct":
                 payload = local_payload(payload)
-            self.app.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+            self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
             self._update_topic()
         self._rebuild_form()
 
     def _send(self):
         """发送编辑框内容；非对象或非法 JSON 照原文发出，沙盒里只记录不模拟"""
-        text, topic = self.app.editor.toPlainText(), self.topic.text().strip()
+        text, topic = self.editor.toPlainText(), self.topic.text().strip()
         try:
             payload = json.loads(text)
         except ValueError:
@@ -334,7 +338,7 @@ class ControlPage:
         self._flash_send("✓ 已发出" if sent else "✗ 没发出")
         if not sent:
             return
-        self.app.watch, self.app.watch_size = sent, 0
+        self.watch, self.watch_size = sent, 0
         self.result_title.setText(f"本次结果 · {self.selected['title']}")
         self._remember(self.selected)
         self.app.messages._refresh()
@@ -366,14 +370,14 @@ class ControlPage:
 
     def _flash_send(self, text):
         """发送按钮上短暂显示这次有没有发出去，1.2 s 后恢复"""
-        self.app.send_btn.setText(text)
-        QTimer.singleShot(1200, lambda: self.app.send_btn.setText("模拟发送" if self.app.mode == "sandbox" else "发送"))
+        self.send_btn.setText(text)
+        QTimer.singleShot(1200, lambda: self.send_btn.setText("模拟发送" if self.app.mode == "sandbox" else "发送"))
 
     def _open_watch(self):
-        if not self.app.watch:
+        if not self.watch:
             self.app.notify("还没有发送过指令")
             return
-        self.app.filter_text.setText(self.app.watch.tid)
+        self.app.messages.filter_text.setText(self.watch.tid)
         self.app._go(self.app.MESSAGES)
 
     def _demo(self):
@@ -383,9 +387,19 @@ class ControlPage:
         self.app.store.flush()
         self.app._go(self.app.MESSAGES)
         self.app.messages._refresh()
-        if self.app.views.currentIndex() == 0:
-            self.app.request_table.selectRow(0)
-            self.app.messages._inspect_request(self.app.request_model.index(0, 0))
+        if self.app.messages.views.currentIndex() == 0:
+            self.app.messages.request_table.selectRow(0)
+            self.app.messages._inspect_request(self.app.messages.request_model.index(0, 0))
         else:
-            self.app.table.selectRow(0)
-            self.app.messages._inspect(self.app.model.index(0, 0))
+            self.app.messages.table.selectRow(0)
+            self.app.messages._inspect(self.app.messages.model.index(0, 0))
+
+    def refresh_result(self):
+        """本次结果有新消息时重画，还停在用户点开的那条上"""
+        if not self.watch:
+            return
+        trace = self.app.store.trace(self.watch)
+        if len(trace) != self.watch_size:
+            self.watch_size = len(trace)
+            chosen = self.result.selected
+            self.result.show_trace(next((e for e in trace if chosen and e.event_id == chosen.event_id), self.watch), trace)

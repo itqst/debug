@@ -50,16 +50,16 @@ def test_all_control_modules_have_templates(window):
 
 def test_send_shows_result_on_control_page(window):
     select(window, "take_photo")
-    window.scenario.set_index(1)
+    window.control.scenario.set_index(1)
     window.control._send()
     assert window.stack.currentIndex() == window.CONTROL
-    assert "相机连接超时" in window.result.text()
+    assert "相机连接超时" in window.control.result.text()
 
 
 def test_motion_sends_without_gate(window):
     select(window, "move")
     window.control._send()
-    assert "move" in window.result.text()
+    assert "move" in window.control.result.text()
 
 
 def test_direct_mode_uses_local_topic_and_reports_offline_broker(window):
@@ -79,9 +79,9 @@ def test_builtin_suite(window):
 
 def test_failure_filter(window):
     window.control._demo()
-    window.failures_only.setChecked(True)
-    assert window.model.rows
-    assert all(row[1].kind == "ACK" for row in window.model.rows)
+    window.messages.failures_only.setChecked(True)
+    assert window.messages.model.rows
+    assert all(row[1].kind == "ACK" for row in window.messages.model.rows)
 
 
 def test_case_without_assertion_is_not_pass(window, tmp_path, monkeypatch):
@@ -95,10 +95,10 @@ def test_case_without_assertion_is_not_pass(window, tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("text", ["[]", "{not json"])
 def test_non_object_payload_is_recorded_not_crash(window, text):
-    window.editor.setPlainText(text)
+    window.control.editor.setPlainText(text)
     window.control._send()
     assert "无法按对象模拟" in window.toast.text()
-    assert window.watch.raw == text
+    assert window.control.watch.raw == text
 
 
 class StubClient:
@@ -126,14 +126,14 @@ def test_send_records_active_connection_not_edited_sn(window):
     assert "重连后生效" in window.link.text()
     window.control._send()
     assert client.sent[0][0] == "tta/robotdog/B/services"
-    assert window.watch.sn == "A" and window.watch.session == "live"
+    assert window.control.watch.sn == "A" and window.control.watch.session == "live"
 
 
 def test_raw_text_published_as_is(window):
     window.mode_box.setCurrentText("直连模块")
     client = StubClient()
     window.mqtt.client, window.mqtt.connected, window.mqtt.sn = client, True, "A"
-    window.editor.setPlainText("{broken")
+    window.control.editor.setPlainText("{broken")
     window.control._send()
     assert client.sent[0][1] == "{broken"
 
@@ -227,7 +227,7 @@ def last_move(client):
 
 def test_close_window_sends_zero_before_disconnect():
     window, client = live_window()
-    window.remote.press("motion", "fwd")
+    window.teleop.remote.press("motion", "fwd")
     assert last_move(client)["vx"] > 0
     window.close()
     assert last_move(client) == {"vx": 0, "vy": 0, "yaw_rate": 0}
@@ -237,7 +237,7 @@ def test_manual_disconnect_sends_zero_first(window):
     window.mode_box.setCurrentText("直连模块")
     client = StubClient()
     window.mqtt.client, window.mqtt.connected, window.mqtt.sn = client, True, "A"
-    window.remote.press("motion", "fwd")
+    window.teleop.remote.press("motion", "fwd")
     window.connection._connect()
     assert last_move(client) == {"vx": 0, "vy": 0, "yaw_rate": 0}
     assert window.mqtt.client is None
@@ -247,21 +247,21 @@ def test_lost_connection_stops_locally_without_claiming_zero(window):
     window.mode_box.setCurrentText("直连模块")
     client = StubClient()
     window.mqtt.client, window.mqtt.connected, window.mqtt.sn = client, True, "A"
-    window.remote.press("motion", "fwd")
+    window.teleop.remote.press("motion", "fwd")
     window.mqtt.connected = False
     window.inbox.put(("disconnect", "已断开 7"))
     window._drain()
-    assert not window.remote.motion_timer.isActive()
+    assert not window.teleop.remote.motion_timer.isActive()
     assert last_move(client)["vx"] > 0
     zero = [e for _, e in window.store.query(method="move") if e.payload.get("data", {}).get("vx") == 0]
     assert not zero
 
 
 def test_map_list_ack_fills_combo_and_loads(window):
-    window.missions.send("get_map_list", {})
-    assert window.missions.map_box.count() == 2
-    window.missions.map_box.setCurrentIndex(1)
-    window.missions.send("loc_load_map", {"map_id": window.missions.map_id()})
+    window.mission.missions.send("get_map_list", {})
+    assert window.mission.missions.map_box.count() == 2
+    window.mission.missions.map_box.setCurrentIndex(1)
+    window.mission.missions.send("loc_load_map", {"map_id": window.mission.missions.map_id()})
     assert window.quick.payload["data"]["map_id"] == "2026_07_28_14_13_53"
 
 
@@ -273,7 +273,7 @@ def test_single_nav_heading_becomes_quaternion():
 
 
 def test_multi_nav_points_and_actions(window):
-    m = window.missions
+    m = window.mission.missions
     m.map_box.setEditText("map_a")
     m.add_point(3, 4, 0, 4, "10")
     data = m.multi_nav()
@@ -283,17 +283,17 @@ def test_multi_nav_points_and_actions(window):
 
 
 def test_media_list_fill_and_sync_selected(window):
-    m = window.missions
+    m = window.mission.missions
     m.send("get_media_filelist", {})
     assert m.files.count() == 2
     m.files.item(1).setSelected(True)
     m.upload_path.setText("http://upload.invalid/x")
-    next(b for b in m.findChildren(type(window.send_btn)) if b.text() == "同步所选媒体").click()
+    next(b for b in m.findChildren(type(window.control.send_btn)) if b.text() == "同步所选媒体").click()
     assert window.quick.payload["data"] == {"file_path": ["2026-10-28/VID_0002.mp4"], "upload_path": "http://upload.invalid/x"}
 
 
 def test_ir_ack_shows_temperature(window):
-    m = window.missions
+    m = window.mission.missions
     m.send("ir_metering_point_set", {**m.camera(), "x": 0.5, "y": 0.5})
     assert "36.5 ℃" in m.temperature.text()
     m.send("ir_metering_area_set", {**m.camera(), "x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8})
@@ -301,20 +301,20 @@ def test_ir_ack_shows_temperature(window):
 
 
 def test_edit_payload_opens_control_page(window):
-    window.mission._edit_payload("start_multi_nav_by_points", window.missions.multi_nav())
+    window.mission._edit_payload("start_multi_nav_by_points", window.mission.missions.multi_nav())
     assert window.stack.currentIndex() == window.CONTROL
-    assert '"task_name"' in window.editor.toPlainText()
+    assert '"task_name"' in window.control.editor.toPlainText()
 
 
 def test_request_view_puts_failure_first_and_opens_messages(window):
     window.suite._run_suite()
     window.control._demo()
-    rows = window.request_model.rows
+    rows = window.messages.request_model.rows
     assert rows[0].status == "失败"
     assert "MEDIA 返回失败" in window.messages.details.text()
-    window.messages._open_request(window.request_model.index(0, 0))
-    assert window.views.currentIndex() == 1 and window.scope == rows[0].key
-    assert all(e.tid == rows[0].events[0].tid for _, e, _ in window.model.rows)
+    window.messages._open_request(window.messages.request_model.index(0, 0))
+    assert window.messages.views.currentIndex() == 1 and window.messages.scope == rows[0].key
+    assert all(e.tid == rows[0].events[0].tid for _, e, _ in window.messages.model.rows)
 
 
 def test_open_request_keeps_device_and_session(window):
@@ -326,17 +326,17 @@ def test_open_request_keeps_device_and_session(window):
             window.store.add(e)
     window.store.flush()
     window._go(window.MESSAGES)
-    rows = window.request_model.rows
+    rows = window.messages.request_model.rows
     failed = next(i for i, r in enumerate(rows) if r.key == ("B", "s2", "REUSED_TID"))
-    window.messages._open_request(window.request_model.index(failed, 0))
-    assert window.model.rows and {(e.sn, e.session) for _, e, _ in window.model.rows} == {("B", "s2")}
+    window.messages._open_request(window.messages.request_model.index(failed, 0))
+    assert window.messages.model.rows and {(e.sn, e.session) for _, e, _ in window.messages.model.rows} == {("B", "s2")}
     assert window.messages.scope_chip.isVisibleTo(window)
     window.messages.scope_chip.click()
-    assert window.scope is None and {(e.sn, e.session) for _, e, _ in window.model.rows} >= {("A", "s1"), ("B", "s2")}
+    assert window.messages.scope is None and {(e.sn, e.session) for _, e, _ in window.messages.model.rows} >= {("A", "s1"), ("B", "s2")}
 
 
 def test_map_origin_yaw_rotates_projection(window, tmp_path):
-    m = window.missions
+    m = window.mission.missions
     m.open_map(make_map(tmp_path, "image: map_a.pgm\nresolution: 0.1\norigin: [-2.0, -3.0, 1.5707963267948966]\n"))
     view = m.map_view
     assert view.to_world(50, 40) == (-6.0, 2.0)
@@ -358,7 +358,7 @@ def make_map(tmp_path, yaml_text=None):
 
 
 def test_map_yaml_sets_projection_and_click_adds_waypoint(window, tmp_path):
-    m = window.missions
+    m = window.mission.missions
     m.open_map(make_map(tmp_path, "image: map_a.pgm\nresolution: 0.1\norigin: [-2.0, -3.0, 0.0]\n"))
     assert m.resolution.value() == 0.1 and m.origin[0].value() == -2.0
     view = m.map_view
@@ -371,7 +371,7 @@ def test_map_yaml_sets_projection_and_click_adds_waypoint(window, tmp_path):
 
 
 def test_map_without_yaml_uses_map_list_info(window, tmp_path):
-    m = window.missions
+    m = window.mission.missions
     m.observe(Event("local/robotdog/vfc/ack", {"method": "get_all_compressed_pgm_map", "data": {"result": 0, "data": {
         "map_a": [{"info": {"resolution": 0.05, "origin": {"position": {"x": -13.65, "y": -10.45}}}}, []]}}}))
     m.open_map(make_map(tmp_path))
@@ -391,7 +391,7 @@ def test_large_import_streams_batches_and_cancel_allows_restart(window, tmp_path
     for _ in range(50):
         window._drain()
     assert window.store.count() == 12000
-    assert "导入完成：12000 条" in window.import_info.toPlainText()
+    assert "导入完成：12000 条" in window.logs.import_info.toPlainText()
     window.logs.start_import([str(path)])
     window.import_cancel.set()
     window.logs.import_thread.join(10)
@@ -411,15 +411,15 @@ def test_message_paging(window):
         window.store.add(Event("local/robotdog/media/state", {"type": "stream_status", "info": {"result": 1}, "n": i}, sn="A", session="s"))
     window.store.flush()
     window._go(window.MESSAGES)
-    window.view_mode.set_index(1)
-    first = [e.payload["n"] for _, e, _ in window.model.rows]
+    window.messages.view_mode.set_index(1)
+    first = [e.payload["n"] for _, e, _ in window.messages.model.rows]
     assert len(first) == 1000 and first[0] == 2499 and window.messages.older_btn.isEnabled()
     window.messages._older_page()
-    assert window.model.rows[0][1].payload["n"] == 1499 and window.messages.newer_btn.isEnabled()
+    assert window.messages.model.rows[0][1].payload["n"] == 1499 and window.messages.newer_btn.isEnabled()
     window.messages._older_page()
-    assert len(window.model.rows) == 500 and not window.messages.older_btn.isEnabled()
+    assert len(window.messages.model.rows) == 500 and not window.messages.older_btn.isEnabled()
     window.messages._newer_page(); window.messages._newer_page()
-    assert window.model.rows[0][1].payload["n"] == 2499
+    assert window.messages.model.rows[0][1].payload["n"] == 2499
 
 
 def test_export_preview_counts(window, tmp_path):
@@ -440,7 +440,7 @@ def test_clear_store_after_one_confirm(window, monkeypatch):
     assert window.store.count() > 0
     monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.question", lambda *a, **k: QMessageBox.Yes)
     window.logs._clear_store()
-    assert window.store.count() == 0 and not window.request_model.rows and "本地 0 条" in window.logs.store_size.text()
+    assert window.store.count() == 0 and not window.messages.request_model.rows and "本地 0 条" in window.logs.store_size.text()
 
 
 def test_text_search_runs_in_background_on_disk_db(tmp_path):
@@ -450,17 +450,17 @@ def test_text_search_runs_in_background_on_disk_db(tmp_path):
         window.store.add(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": f"t{i}", "data": {"result": 0, "msg": f"needle{i % 3}"}}, sn="A", session="s"))
     window.store.flush()
     window._go(window.MESSAGES)
-    window.filter_text.setText("needle1")
+    window.messages.filter_text.setText("needle1")
     window.messages._first_page()
     assert window.messages.search is not None and window.messages.search_hint.isVisibleTo(window)
     deadline = _time.monotonic() + 5
     while window.messages.search and _time.monotonic() < deadline:
         window._drain()
-    assert window.messages.search is None and len(window.request_model.rows) == 100
-    window.view_mode.set_index(1)
+    assert window.messages.search is None and len(window.messages.request_model.rows) == 100
+    window.messages.view_mode.set_index(1)
     while window.messages.search and _time.monotonic() < deadline + 5:
         window._drain()
-    assert len(window.model.rows) == 100 and all("needle1" in e.payload["data"]["msg"] for _, e, _ in window.model.rows)
+    assert len(window.messages.model.rows) == 100 and all("needle1" in e.payload["data"]["msg"] for _, e, _ in window.messages.model.rows)
     window.close()
 
 
@@ -470,32 +470,32 @@ def disk_window(tmp_path, texts=("ALPHA", "BETA")):
         window.store.add(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": f"t{i}", "data": {"result": 0, "msg": text}}, sn="A", session="s"))
     window.store.flush()
     window._go(window.MESSAGES)
-    window.view_mode.set_index(1)
+    window.messages.view_mode.set_index(1)
     return window
 
 
 def test_late_search_result_dropped_after_conditions_change(tmp_path):
     window = disk_window(tmp_path)
     alpha = [(1, e) for _, e in window.store.query(text="ALPHA")]
-    window.filter_text.setText("ALPHA")
+    window.messages.filter_text.setText("ALPHA")
     window.messages._first_page()
     old = window.messages.search["token"]
-    window.filter_text.setText("")
+    window.messages.filter_text.setText("")
     window.messages._first_page()
-    assert window.messages.search is None and len(window.model.rows) == 2
+    assert window.messages.search is None and len(window.messages.model.rows) == 2
     window.messages._search_done(old, alpha, None)
-    assert len(window.model.rows) == 2 and not window.messages.search_hint.isVisibleTo(window)
-    for change in (lambda: window.messages.set_scope(("A", "s", "t0")), lambda: window.view_mode.set_index(0),
-                   lambda: (window.pages.append(10**9), window.messages._refresh())):
+    assert len(window.messages.model.rows) == 2 and not window.messages.search_hint.isVisibleTo(window)
+    for change in (lambda: window.messages.set_scope(("A", "s", "t0")), lambda: window.messages.view_mode.set_index(0),
+                   lambda: (window.messages.pages.append(10**9), window.messages._refresh())):
         window.messages.set_scope(None)
-        window.filter_text.setText("ALPHA")
+        window.messages.filter_text.setText("ALPHA")
         window.messages._first_page()
         old = window.messages.search["token"]
         change()
-        before = [e.event_id for _, e, _ in window.model.rows]
+        before = [e.event_id for _, e, _ in window.messages.model.rows]
         window.messages._search_done(old, alpha, None)
-        assert [e.event_id for _, e, _ in window.model.rows] == before
-        window.pages.clear()
+        assert [e.event_id for _, e, _ in window.messages.model.rows] == before
+        window.messages.pages.clear()
     window.close()
 
 
@@ -525,7 +525,7 @@ def test_export_preview_runs_off_gui_thread(tmp_path, monkeypatch):
     state = {}
 
     def check():
-        dialog = window.export_dialog
+        dialog = window.messages.export_dialog
         state["loading_first"] = state.get("loading_first", not dialog.confirm.isEnabled())
         if dialog.confirm.isEnabled():
             state["filled"] = True
@@ -589,7 +589,7 @@ def test_status_card_ages_without_new_messages(window, monkeypatch):
     window._go(window.STATUS)
     assert "v3.2.1" in window.status.module_cards["vfc"][1].text() and "已过期" not in window.status.module_cards["vfc"][1].text()
     clock["now"] = 1012.0
-    window.status_aged -= 2
+    window.status.status_aged -= 2
     window._drain()
     assert "已过期 13 秒" in window.status.module_cards["vfc"][1].text()
 
@@ -598,7 +598,7 @@ def test_request_note_saved_shown_and_exported(window, tmp_path, monkeypatch):
     import zipfile
     from PySide6.QtCore import QTimer
     window.control._demo()
-    key = window.current_request
+    key = window.messages.current_request
     assert window.messages.note_btn.isEnabled()
 
     def fill():
@@ -607,7 +607,7 @@ def test_request_note_saved_shown_and_exported(window, tmp_path, monkeypatch):
         edits[0].setPlainText("拍照成功")
         edits[1].setPlainText("相机超时 password=NOTE_SECRET")
         edits[2].setPlainText("升级相机固件后复现")
-        d.findChildren(type(window.failures_only))[0].setChecked(True)
+        d.findChildren(type(window.messages.failures_only))[0].setChecked(True)
         d.accept()
 
     QTimer.singleShot(50, fill)
@@ -615,7 +615,7 @@ def test_request_note_saved_shown_and_exported(window, tmp_path, monkeypatch):
     note = window.store.note(key)
     assert note["expected"] == "拍照成功" and note["reproduced"] and "NOTE_SECRET" not in note["actual"]
     assert "问题备注" in window.messages.details.text() and "升级相机固件后复现" in window.messages.details.text()
-    assert window.request_model.data(window.request_model.index(0, 5)).startswith("【备注】")
+    assert window.messages.request_model.data(window.messages.request_model.index(0, 5)).startswith("【备注】")
     other = ("OTHER", key[1], key[2])
     assert window.store.note(other) is None
     window.messages.export_bundle(str(tmp_path / "n.zip"))
@@ -627,7 +627,7 @@ def test_request_note_saved_shown_and_exported(window, tmp_path, monkeypatch):
 
 def test_detection_view_lists_failed_chain_first(window):
     window._go(window.MESSAGES)
-    window.view_mode.set_index(2)
+    window.messages.view_mode.set_index(2)
     assert window.messages.chain_demo.isVisibleTo(window)
     window.messages._demo_detection()
     rows = window.messages.chain_model.rows
@@ -708,7 +708,7 @@ def test_ui_step_import_and_cancel(window):
     drain_until(window, lambda: not window.scene3d.importing)
     robot = window.scene.robot
     assert robot.kind == "STEP" and window.scene3d.part_list.count() == 2 and "文件单位 mm" in window.scene3d.model_info.text()
-    assert window.joint_title.text() == "部件" and "结构" in window.scene3d.joint_pill.text()
+    assert window.teleop.joint_title.text() == "部件" and "结构" in window.scene3d.joint_pill.text()
 
 
 def test_form_and_json_stay_in_sync_without_dropping_fields(window):
@@ -717,21 +717,21 @@ def test_form_and_json_stay_in_sync_without_dropping_fields(window):
     fields = {window.control.form_grid.itemAtPosition(i // 2, (i % 2) * 2).widget().text():
               window.control.form_grid.itemAtPosition(i // 2, (i % 2) * 2 + 1).widget() for i in range(window.control.form_grid.count() // 2)}
     assert {"index", "state", "mode"} <= set(fields)
-    payload = _json.loads(window.editor.toPlainText())
+    payload = _json.loads(window.control.editor.toPlainText())
     payload["data"]["自定义"] = "保留我"
-    window.editor.setPlainText(_json.dumps(payload, ensure_ascii=False))
+    window.control.editor.setPlainText(_json.dumps(payload, ensure_ascii=False))
     window.control._rebuild_form()
     state = next(window.control.form_grid.itemAt(i + 1).widget() for i in range(0, window.control.form_grid.count(), 2)
                  if window.control.form_grid.itemAt(i).widget().text() == "state")
     state.setText("2")
     state.textEdited.emit("2")
-    after = _json.loads(window.editor.toPlainText())
+    after = _json.loads(window.control.editor.toPlainText())
     assert after["data"]["state"] == 2 and after["data"]["自定义"] == "保留我"
     state.textEdited.emit("abc")
-    assert _json.loads(window.editor.toPlainText())["data"]["state"] == 2
-    window.editor.setPlainText("{broken")
+    assert _json.loads(window.control.editor.toPlainText())["data"]["state"] == 2
+    window.control.editor.setPlainText("{broken")
     window.control._rebuild_form()
-    assert "暂停同步" in window.control.form_note.text() and window.editor.toPlainText() == "{broken"
+    assert "暂停同步" in window.control.form_note.text() and window.control.editor.toPlainText() == "{broken"
 
 
 def test_stream_table_separates_activity_and_room(window):
@@ -761,7 +761,7 @@ def test_yaml_case_with_bom_and_chinese_path(window, tmp_path):
 def test_diagnostic_zip_to_chinese_path_reopens(window, tmp_path):
     import zipfile
     window.control._demo()
-    window.store.set_note(window.current_request, {"expected": "拍照成功", "actual": "相机超时", "remark": "中文备注"})
+    window.store.set_note(window.messages.current_request, {"expected": "拍照成功", "actual": "相机超时", "remark": "中文备注"})
     path = tmp_path / "诊断 包" / "狗一号 诊断.zip"
     path.parent.mkdir()
     window.messages.export_bundle(str(path))
@@ -775,7 +775,7 @@ def test_diagnostic_zip_to_chinese_path_reopens(window, tmp_path):
     window.logs.import_thread.join(10)
     for _ in range(20):
         window._drain()
-    assert "编码 utf-8" in window.import_info.toPlainText()
+    assert "编码 utf-8" in window.logs.import_info.toPlainText()
     assert window.store.query(text="相机连接超时")
 
 
@@ -808,7 +808,7 @@ def test_wheel_over_unfocused_slider_scrolls_page(window):
     from PySide6.QtCore import QPoint, QPointF
     from PySide6.QtGui import QWheelEvent
     window._go(window.REMOTE)
-    slider = window.remote.vx
+    slider = window.teleop.remote.vx
     before = slider.value()
     wheel = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, -120), Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
     QApplication.sendEvent(slider, wheel)
@@ -817,11 +817,11 @@ def test_wheel_over_unfocused_slider_scrolls_page(window):
 
 def test_copy_selected_rows(window):
     window.control._demo()
-    window.request_table.selectRow(0)
+    window.messages.request_table.selectRow(0)
     window.messages._copy_selection()
     assert "失败" in QApplication.clipboard().text() and "tid=" in QApplication.clipboard().text()
-    window.view_mode.set_index(1)
-    window.table.selectRow(0)
+    window.messages.view_mode.set_index(1)
+    window.messages.table.selectRow(0)
     window.messages._copy_selection()
     assert QApplication.clipboard().text().startswith("{") and '"topic"' in QApplication.clipboard().text()
 
@@ -856,15 +856,15 @@ def test_command_list_searches_chinese_and_method(window):
 
 def test_draft_kept_when_switching_commands_and_recent_reopens(window):
     select(window, "move")
-    edited = window.editor.toPlainText().replace('"vx": 0', '"vx": 0.42', 1)
-    assert edited != window.editor.toPlainText()
-    window.editor.setPlainText(edited)
+    edited = window.control.editor.toPlainText().replace('"vx": 0', '"vx": 0.42', 1)
+    assert edited != window.control.editor.toPlainText()
+    window.control.editor.setPlainText(edited)
     select(window, "stand_up")
     window.control._send()
     select(window, "move")
-    assert window.editor.toPlainText() == edited
+    assert window.control.editor.toPlainText() == edited
     window.control._template()
-    assert '"vx": 0.42' not in window.editor.toPlainText()
+    assert '"vx": 0.42' not in window.control.editor.toPlainText()
     assert [r["method"] for r in window.control.recent] == ["stand_up"]
     window.control._open_command("stand_up")
     assert window.control.selected["method"] == "stand_up"
@@ -874,7 +874,7 @@ def test_result_card_uses_request_verdict_after_ack(window):
     select(window, "get_media_filelist")
     window.control._send()
     window._refresh_tail()
-    text = window.result.text()
+    text = window.control.result.text()
     assert "待判" not in text.split("证据链")[0] and "操作成功" in text.split("证据链")[0]
 
 
@@ -883,27 +883,27 @@ def test_form_accepts_decimal_for_integer_template_value(window):
     select(window, "move")
     field = next(w for w in window.control.form_area.findChildren(QLineEdit) if w.text() == "0")
     field.textEdited.emit("0.42")
-    assert json.loads(window.editor.toPlainText())["data"]["vx"] == 0.42
+    assert json.loads(window.control.editor.toPlainText())["data"]["vx"] == 0.42
 
 
 def test_draft_keeps_topic_and_new_tid_keeps_params(window):
     select(window, "move")
     window.control.topic.setText("custom/topic")
-    window.editor.setPlainText(window.editor.toPlainText().replace('"vx": 0', '"vx": 0.3', 1))
+    window.control.editor.setPlainText(window.control.editor.toPlainText().replace('"vx": 0', '"vx": 0.3', 1))
     select(window, "stand_up")
     select(window, "move")
     assert window.control.topic.text() == "custom/topic"
-    before = json.loads(window.editor.toPlainText())
+    before = json.loads(window.control.editor.toPlainText())
     window.control._new_tid()
-    after = json.loads(window.editor.toPlainText())
+    after = json.loads(window.control.editor.toPlainText())
     assert after["tid"] != before["tid"] and after["data"] == before["data"]
 
 
 def test_new_tid_on_non_object_keeps_text(window):
     select(window, "move")
-    window.editor.setPlainText("[]")
+    window.control.editor.setPlainText("[]")
     window.control._new_tid()
-    assert window.editor.toPlainText() == "[]"
+    assert window.control.editor.toPlainText() == "[]"
 
 
 def test_connection_profile_saved_and_restored(window, monkeypatch):
@@ -940,13 +940,13 @@ def test_replay_osd_session_shows_frame_and_recent_messages(window):
     assert sessions == [("DOG", "log1", 5)]
     window._background(lambda r: r.osd_frames("DOG", "log1"), "replay_frames", "DOG", "log1")
     window._drain()
-    assert window.replay and window.scene3d.replay_slider.maximum() == 4
+    assert window.scene3d.replay and window.scene3d.replay_slider.maximum() == 4
     window.scene3d.replay_slider.setValue(3)
     assert window.scene.x == 1.5 and not window.scene.live and len(window.scene.trail) == 4
     assert "take_photo" in window.scene3d.replay_list.item(0).text() and window.scene3d.replay_list.item(0).font().bold()
     assert "回放" in window.scene3d.position_pill.text()
     window.scene3d._replay_exit()
-    assert window.replay is None and not window.scene.osd
+    assert window.scene3d.replay is None and not window.scene.osd
 
 
 def test_send_button_and_status_card_feedback(window):
@@ -954,7 +954,7 @@ def test_send_button_and_status_card_feedback(window):
     from dog_debug.core import Event
     select(window, "stand_up")
     window.control._send()
-    assert window.send_btn.text() == "✓ 已发出"
+    assert window.control.send_btn.text() == "✓ 已发出"
     window._go(window.STATUS)
     window.store.add(Event("local/robotdog/ptz/state", {"type": "gimbal_status", "info": {"pitch": 0}}, sn="d", timestamp=1.0))
     window.status._refresh_status()
@@ -1040,9 +1040,9 @@ def test_status_page_only_shows_current_device_live_data(window):
     window.status.detail_view.set_index(1)
     assert window.status.detail_model.rows == []
     # 房间号是整机SN_相机SN，跟着 SN 和当前相机
-    window.remote.camera_sn.setText("002")
+    window.teleop.remote.camera_sn.setText("002")
     assert window.status.room.text() == "DOG_A_002"
-    window.remote.camera_sn.setText("001")
+    window.teleop.remote.camera_sn.setText("001")
     assert window.status.room.text() == "DOG_A_001"
 
 
@@ -1072,7 +1072,7 @@ def test_zlm_poll_shows_streams_or_error(window, monkeypatch):
             window._drain()
             _time.sleep(0.02)
         assert expected in window.status.module_cards["zlm"][2].text()
-    window.zlm_timer.stop()
+    window.status.zlm_timer.stop()
     # RTSP 端口每个地址只查一次
     assert window.status.zlm_ports == {"10.0.0.1:80": {"rtsp": 8555}}
 
@@ -1127,18 +1127,18 @@ def test_lens_switch_sends_camera_switch_type(mode, topic):
     """镜头发 camera_switch，type 1 可见光、2 红外、3 拼接，带当前相机 index/sn；红外禁变焦"""
     window, client = live_window(mode)
     window.sn.setText("A")
-    window.remote.camera_index.setValue(1)
-    window.remote.camera_sn.setText("002")
-    assert [window.remote.lens.group.button(i).text() for i in range(3)] == ["可见光", "红外", "拼接"]
+    window.teleop.remote.camera_index.setValue(1)
+    window.teleop.remote.camera_sn.setText("002")
+    assert [window.teleop.remote.lens.group.button(i).text() for i in range(3)] == ["可见光", "红外", "拼接"]
     for index in (1, 2, 0):
-        window.remote._lens(index)
+        window.teleop.remote._lens(index)
         sent_topic, text = client.sent[-1]
         sent = json.loads(text)
         assert sent_topic == topic and sent["method"] == "camera_switch"
         assert sent["data"] == {"index": 1, "sn": "002", "type": index + 1}
         # 直连发的是 GW 转给模块的样子，不带 target
         assert sent.get("target") == (None if mode == "直连模块" else "ptz")
-        assert all(zoom.isEnabled() == (index != 1) for zoom in window.remote.zoom_buttons)
+        assert all(zoom.isEnabled() == (index != 1) for zoom in window.teleop.remote.zoom_buttons)
     window.close()
 
 
@@ -1220,7 +1220,7 @@ def test_status_filter_hides_types_and_modules_without_touching_data(window):
         grid = window.status.status_grid
         assert grid.cards == [window.status.module_frames["media"], window.status.module_frames["zlm"]]
         assert grid.grid.getItemPosition(grid.grid.indexOf(window.status.module_frames["media"]))[:2] == (0, 0)
-        assert window.detail_module is None and window.status.module_filter.text() == "模块：MEDIA、ZLM"
+        assert window.status.detail_module is None and window.status.module_filter.text() == "模块：MEDIA、ZLM"
         assert window.status.live_card[0].isVisibleTo(window)
         window.status.module_actions["media"].setChecked(False)
         assert not window.status.live_card[0].isVisibleTo(window)
@@ -1238,11 +1238,11 @@ def test_direct_templates_match_gw_forwarded_payload(window):
     """直连模块发的和 GW 转给模块的一样：去掉顶层 target，按 GW 路由选 Topic"""
     window.sn.setText("DOG")
     select(window, "take_photo")
-    assert json.loads(window.editor.toPlainText())["target"] == "vision"
+    assert json.loads(window.control.editor.toPlainText())["target"] == "vision"
     window.mode_box.setCurrentText("直连模块")
     for method, topic in (("take_photo", "media"), ("speaker_play_start", "audio"), ("get_media_filelist", "fsvr"), ("move", "vfc")):
         select(window, method)
-        assert "target" not in json.loads(window.editor.toPlainText())
+        assert "target" not in json.loads(window.control.editor.toPlainText())
         assert window.control.topic.text() == f"local/robotdog/{topic}/command"
 
 
@@ -1268,15 +1268,15 @@ def test_offline_and_sandbox_stop_and_drop_live_link(window, monkeypatch, mode):
     window.mode_box.setCurrentText("直连模块")
     client = window.mqtt.client = FakeClient()
     window.mqtt.connected = True
-    window.remote.press("motion", "fwd")
+    window.teleop.remote.press("motion", "fwd")
     window.mode_box.setCurrentText(mode)
     # 停止报文按切换前的直连模式真的发出去了，然后才断开
     assert client.sent[-1] == ("local/robotdog/vfc/command", {**client.sent[-1][1], "data": {"vx": 0, "vy": 0, "yaw_rate": 0}})
-    assert client.closed and window.mqtt.client is None and not window.remote.motion_timer.isActive()
+    assert client.closed and window.mqtt.client is None and not window.teleop.remote.motion_timer.isActive()
     window.status.zlm_host.setText("10.0.0.9:80")
     window.status.zlm_secret.setText("s")
     window._go(window.STATUS)
-    assert not window.zlm_timer.isActive()
+    assert not window.status.zlm_timer.isActive()
     if mode == "离线日志分析":
         window._go(window.CONTROL)
         window.mode_box.setCurrentText("直连模块")
@@ -1314,16 +1314,16 @@ def test_trace_click_keeps_scroll_within_request():
 
 def test_control_result_keeps_chosen_message_when_new_one_arrives(window):
     select(window, "take_photo")
-    window.send_btn.click()
+    window.control.send_btn.click()
     window._refresh_tail()
-    ack = next(e for e in window.result.events if e.kind == "ACK")
-    window.result.show_trace(ack, window.result.events)
+    ack = next(e for e in window.control.result.events if e.kind == "ACK")
+    window.control.result.show_trace(ack, window.control.result.events)
     late = Event("tta/robotdog/TEST_DOG_001/services_reply", {"method": "take_photo", "tid": ack.tid, "data": {"result": 0}},
                  sn=ack.sn, session=ack.session, source="sandbox")
     window.store.add(late)
     window.store.flush()
     window._refresh_tail()
-    assert len(window.result.events) == window.watch_size and window.result.selected.event_id == ack.event_id
+    assert len(window.control.result.events) == window.control.watch_size and window.control.result.selected.event_id == ack.event_id
 
 
 def _import_and_wait(window, path):
@@ -1418,15 +1418,15 @@ def test_live_status_does_not_recompute_requests_or_status_page(window):
     window.sn.setText("A")
     window._ingest(Event("local/robotdog/media/command", {"method": "take_photo", "tid": "t1", "data": {}}, sn="A", session="s"))
     window._go(window.MESSAGES)
-    window.view_mode.set_index(0)
-    rows = window.request_model.rows
+    window.messages.view_mode.set_index(0)
+    rows = window.messages.request_model.rows
     window._ingest(Event("local/robotdog/vfc/osd", {"x": 1}, sn="A", session="s"))
     window.messages._refresh()
-    assert window.request_model.rows is rows
+    assert window.messages.request_model.rows is rows
     window._ingest(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": "t1", "data": {"result": 1, "msg": "离线"}},
                          sn="A", session="s"))
     window.messages._refresh()
-    assert window.request_model.rows is not rows and window.request_model.rows[0].status == "失败"
+    assert window.messages.request_model.rows is not rows and window.messages.request_model.rows[0].status == "失败"
 
     window._go(window.STATUS)
     window.status._open_module("media")
@@ -1474,16 +1474,16 @@ def test_request_view_keeps_old_requests_after_status_burst(window):
     window.store.flush()
     # 消息页上次选过别的类型、方法和只看失败
     window._go(window.MESSAGES)
-    window.filter_kind.set_index(3)
-    window.filter_method.setCurrentText("move")
-    window.failures_only.setChecked(True)
+    window.messages.filter_kind.set_index(3)
+    window.messages.filter_method.setCurrentText("move")
+    window.messages.failures_only.setChecked(True)
     window._go(window.STATUS)
     window.status._open_module("media")
     window.status.detail_view.set_index(1)
     window.status._detail_all_requests()
-    assert window.filter_kind.index() == 0 and window.filter_method.currentIndex() == 0 and not window.failures_only.isChecked()
-    assert window.stack.currentIndex() == window.MESSAGES and window.filter_module.index() == MODULES.index("media") + 1
-    assert [(r.events[0].tid, r.status) for r in window.request_model.rows] == [("old", "失败")]
+    assert window.messages.filter_kind.index() == 0 and window.messages.filter_method.currentIndex() == 0 and not window.messages.failures_only.isChecked()
+    assert window.stack.currentIndex() == window.MESSAGES and window.messages.filter_module.index() == MODULES.index("media") + 1
+    assert [(r.events[0].tid, r.status) for r in window.messages.request_model.rows] == [("old", "失败")]
 
 
 def test_trace_copies_topic_and_message_and_names_log_lines():
@@ -1551,21 +1551,21 @@ def test_upload_final_state_updates_request_list(window, state, result, status):
     window._ingest(Event("local/robotdog/fsvr/command", {"method": "sync_media_file", "tid": "u1", "data": {}}, sn="A", session="s"))
     window._ingest(Event("local/robotdog/fsvr/ack", {"method": "sync_media_file", "tid": "u1", "data": {"result": 0}}, sn="A", session="s"))
     window._go(window.MESSAGES)
-    window.view_mode.set_index(0)
-    before = window.request_model.rows[0].status
+    window.messages.view_mode.set_index(0)
+    before = window.messages.request_model.rows[0].status
     window._ingest(Event("local/robotdog/fsvr/state", {"method": "media_file_upload_status", "tid": "u1",
                                                       "data": {"result": result, "state": state, "percent": 100}}, sn="A", session="s"))
     window.messages._refresh()
-    expected = summarize(window.store.trace(window.request_model.rows[0].events[0])).status
-    assert window.request_model.rows[0].status == expected != before and status in expected
+    expected = summarize(window.store.trace(window.messages.request_model.rows[0].events[0])).status
+    assert window.messages.request_model.rows[0].status == expected != before and status in expected
 
 
 def test_log_table_copy_copies_selected_log_line(window, tmp_path):
     """日志表里按 Ctrl+C 复制的是选中的日志原文，不是消息页里之前选的那条"""
     window._ingest(Event("local/robotdog/media/command", {"method": "take_photo", "tid": "UNRELATED", "data": {}}, sn="TEST_DOG_001", session="s"))
     window._go(window.MESSAGES)
-    window.view_mode.set_index(0)
-    window.request_table.selectRow(0)
+    window.messages.view_mode.set_index(0)
+    window.messages.request_table.selectRow(0)
     path = tmp_path / "x.log"
     path.write_text("2026-11-02 12:00:00 [E] media EXPECTED_LOG_COPY\n", encoding="utf-8")
     _import_and_wait(window, path)
@@ -1607,9 +1607,9 @@ def test_trace_lists_same_tid_from_other_sources(window, tmp_path):
     window._ingest(Event("local/robotdog/media/ack", {"method": "camera_livestream", "tid": "L1", "data": {"result": 0}}, sn="D", session="live"))
     window._ingest(Event("local/robotdog/media/ack", {"method": "camera_livestream", "tid": "L1", "data": {"result": 0}}, sn="X", session="x"))
     window._go(window.MESSAGES)
-    window.view_mode.set_index(0)
-    row = next(i for i, r in enumerate(window.request_model.rows) if r.key == ("D", "live", "L1"))
-    window.messages._inspect_request(window.request_model.index(row, 0))
+    window.messages.view_mode.set_index(0)
+    row = next(i for i, r in enumerate(window.messages.request_model.rows) if r.key == ("D", "live", "L1"))
+    window.messages._inspect_request(window.messages.request_model.index(row, 0))
     text = window.messages.details.text()
     assert "证据链 · 2 条" in text and "其他来源中相同 tid 的记录" in text
     assert "设备日志 · GW_1.log · 2 条 · 11-02 15:43:08 – 15:43:09" in text and "实时 MQTT" not in text
@@ -1617,9 +1617,9 @@ def test_trace_lists_same_tid_from_other_sources(window, tmp_path):
     text = window.messages.details.text()
     assert "证据链 · 2 条" in text and "推流失败" in text and "实时 MQTT · 2 条" in text
     assert all(e.session.startswith("import-") for e in window.messages.details.events)
-    assert window.current_request[:2] == ("D", window.messages.details.selected.session) and window.current_request[1].startswith("import-")
+    assert window.messages.current_request[:2] == ("D", window.messages.details.selected.session) and window.messages.current_request[1].startswith("import-")
     _press(window.messages.details, "‹ 回到原来那组")
-    assert window.current_request == ("D", "live", "L1") and window.messages.details.origin is None
+    assert window.messages.current_request == ("D", "live", "L1") and window.messages.details.origin is None
     assert {e.session for e in window.messages.details.events} == {"live"}
 
 
@@ -1633,8 +1633,8 @@ def test_nearby_logs_uses_time_written_in_log(window, tmp_path):
                    "2026-11-02 15:50:00 [E] media 很久以后\n", encoding="utf-8")
     _import_and_wait(window, log)
     window._go(window.MESSAGES)
-    window.view_mode.set_index(0)
-    window.messages._inspect_request(window.request_model.index(0, 0))
+    window.messages.view_mode.set_index(0)
+    window.messages._inspect_request(window.messages.request_model.index(0, 0))
     _press(window.messages.details, "这段时间的设备日志")
     for _ in range(20):
         window._drain()
@@ -1646,8 +1646,8 @@ def test_nearby_logs_uses_time_written_in_log(window, tmp_path):
     # 实时收到的请求按收到时刻圈；这台设备没有日志时不拿别的设备凑
     window._ingest(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": "N2", "data": {"result": 0}}, sn="E", session="live"))
     window.messages._refresh()
-    row = next(i for i, r in enumerate(window.request_model.rows) if r.key == ("E", "live", "N2"))
-    window.messages._inspect_request(window.request_model.index(row, 0))
+    row = next(i for i, r in enumerate(window.messages.request_model.rows) if r.key == ("E", "live", "N2"))
+    window.messages._inspect_request(window.messages.request_model.index(row, 0))
     _press(window.messages.details, "这段时间的设备日志")
     for _ in range(20):
         window._drain()

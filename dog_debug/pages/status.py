@@ -30,6 +30,9 @@ class StatusPage:
 
     def __init__(self, app):
         self.app = app
+        self.status_seen, self.status_aged = {}, 0.0
+        self.status_latest, self.stream_rows = {}, []
+        self.status_drawn = None
 
     def _status_page(self):
         page = QWidget()
@@ -156,7 +159,7 @@ class StatusPage:
         return page
 
     def _room_follow(self):
-        self.room.setText(f"{self.app.sn.text().strip()}_{self.app.remote.camera_sn.text().strip()}")
+        self.room.setText(f"{self.app.sn.text().strip()}_{self.app.teleop.remote.camera_sn.text().strip()}")
 
     def _toggle_status_filter(self, hidden, key, shown):
         if shown:
@@ -199,7 +202,7 @@ class StatusPage:
         # 直播两路和预览都是 Media 的内容，不看 Media 时一起收起
         self.live_card[0].setVisible("media" in shown)
         self.web_card[0].setVisible("media" in shown)
-        if self.app.detail_module in self.hidden_modules:
+        if self.detail_module in self.hidden_modules:
             self._open_module(None)
         self._refresh_status()
 
@@ -296,20 +299,20 @@ class StatusPage:
         self.detail_pages.addWidget(trace)
         dv.addWidget(self.detail_pages, 1)
         # 每个分段上次画的依据，切回没变化的分段直接显示，不重画
-        self.app.detail_module, self.detail_drawn, self.detail_key = None, {}, None
+        self.detail_module, self.detail_drawn, self.detail_key = None, {}, None
         self.zlm_state, self.zlm_busy = None, False
         # 各 ZLM 地址的 RTSP / RTMP 端口（getServerConfig 查一次记住），和远程时为拉流开好的隧道 {(狗能连到的主机, 端口): 本机端口}
-        self.zlm_ports, self.app.ssh_rtsp = {}, {}
+        self.zlm_ports, self.app.connection.ssh_rtsp = {}, {}
         # 设备拉流配置（读到之前为 None）和读取结果说明：读到时是文件路径，没读到时是原因
         self.media_cfg, self.media_cfg_note, self.media_cfg_busy = None, "", False
-        self.app.zlm_timer = QTimer(self.app)
-        self.app.zlm_timer.setInterval(3000)
-        self.app.zlm_timer.timeout.connect(self._zlm_poll)
+        self.zlm_timer = QTimer(self.app)
+        self.zlm_timer.setInterval(3000)
+        self.zlm_timer.timeout.connect(self._zlm_poll)
         self.detail_card.hide()
         return self.detail_card
 
     def _open_module(self, module):
-        self.app.detail_module, self.detail_drawn = module, {}
+        self.detail_module, self.detail_drawn = module, {}
         for name, frame in self.module_frames.items():
             frame.setStyleSheet(self._card_style(name))
         self.detail_card.setVisible(bool(module))
@@ -328,7 +331,7 @@ class StatusPage:
             self._render_detail()
 
     def _card_style(self, module):
-        return "QFrame#card{border:1.5px solid %s}" % BLUE if module == self.app.detail_module else ""
+        return "QFrame#card{border:1.5px solid %s}" % BLUE if module == self.detail_module else ""
 
     def _clear_detail(self):
         while self.detail_box.count():
@@ -343,7 +346,7 @@ class StatusPage:
 
     def _render_detail(self):
         """按当前分段画详情；只在这个模块有新消息、ZLM 有新结果或筛选变了时重画，别的模块来消息不动"""
-        module = self.app.detail_module
+        module = self.detail_module
         view = self.detail_view.index()
         received = self.status_latest.get(module, [])
         stamp = (received[0].timestamp if received else 0, self.zlm_state and self.zlm_state["at"],
@@ -450,17 +453,17 @@ class StatusPage:
 
     def _detail_all_requests(self):
         """到消息追踪的请求视图，只看这个模块；失败在前，搜索 tid 或方法、逐条视图往前翻页都能找到更早的"""
-        module = self.app.detail_module
+        module = self.detail_module
         # 消息页上次留下的类型、方法、只看失败、翻页都清掉，否则会以为这个模块没有历史
-        self.app.pages = []
+        self.app.messages.pages = []
         self.app.messages.set_scope(None)
-        self.app.filter_text.clear()
-        self.app.filter_kind.set_index(0)
-        self.app.filter_method.setCurrentIndex(0)
-        self.app.failures_only.setChecked(False)
+        self.app.messages.filter_text.clear()
+        self.app.messages.filter_kind.set_index(0)
+        self.app.messages.filter_method.setCurrentIndex(0)
+        self.app.messages.failures_only.setChecked(False)
         self.app._go(self.app.MESSAGES)
-        self.app.filter_module.set_index(MODULES.index(module) + 1)
-        self.app.view_mode.set_index(0)
+        self.app.messages.filter_module.set_index(MODULES.index(module) + 1)
+        self.app.messages.view_mode.set_index(0)
 
     def _detail_to_messages(self):
         e = self.detail_trace.selected
@@ -577,9 +580,9 @@ class StatusPage:
 
     def _tunnel(self, host, port):
         """远程时经 SSH 转 host:port（从狗那边连）到本机，同一个目标只开一次，返回本机端口"""
-        if (host, port) not in self.app.ssh_rtsp:
-            self.app.ssh_rtsp[(host, port)] = self.app.ssh.forward(port, host)
-        return self.app.ssh_rtsp[(host, port)]
+        if (host, port) not in self.app.connection.ssh_rtsp:
+            self.app.connection.ssh_rtsp[(host, port)] = self.app.ssh.forward(port, host)
+        return self.app.connection.ssh_rtsp[(host, port)]
 
     def _reachable(self, url):
         """本机实际拉的地址：远程时把地址里的主机端口（从狗上看的）换成经狗转过来的本机隧道，直连时原样用"""
@@ -726,7 +729,7 @@ class StatusPage:
         if self.app.ssh_user.text().strip():
             self._load_media_cfg()
         # 经远程时 ZLM 走它自己的那条隧道，不是 MQTT 的本机端口
-        self.zlm_auto = f"127.0.0.1:{self.app.ssh_zlm}" if self.app.ssh else f"{self.app.mqtt.host}:80"
+        self.zlm_auto = f"127.0.0.1:{self.app.connection.ssh_zlm}" if self.app.ssh else f"{self.app.mqtt.host}:80"
         if self.zlm_manual or self.zlm_host.text().strip() == self.zlm_auto:
             return
         self.zlm_host.setText(self.zlm_auto)
@@ -739,7 +742,7 @@ class StatusPage:
         if not address or not secret or self.zlm_busy or self.app.mode in {"sandbox", "offline"}:
             return
         self.zlm_busy = True
-        self.app.zlm_timer.start()
+        self.zlm_timer.start()
         url = f"http://{address}/index/api/getMediaList?" + urllib.parse.urlencode({"secret": secret})
         known = address in self.zlm_ports
         # 经 FRP 隧道每次新连接要 1~3 s（实测），局域网 2.5 s 不够
@@ -786,7 +789,7 @@ class StatusPage:
             self.zlm_ports[state["address"]] = state["ports"]
         self._refresh_presets()
         if self.app.stack.currentIndex() != self.app.STATUS:
-            self.app.zlm_timer.stop()
+            self.zlm_timer.stop()
         self._refresh_status()
 
     def _status_ages(self):
@@ -800,10 +803,10 @@ class StatusPage:
             state.setStyleSheet(f"background:{GREEN if fresh else ORANGE};border-radius:4px")
             stamp = time.strftime("%H:%M:%S", time.localtime(seen))
             when.setText((f"v{version} · " if version else "") + (stamp if fresh else f"已过期 {age:.0f} 秒 · {stamp}"))
-        self.app.status_aged = time.monotonic()
+        self.status_aged = time.monotonic()
 
     def _refresh_status(self):
-        self.app.status_drawn = (self.app.store.status_version, self._status_sn())
+        self.status_drawn = (self.app.store.status_version, self._status_sn())
         before, self.status_seen = self.status_seen, {}
         latest = {}
         for _, e in self.app.store.query(kind="状态", limit=3000, sn=self._status_sn(), live=True):
@@ -859,7 +862,7 @@ class StatusPage:
             content.setText("".join(rows))
         self._refresh_streams()
         self._status_ages()
-        if self.app.detail_module:
+        if self.detail_module:
             self._render_detail()
 
     def _zlm_card(self, state, when, content):
@@ -931,3 +934,19 @@ class StatusPage:
             return json.dumps(value, ensure_ascii=False)
         text = "  ".join(f"{k}={shown(v)}" for k, v in body.items())
         return text if len(text) <= 300 else text[:297] + "…"
+
+    def shown(self):
+        self._refresh_status()
+        self._zlm_poll()
+
+    def tick(self, now):
+        """状态页可见时事件队列每轮调用，卡片时效每秒更新一次"""
+        if now - self.status_aged >= 1:
+            self._status_ages()
+
+    def refresh_if_changed(self):
+        """没有新状态、设备没换就不重读状态；详情里的指令与回复由它自己按模块消息数判断"""
+        if (self.app.store.status_version, self._status_sn()) != self.status_drawn:
+            self._refresh_status()
+        elif self.detail_module:
+            self._render_detail()

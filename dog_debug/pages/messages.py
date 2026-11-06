@@ -31,45 +31,54 @@ class MessagesPage:
 
     def __init__(self, app):
         self.app = app
+        self.current_event = None
+        self.current_request = None
+        self.current_chain = None
+        self.scope = None
+        self.search, self.export_running = None, False
+        self.requests_drawn = None
+        self.preview, self.export_dialog = None, None
+        # 逐条视图翻页：栈里存每页之前那页的最小行号，空栈表示最新一页
+        self.pages, self.page_rows = [], []
 
     def _message_page(self):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.app.failures_only = Switch("只看失败")
-        self.app.failures_only.toggled.connect(self._refresh)
-        self.app.view_mode = Segmented(["按请求", "逐条消息", "检测链路"])
-        self.app.view_mode.changed.connect(self._view_changed)
-        self.app._page_header(layout, "消息追踪", "", self.app.view_mode, self.app.failures_only, button("导出诊断包", self._export))
-        self.app.filter_text = QLineEdit()
-        self.app.filter_text.setObjectName("search")
-        self.app.filter_text.setPlaceholderText("搜索错误、tid、Topic 或任意内容")
+        self.failures_only = Switch("只看失败")
+        self.failures_only.toggled.connect(self._refresh)
+        self.view_mode = Segmented(["按请求", "逐条消息", "检测链路"])
+        self.view_mode.changed.connect(self._view_changed)
+        self.app._page_header(layout, "消息追踪", "", self.view_mode, self.failures_only, button("导出诊断包", self._export))
+        self.filter_text = QLineEdit()
+        self.filter_text.setObjectName("search")
+        self.filter_text.setPlaceholderText("搜索错误、tid、Topic 或任意内容")
         # 大库里文本搜索要全表扫描，停手 300 ms 再查
         self.search_timer = QTimer(self.app)
         self.search_timer.setSingleShot(True)
         self.search_timer.setInterval(300)
         self.search_timer.timeout.connect(self._first_page)
-        self.app.filter_text.textChanged.connect(self.search_timer.start)
+        self.filter_text.textChanged.connect(self.search_timer.start)
         search = QHBoxLayout()
-        search.addWidget(self.app.filter_text, 1)
+        search.addWidget(self.filter_text, 1)
         self.search_hint = label("搜索中…", "caption")
         self.search_hint.hide()
         search.addWidget(self.search_hint)
         filters = QHBoxLayout()
         filters.setSpacing(10)
-        self.app.filter_module = Segmented(["全部"] + [m.upper() for m in MODULES] + ["其他"])
-        self.app.filter_kind = Segmented(["全部", "指令", "ACK", "状态", "事件", "日志"])
-        self.app.filter_method = QComboBox()
-        self.app.filter_method.addItems(["全部方法"] + sorted({e["method"] for e in self.app.catalog}))
-        self.app.filter_method.setMinimumWidth(190)
-        self.app.filter_module.changed.connect(self._refresh)
-        self.app.filter_kind.changed.connect(self._refresh)
-        self.app.filter_method.currentTextChanged.connect(self._refresh)
-        search.addWidget(self.app.filter_method)
+        self.filter_module = Segmented(["全部"] + [m.upper() for m in MODULES] + ["其他"])
+        self.filter_kind = Segmented(["全部", "指令", "ACK", "状态", "事件", "日志"])
+        self.filter_method = QComboBox()
+        self.filter_method.addItems(["全部方法"] + sorted({e["method"] for e in self.app.catalog}))
+        self.filter_method.setMinimumWidth(190)
+        self.filter_module.changed.connect(self._refresh)
+        self.filter_kind.changed.connect(self._refresh)
+        self.filter_method.currentTextChanged.connect(self._refresh)
+        search.addWidget(self.filter_method)
         layout.addLayout(search)
-        filters.addWidget(self.app.filter_module)
+        filters.addWidget(self.filter_module)
         filters.addStretch()
-        filters.addWidget(self.app.filter_kind)
+        filters.addWidget(self.filter_kind)
         self.scope_chip = button("", lambda: self.set_scope(None), "chip")
         self.scope_chip.setToolTip("点击回到全部消息")
         self.scope_chip.hide()
@@ -83,37 +92,37 @@ class MessagesPage:
         split = QSplitter()
         split.setHandleWidth(14)
         table_card, tv = card(0, 6)
-        self.app.model = EventModel()
-        self.app.table = QTableView()
-        self.app.table.setModel(self.app.model)
-        self.app.table.setItemDelegate(PillDelegate(self.app.table))
-        self.app.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.app.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.app.table.setShowGrid(False)
-        self.app.table.setWordWrap(False)
-        self.app.table.verticalHeader().hide()
-        self.app.table.verticalHeader().setDefaultSectionSize(38)
-        header = self.app.table.horizontalHeader()
+        self.model = EventModel()
+        self.table = QTableView()
+        self.table.setModel(self.model)
+        self.table.setItemDelegate(PillDelegate(self.table))
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().hide()
+        self.table.verticalHeader().setDefaultSectionSize(38)
+        header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.app.table.clicked.connect(self._inspect)
-        self.app.request_model = RequestModel()
-        self.app.request_table = QTableView()
-        self.app.request_table.setModel(self.app.request_model)
-        self.app.request_table.setItemDelegate(PillDelegate(self.app.request_table))
-        self.app.request_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.app.request_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.app.request_table.setShowGrid(False)
-        self.app.request_table.setWordWrap(False)
-        self.app.request_table.verticalHeader().hide()
-        self.app.request_table.verticalHeader().setDefaultSectionSize(40)
-        header = self.app.request_table.horizontalHeader()
+        self.table.clicked.connect(self._inspect)
+        self.request_model = RequestModel()
+        self.request_table = QTableView()
+        self.request_table.setModel(self.request_model)
+        self.request_table.setItemDelegate(PillDelegate(self.request_table))
+        self.request_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.request_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.request_table.setShowGrid(False)
+        self.request_table.setWordWrap(False)
+        self.request_table.verticalHeader().hide()
+        self.request_table.verticalHeader().setDefaultSectionSize(40)
+        header = self.request_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.setStretchLastSection(True)
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.app.request_table.clicked.connect(self._inspect_request)
-        self.app.request_table.doubleClicked.connect(self._open_request)
+        self.request_table.clicked.connect(self._inspect_request)
+        self.request_table.doubleClicked.connect(self._open_request)
         self.chain_model = ChainModel()
         self.chain_table = QTableView()
         self.chain_table.setModel(self.chain_model)
@@ -128,7 +137,7 @@ class MessagesPage:
         header.setStretchLastSection(True)
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.chain_table.clicked.connect(self._inspect_chain)
-        for table in (self.app.table, self.app.request_table, self.chain_table):
+        for table in (self.table, self.request_table, self.chain_table):
             QShortcut(QKeySequence.Copy, table, self._copy_selection, context=Qt.WidgetShortcut)
             # 列宽固定初值、可拖动，不按内容定宽：按内容定宽要问遍前 1000 行每一格的尺寸（走 Python 委托），
             # 消息多时每次刷新、换外观都要卡好几秒
@@ -136,11 +145,11 @@ class MessagesPage:
             header.setSectionResizeMode(QHeaderView.Interactive)
             for column, width in enumerate(COLUMN_WIDTHS[table.model().__class__.__name__]):
                 header.resizeSection(column, width)
-        self.app.views = QStackedWidget()
-        self.app.views.addWidget(self.app.request_table)
-        self.app.views.addWidget(self.app.table)
-        self.app.views.addWidget(self.chain_table)
-        tv.addWidget(self.app.views)
+        self.views = QStackedWidget()
+        self.views.addWidget(self.request_table)
+        self.views.addWidget(self.table)
+        self.views.addWidget(self.chain_table)
+        tv.addWidget(self.views)
         pager = QHBoxLayout()
         pager.setContentsMargins(10, 4, 10, 4)
         self.page_label = label("", "caption")
@@ -179,20 +188,20 @@ class MessagesPage:
             # 消息页不可见时不重建它的表格（切过去时 _page 会刷一次），只更新控制结果和状态页
             self.app._refresh_tail()
             return
-        module_index = self.app.filter_module.index()
+        module_index = self.filter_module.index()
         module = "" if module_index == 0 else "unknown" if module_index > len(MODULES) else MODULES[module_index - 1]
-        kind = "" if self.app.filter_kind.index() == 0 else ["", "指令", "ACK", "状态", "事件", "日志"][self.app.filter_kind.index()]
-        method = "" if self.app.filter_method.currentIndex() == 0 else self.app.filter_method.currentText()
-        before, text = (self.app.pages[-1] if self.app.pages else None), self.app.filter_text.text()
+        kind = "" if self.filter_kind.index() == 0 else ["", "指令", "ACK", "状态", "事件", "日志"][self.filter_kind.index()]
+        method = "" if self.filter_method.currentIndex() == 0 else self.filter_method.currentText()
+        before, text = (self.pages[-1] if self.pages else None), self.filter_text.text()
         wanted = ((module, method, kind, text, before, self._requests_visible())
-                  if not self.app.scope and text and self.app.store.on_disk else None)
+                  if not self.scope and text and self.app.store.on_disk else None)
         # 条件变了（含清空搜索、进入请求作用域、换页、换视图），在途的旧搜索作废，迟到的结果不再落表
         if self.search and self.search["params"] != wanted:
             self._cancel_search()
-        if self.app.scope:
+        if self.scope:
             # 请求作用域下仍可叠加其他筛选，只是不再跨设备/会话
-            needle = self.app.filter_text.text().lower()
-            rows = [(0, e) for e in reversed(self.app.store.groups([self.app.scope]).get(self.app.scope, []))
+            needle = self.filter_text.text().lower()
+            rows = [(0, e) for e in reversed(self.app.store.groups([self.scope]).get(self.scope, []))
                     if (not module or e.module == module) and (not method or e.method == method)
                     and (not kind or e.kind == kind)
                     and (not needle or needle in json.dumps(e.clean(), ensure_ascii=False).lower())]
@@ -204,33 +213,33 @@ class MessagesPage:
             else:
                 rows = self.app.store.query(module, method, kind, text, PAGE_SIZE, before)
                 # 请求列表只在有新的指令/ACK 等或筛选变了时重算；实时状态再多也不重算旧请求
-                drawn = (module, method, kind, text, self.app.failures_only.isChecked(), self.app.store.request_version)
+                drawn = (module, method, kind, text, self.failures_only.isChecked(), self.app.store.request_version)
                 request_rows = None
                 if self._requests_visible() and drawn != self.requests_drawn:
                     self.requests_drawn = drawn
                     request_rows = self.app.store.query(module, method, kind or REQUEST_KINDS, text, 3000)
                 self._show_rows(rows, request_rows)
-        if self.app.views.currentIndex() == 2 and self.app.stack.currentIndex() == self.app.MESSAGES:
+        if self.views.currentIndex() == 2 and self.app.stack.currentIndex() == self.app.MESSAGES:
             self._refresh_chains()
         self.app._refresh_tail()
 
     def _requests_visible(self):
-        return self.app.views.currentIndex() == 0 and self.app.stack.currentIndex() == self.app.MESSAGES
+        return self.views.currentIndex() == 0 and self.app.stack.currentIndex() == self.app.MESSAGES
 
     def _show_rows(self, rows, request_rows):
         """把查询结果放进逐条表和请求表；request_rows 为 None 时请求表不动"""
         # 翻页按未过滤的整页判断还有没有更早的
         self._update_pager(rows)
-        if self.app.failures_only.isChecked():
+        if self.failures_only.isChecked():
             rows = [(i, e) for i, e in rows if diagnose(e).status in FAILED | {"契约待核"}]
-        keep = self.app.current_event.event_id if self.app.current_event else None
+        keep = self.current_event.event_id if self.current_event else None
         if request_rows is not None:
             self._refresh_requests(request_rows)
-        self.app.model.replace(rows)
+        self.model.replace(rows)
         # 重建模型会清掉选中行，按事件 ID 恢复，避免实时消息刷新时选择跳走
-        for row, (_, e, _) in enumerate(self.app.model.rows):
+        for row, (_, e, _) in enumerate(self.model.rows):
             if e.event_id == keep:
-                self.app.table.selectRow(row)
+                self.table.selectRow(row)
                 break
 
     def _search_async(self, params):
@@ -287,14 +296,14 @@ class MessagesPage:
 
     def _copy_selection(self):
         """Ctrl+C：逐条视图复制所选消息的完整 JSON；请求和检测链路复制结论与 tid，便于贴到工单"""
-        view = self.app.views.currentIndex()
+        view = self.views.currentIndex()
         if view == 1:
-            rows = sorted({i.row() for i in self.app.table.selectionModel().selectedRows()})
-            text = "\n".join(json.dumps(self.app.model.rows[r][1].clean(), ensure_ascii=False) for r in rows)
+            rows = sorted({i.row() for i in self.table.selectionModel().selectedRows()})
+            text = "\n".join(json.dumps(self.model.rows[r][1].clean(), ensure_ascii=False) for r in rows)
         elif view == 0:
-            rows = sorted({i.row() for i in self.app.request_table.selectionModel().selectedRows()})
+            rows = sorted({i.row() for i in self.request_table.selectionModel().selectedRows()})
             text = "\n".join(f"{r.events[0].sn}\t{r.method}\t{r.status}\t{r.summary}\ttid={r.events[0].tid}"
-                             for r in (self.app.request_model.rows[i] for i in rows))
+                             for r in (self.request_model.rows[i] for i in rows))
         else:
             rows = sorted({i.row() for i in self.chain_table.selectionModel().selectedRows()})
             text = "\n".join(f"{c['file']}\t{c['verdict']}" for c in (self.chain_model.rows[i] for i in rows))
@@ -324,50 +333,50 @@ class MessagesPage:
         self._refresh()
 
     def _update_pager(self, rows):
-        self.pager.setVisible(self.app.views.currentIndex() == 1 and not self.app.scope)
-        self.page_label.setText(f"第 {len(self.app.pages) + 1} 页 · 本页 {len(rows)} 条" +
-                                ("　（最新一页随新消息刷新）" if not self.app.pages else ""))
-        self.newer_btn.setEnabled(bool(self.app.pages))
+        self.pager.setVisible(self.views.currentIndex() == 1 and not self.scope)
+        self.page_label.setText(f"第 {len(self.pages) + 1} 页 · 本页 {len(rows)} 条" +
+                                ("　（最新一页随新消息刷新）" if not self.pages else ""))
+        self.newer_btn.setEnabled(bool(self.pages))
         self.older_btn.setEnabled(len(rows) >= PAGE_SIZE)
         self.page_rows = rows
 
     def _older_page(self):
-        self.app.pages.append(min(i for i, _ in self.page_rows))
+        self.pages.append(min(i for i, _ in self.page_rows))
         self._refresh()
 
     def _newer_page(self):
-        self.app.pages.pop()
+        self.pages.pop()
         self._refresh()
 
     def _first_page(self):
-        self.app.pages = []
+        self.pages = []
         self._refresh()
 
     def _refresh_requests(self, rows):
         found = requests(self.app.store, rows)
-        if self.app.failures_only.isChecked():
+        if self.failures_only.isChecked():
             found = [r for r in found if r.status in FAILED | {"契约待核", "无 ACK"}]
-        keep = self.app.current_request
-        self.app.request_model.noted = set(self.app.store.notes())
-        self.app.request_model.replace(found[:500])
-        for row, r in enumerate(self.app.request_model.rows):
+        keep = self.current_request
+        self.request_model.noted = set(self.app.store.notes())
+        self.request_model.replace(found[:500])
+        for row, r in enumerate(self.request_model.rows):
             if r.key == keep:
-                self.app.request_table.selectRow(row)
+                self.request_table.selectRow(row)
                 break
 
     def _view_changed(self, index):
-        fade_to(self.app.views, index)
-        self.scope_chip.setVisible(bool(self.app.scope) and index == 1)
+        fade_to(self.views, index)
+        self.scope_chip.setVisible(bool(self.scope) and index == 1)
         self.chain_demo.setVisible(index == 2)
         self._refresh()
 
     def _inspect_request(self, index):
         if not index.isValid():
             return
-        self._trace_request(self.app.request_model.rows[index.row()])
+        self._trace_request(self.request_model.rows[index.row()])
 
     def _trace_request(self, r):
-        self.app.current_request = r.key
+        self.current_request = r.key
         # 结论卡优先落在失败那条，否则落在最后一条回复
         focus = next((e for e in r.events if diagnose(e).status in FAILED), r.events[-1])
         self.details.show_trace(focus, r.events, self.app.store.note(r.key))
@@ -375,12 +384,12 @@ class MessagesPage:
 
     def _details_switched(self, key):
         """证据链换到别的来源那组时，备注写给那一组"""
-        self.app.current_request = key
+        self.current_request = key
         self.note_btn.setEnabled(True)
 
     def _edit_note(self):
         """给当前请求写问题备注：预期、实际、备注、是否已复现；绑定完整 (设备, 会话, tid)"""
-        key = self.app.current_request
+        key = self.current_request
         if not key:
             return
         note = self.app.store.note(key) or {}
@@ -413,29 +422,29 @@ class MessagesPage:
         self.app.store.set_note(key, {**{k: w.toPlainText().strip() for k, w in fields.items()},
                                   "reproduced": reproduced.isChecked()})
         self._refresh()
-        row = next((i for i, r in enumerate(self.app.request_model.rows) if r.key == key), None)
+        row = next((i for i, r in enumerate(self.request_model.rows) if r.key == key), None)
         if row is not None and not self.details.origin:
-            self._inspect_request(self.app.request_model.index(row, 0))
+            self._inspect_request(self.request_model.index(row, 0))
         else:
             self.details.refresh()
         self.app.notify("备注已保存，会随诊断包导出")
 
     def _open_request(self, index):
         """双击请求切到逐条视图，只看这次请求（同设备、同会话、同 tid）的原始消息"""
-        self.set_scope(self.app.request_model.rows[index.row()].key)
-        self.app.view_mode.set_index(1)
+        self.set_scope(self.request_model.rows[index.row()].key)
+        self.view_mode.set_index(1)
 
     def _show_request(self, r):
         """从别处跳到逐条视图，只看这次请求的消息并显示证据链；按 tid 搜索会混进别的设备或会话里同 tid 的请求"""
-        self.app.filter_text.clear()
+        self.filter_text.clear()
         self.app._go(self.app.MESSAGES)
-        self.app.view_mode.set_index(1)
+        self.view_mode.set_index(1)
         self.set_scope(r.key)
         self._trace_request(r)
 
     def set_scope(self, key):
         """限定逐条视图只显示一个请求；None 回到全部消息"""
-        self.app.scope = key
+        self.scope = key
         if key:
             sn, session, tid = key
             self.scope_chip.setText(f"仅此请求 · {sn} · {tid[:8]}…  ✕")
@@ -445,8 +454,8 @@ class MessagesPage:
     def _inspect(self, index):
         if not index.isValid():
             return
-        self.app.current_event = self.app.model.rows[index.row()][1]
-        self.details.show_trace(self.app.current_event, self.app.store.trace(self.app.current_event))
+        self.current_event = self.model.rows[index.row()][1]
+        self.details.show_trace(self.current_event, self.app.store.trace(self.current_event))
 
     def _fill_preview(self, dialog, info):
         dialog.loading.hide()
@@ -474,7 +483,7 @@ class MessagesPage:
         库文件上的概览统计要扫全表，在后台只读连接里做，对话框先显示“正在统计…”；取消即中断统计
         """
         dialog = QDialog(self.app)
-        self.app.export_dialog = dialog
+        self.export_dialog = dialog
         dialog.setWindowTitle("导出诊断包")
         dialog.setMinimumWidth(460)
         layout = QVBoxLayout(dialog)
@@ -497,7 +506,7 @@ class MessagesPage:
         if self.app.store.on_disk:
             self.app.store.flush()
             reader, token = self.app.store.reader(), object()
-            self.app.preview = {"reader": reader, "token": token}
+            self.preview = {"reader": reader, "token": token}
 
             def work():
                 try:
@@ -512,12 +521,12 @@ class MessagesPage:
         else:
             self._fill_preview(dialog, export_preview(self.app.store))
         accepted = dialog.exec() == QDialog.Accepted
-        if self.app.preview:
+        if self.preview:
             try:
-                self.app.preview["reader"].db.interrupt()
+                self.preview["reader"].db.interrupt()
             except sqlite3.ProgrammingError:
                 pass
-        self.app.preview, self.app.export_dialog = None, None
+        self.preview, self.export_dialog = None, None
         if not accepted:
             return
         name = time.strftime("dog-debug-%Y%m%d-%H%M%S.zip")
@@ -530,8 +539,8 @@ class MessagesPage:
             return
         # 大库导出要几分钟，后台只读连接里写，界面照常可用
         self.app.store.flush()
-        environment, focus = self._environment(), self.app.current_request
-        self.app.export_running = True
+        environment, focus = self._environment(), self.current_request
+        self.export_running = True
         self.app.notify("正在后台导出诊断包…")
 
         def work():
@@ -547,10 +556,22 @@ class MessagesPage:
         threading.Thread(target=work, daemon=True).start()
 
     def export_bundle(self, path):
-        return diagnostic_zip(self.app.store, path, self._environment(), self.app.current_request)
+        return diagnostic_zip(self.app.store, path, self._environment(), self.current_request)
 
     def _environment(self):
         return {"version": __version__, "mode": self.app.mode, "platform": sys.platform,
                 "broker": f"{self.app.mqtt.host}:{self.app.port.value()}" if self.app.mqtt.connected else "",
                 "device_sn": self.app.mqtt.sn if self.app.mqtt.connected else self.app.sn.text().strip(),
                 "model": self.app.scene.variant, "osd": self.app.scene.osd}
+
+    def shown(self):
+        self._refresh()
+
+    def _preview_done(self, token, rows):
+        # 导出窗口已经关了或又开了一次，旧的预览结果不再填
+        if self.preview and self.preview["token"] is token and self.export_dialog:
+            self._fill_preview(self.export_dialog, rows)
+
+    def _export_done(self, note):
+        self.export_running = False
+        self.app.notify(note)

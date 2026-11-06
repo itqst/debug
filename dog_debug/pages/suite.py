@@ -35,14 +35,14 @@ class SuitePage:
     def _save_case(self):
         import yaml
         try:
-            payload = json.loads(self.app.editor.toPlainText())
+            payload = json.loads(self.app.control.editor.toPlainText())
         except ValueError as error:
             self.app.notify("JSON 格式错误：" + str(error))
             return
         path, _ = QFileDialog.getSaveFileName(self.app, "保存用例", str(payload.get("method", "case")) + ".yaml", "YAML (*.yaml)")
         if not path:
             return
-        scenario = SCENARIOS[self.app.scenario.index()][1]
+        scenario = SCENARIOS[self.app.control.scenario.index()][1]
         preview = simulate(payload, "TEST", "preview", scenario)
         expected = [diagnose(e).status for e in preview if e.kind == "ACK"]
         Path(path).write_text(yaml.safe_dump({"name": payload.get("method"), "payload": payload, "scenario": scenario,

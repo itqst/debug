@@ -197,14 +197,14 @@ def test_cloud_colors_by_height_and_intensity():
 
 
 def test_sandbox_switch_shows_cloud_and_card(window):
-    window.missions.cloud_state.setText("")
+    window.mission.missions.cloud_state.setText("")
     assert window._quick_send("pcd_switch", {"enable": True})
     assert window.scene.cloud is not None and window.scene.cloud_live
-    assert window.scene3d.cloud_pill.text() == "点云 · 实时" and "点" in window.cloud_info.text()
-    assert "采集中" in window.missions.cloud_state.text() and "操作成功" in window.missions.cloud_ack.text()
+    assert window.scene3d.cloud_pill.text() == "点云 · 实时" and "点" in window.scene3d.cloud_info.text()
+    assert "采集中" in window.mission.missions.cloud_state.text() and "操作成功" in window.mission.missions.cloud_ack.text()
     assert window.quick.topic == "local/robotdog/ros2bridge/command"
     window._quick_send("pcd_switch", {"enable": False})
-    assert "未采集" in window.missions.cloud_state.text()
+    assert "未采集" in window.mission.missions.cloud_state.text()
 
 
 def test_pcd_switch_goes_to_local_topic_in_every_mode(window):

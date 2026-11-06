@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from . import __version__, cad, robot as model_module
 from .core import diagnose, Event, infer_module, Store
 from .logs import detect_encoding
-from .pointcloud import cloud_data, CloudError, decode as decode_cloud
+from .pointcloud import cloud_data
 from .registry import entries, find, local_payload, make_command
 from .robot import VARIANTS
 from .scene import Scene
@@ -32,7 +32,7 @@ from .trace_view import Step
 from .transport import MqttTransport, simulate
 from .ui import (
     APP_NAME, apply_theme, button, dot, FAILED, glyph_icon, GRAY, guard_wheel, label, logo_icon, logo_image, MODES,
-    NavDelegate, ORANGE, press_feedback, RED, SCENARIOS, scroller, settings, setup_fonts, Switch, tint, Toast, tone,
+    NavDelegate, ORANGE, press_feedback, SCENARIOS, scroller, settings, setup_fonts, Switch, tint, Toast, tone,
 )
 from .pages.connection import ConnectionPanel
 from .pages.control import ControlPage
@@ -77,44 +77,19 @@ class Studio(QMainWindow):
         self.mqtt = MqttTransport(self.inbox)
         self.session = str(uuid.uuid4())
         self.import_cancel = threading.Event()
-        self.logs.import_thread = None
         self.catalog = entries()
-        self.control.selected = None
         # 本次运行里各指令未发出的编辑内容，切回来接着改；切换连接模式时报文格式变了，一并清掉
         self.drafts = {}
-        self.control.recent = []
-        self.control.form_syncing = False
-        self.current_event = None
-        self.current_request = None
-        self.messages.current_chain = None
-        self.scope = None
-        self.watch, self.watch_size = None, 0
         self.quick = None
         self.quick_views = []
         self.scene = Scene()
-        self.scene3d.joint_sliders = {}
-        self.scene3d.importing = None
-        self.scene3d.step_timer = QTimer(self)
-        self.scene3d.step_timer.timeout.connect(self.scene3d._poll_step)
         self.refresh_due, self.refreshed = False, 0.0
-        self.messages.search, self.export_running = None, False
-        self.status.status_seen, self.status_aged = {}, 0.0
-        self.status.status_latest, self.status.stream_rows = {}, []
-        self.status_drawn, self.messages.requests_drawn = None, None
         # 每个模块收到实时消息的次数，状态页详情据此判断要不要重画
         self.module_touched = {}
-        self.preview, self.export_dialog = None, None
-        # 逐条视图翻页：栈里存每页之前那页的最小行号，空栈表示最新一页
-        self.pages, self.messages.page_rows = [], []
-        self.shown_live, self.demo_note = False, ""
-        # None 未加载，False 加载中，否则为 RobotView
-        self.viewer = None
+        self.demo_note = ""
         # 最近一次点云解析错误（同样的错误不重复提示）和点云标签上次按时效刷新的时刻
-        self.cloud_error, self.cloud_aged = "", 0.0
         self.dropped_shown = 0
         self.rate_count, self.rate_at = 0, time.monotonic()
-        self.scene3d.spark_at, self.scene3d.compass = 0.0, None
-        self.replay = None
         self._build()
         # 构建时建好的滑条、下拉框、数字框统一装上滚轮保护；之后动态加的（航点、关节）在创建处装
         for kind in (QSlider, QComboBox, QAbstractSpinBox):
@@ -129,7 +104,7 @@ class Studio(QMainWindow):
         self.connection._mode_changed()
         self.status._room_follow()
         self.sn.textChanged.connect(self.status._room_follow)
-        self.remote.camera_sn.textChanged.connect(self.status._room_follow)
+        self.teleop.remote.camera_sn.textChanged.connect(self.status._room_follow)
         self.messages._refresh()
 
     # ---- 布局 ----
@@ -303,7 +278,7 @@ class Studio(QMainWindow):
         # 本机自用，SSH 账号改完就记住
         self.ssh_user.editingFinished.connect(lambda: settings().setValue("ssh_user", self.ssh_user.text().strip()))
         self.ssh_password.editingFinished.connect(lambda: settings().setValue("ssh_password", self.ssh_password.text()))
-        self.ssh, self.ssh_zlm, self.ssh_connecting = None, 0, False
+        self.ssh, self.connection.ssh_zlm, self.connection.ssh_connecting = None, 0, False
         self.connect_btn = button("连接", self.connection._connect, "primary")
         broker = QHBoxLayout()
         broker.addWidget(self.host, 1)
@@ -357,8 +332,7 @@ class Studio(QMainWindow):
         cover.repaint()
         apply_theme(QApplication.instance(), dark)
         settings().setValue("theme", "dark" if dark else "light")
-        if self.viewer:
-            self.viewer.set_dark(dark)
+        self.scene3d.set_dark(dark)
         effect = QGraphicsOpacityEffect(cover)
         cover.setGraphicsEffect(effect)
         fade = QPropertyAnimation(effect, b"opacity", cover)
@@ -390,7 +364,7 @@ class Studio(QMainWindow):
             threading.Thread(target=run, daemon=True).start()
 
 
-    # ---- 模型导入 ----
+    # ---- 消息入库 ----
 
 
     def _ingest(self, event):
@@ -400,20 +374,12 @@ class Studio(QMainWindow):
         """
         data = cloud_data(event)
         if data is not None and (self._current_device(event) or (event.source == "sandbox" and self.mode == "sandbox")):
-            try:
-                self.scene.set_cloud(decode_cloud(data))
-                self.cloud_error = ""
-            except CloudError as error:
-                # 同一个错误连着来只提示一次，中间解出过好帧再出错会再提示
-                if str(error) != self.cloud_error:
-                    self.cloud_error = str(error)
-                    self.notify("点云解析失败：" + self.cloud_error)
-                    self.cloud_info.setText("最近一帧没解出来：" + self.cloud_error)
+            self.scene3d.take_cloud(data)
         self.store.add(event)
         self.module_touched[event.module] = self.module_touched.get(event.module, 0) + 1
-        self.missions.observe(event)
+        self.mission.missions.observe(event)
         # 回放期间不让实时 OSD 把画面拉走
-        if self._current_device(event) and not self.replay:
+        if self._current_device(event) and not self.scene3d.replay:
             self.scene.telemetry(event)
 
     def _current_device(self, event):
@@ -446,29 +412,18 @@ class Studio(QMainWindow):
 
     def _open_quick(self):
         if self.quick:
-            self.filter_text.setText(self.quick.tid)
+            self.messages.filter_text.setText(self.quick.tid)
             self._go(self.MESSAGES)
-
-
-    # ---- 设备日志 ----
 
 
     # ---- 页面与状态 ----
 
     def _page(self, index):
         self._slide_to(index)
-        if index == self.STATUS:
-            self.status._refresh_status()
-            self.status._zlm_poll()
-        elif index == self.MESSAGES:
-            self.messages._refresh()
-        elif index == self.LOGS:
-            self.logs._show_store_size()
-            if not self.log_loaded:
-                self.logs._log_batches()
-        elif index == self.REMOTE:
-            self.remote.setFocus()
-        self.observer.setVisible(index in self.OBSERVED)
+        page = {self.STATUS: self.status, self.MESSAGES: self.messages, self.LOGS: self.logs, self.REMOTE: self.teleop}.get(index)
+        if page:
+            page.shown()
+        self.scene3d.observer.setVisible(index in self.OBSERVED)
         # 窗口还没显示时不加载，showEvent 再补；测试里窗口不显示，也就不加载 OpenGL
         if index in self.OBSERVED and self.isVisible():
             self.scene3d._ensure_viewer()
@@ -535,7 +490,7 @@ class Studio(QMainWindow):
         if self.mode == "sandbox":
             sn = self.sn.text().strip()
             if record:
-                events = simulate(payload, sn, self.session, SCENARIOS[self.scenario.index()][1])
+                events = simulate(payload, sn, self.session, SCENARIOS[self.control.scenario.index()][1])
             else:
                 events = [Event(topic, {}, "发送", "sandbox", sn, self.session, module, raw=text)]
             for event in events:
@@ -601,21 +556,11 @@ class Studio(QMainWindow):
 
 
     def _refresh_tail(self):
-        if self.watch:
-            trace = self.store.trace(self.watch)
-            if len(trace) != self.watch_size:
-                self.watch_size = len(trace)
-                # 新消息到了还停在用户点开的那条上
-                chosen = self.result.selected
-                self.result.show_trace(next((e for e in trace if chosen and e.event_id == chosen.event_id), self.watch), trace)
+        self.control.refresh_result()
         if self.quick:
             self._quick_status()
         if self.stack.currentIndex() == self.STATUS:
-            # 没有新状态、设备没换就不重读状态；详情里的指令与回复由它自己按模块消息数判断
-            if (self.store.status_version, self.status._status_sn()) != self.status_drawn:
-                self.status._refresh_status()
-            elif self.detail_module:
-                self.status._render_detail()
+            self.status.refresh_if_changed()
 
 
     def _original(self, e):
@@ -649,7 +594,7 @@ class Studio(QMainWindow):
         edit.centerCursor()
         dialog.exec()
 
-    # ---- 日志导入 ----
+    # ---- 拖入日志 ----
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -666,14 +611,9 @@ class Studio(QMainWindow):
         if now - self.rate_at >= 1:
             self.rate_label.setText(f"{self.rate_count / (now - self.rate_at):.0f} 条/秒" if self.mqtt.connected else "")
             self.rate_count, self.rate_at = 0, now
-        # OSD 停发后没有新消息也没有动画，这里顺带把“实时”标记按时效退掉
-        if self.scene.live != self.shown_live:
-            self.scene3d._device_changed()
-        if self.stack.currentIndex() == self.STATUS and time.monotonic() - self.status_aged >= 1:
-            self.status._status_ages()
-        if self.scene.cloud and now - self.cloud_aged >= 1:
-            self.cloud_aged = now
-            self.scene3d._cloud_status()
+        self.scene3d.tick(now)
+        if self.stack.currentIndex() == self.STATUS:
+            self.status.tick(now)
         changed = False
         # 每次最多处理约 60 ms，剩下的留到下一轮，避免大批导入时界面无响应
         deadline = time.monotonic() + 0.06
@@ -697,8 +637,7 @@ class Studio(QMainWindow):
             elif kind == "model_error":
                 self.scene3d._import_failed(value, extra[0])
             elif kind == "preview":
-                if self.preview and self.preview["token"] is value and self.export_dialog:
-                    self.messages._fill_preview(self.export_dialog, extra[0])
+                self.messages._preview_done(value, extra[0])
             elif kind == "replay_sessions":
                 self.scene3d._replay_menu(value)
             elif kind == "replay_frames":
@@ -710,50 +649,32 @@ class Studio(QMainWindow):
             elif kind == "notice":
                 self.notify(value)
             elif kind == "export_done":
-                self.export_running = False
-                self.notify(value)
+                self.messages._export_done(value)
             elif kind == "import_done":
-                self.import_row.hide()
-                self.import_state.setText("")
-                self.logs._show_store_size()
-                # 后台用另一个只读连接查批次，先把这一批最后几行提交，否则可能查不到
-                self.store.flush()
-                self.logs._log_batches(newest=True)
+                self.logs._import_finished()
             elif kind == "log_batches":
                 self.logs._log_batches_done(value, *extra)
             elif kind == "log_rows":
                 self.logs._log_rows_done(value, *extra)
             elif kind == "import":
-                self.import_info.appendPlainText(time.strftime("%H:%M:%S  ") + value)
-                self.notify(value)
+                self.logs._import_note(value)
             elif kind == "connection":
-                if self.mqtt.connected:
-                    self.connection._connection_hint()
-                    self.status._zlm_follow()
-                else:
-                    self.connection._set_link(str(value), RED)
+                self.connection._connected(value)
             elif kind == "disconnect":
-                self.remote.halt()
-                self.mqtt.close()
-                self.connection._close_ssh()
-                self.connection._set_link(str(value), RED)
+                self.connection._lost(value)
             elif kind == "ssh_ready":
                 self.connection._ssh_ready(value, *extra[0])
             elif kind == "fetch":
-                done, total, name = value
-                self.import_bar.setValue(int(done * 1000 / total))
-                self.import_state.setText(f"从设备取 {name}　{done / 1e6:.1f} / {total / 1e6:.1f} MB")
+                self.logs._fetch_progress(*value)
             elif kind == "fetch_done":
                 self.logs._fetch_done(value, *extra)
             elif kind == "log_line":
                 self.logs._live_line(*value)
                 changed = True
             elif kind == "follow_error":
-                self.logs._stop_follow()
-                self.notify(value)
+                self.logs._follow_failed(value)
             elif kind == "ssh_error":
-                self.ssh_connecting = False
-                self.connection._set_link(value, RED)
+                self.connection._ssh_failed(value)
             else:
                 self.link.setToolTip(str(value))
         if changed:
@@ -766,13 +687,13 @@ class Studio(QMainWindow):
             self.dropped_shown = self.mqtt.dropped
             self.notify(f"接收跟不上，已丢 {self.mqtt.dropped} 条")
 
-    # ---- 导出与用例 ----
+    # ---- 窗口事件 ----
 
 
     def changeEvent(self, event):
         # 切到别的窗口时方向键的松开事件收不到，先停掉连续运动
         if event.type() == QEvent.ActivationChange and not self.isActiveWindow():
-            self.remote.halt()
+            self.teleop.remote.halt()
         super().changeEvent(event)
 
     def showEvent(self, event):
@@ -782,7 +703,7 @@ class Studio(QMainWindow):
 
     def closeEvent(self, event):
         # 连接和数据库关闭前收尾遥控，停止指令才能发出并入库；在途的模型导入一并终止（STEP 子进程不留后台）
-        self.remote.halt()
+        self.teleop.remote.halt()
         self.scene3d.cancel_import()
         self.import_cancel.set()
         self.mqtt.close()
@@ -850,7 +771,7 @@ def self_check(window, folder):
         QApplication.instance().exit(1 if failures else 0)
 
     def capture():
-        viewer = window.viewer
+        viewer = window.scene3d.viewer
         ratio = _drawn_ratio(viewer.grabFramebuffer(), viewer.background) if viewer else 0.0
         size = viewer.size() if viewer else None
         steady, last_size[0] = size == last_size[0], size
