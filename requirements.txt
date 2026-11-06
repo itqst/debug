@@ -1,0 +1,12 @@
+PySide6-Essentials==6.8.3
+paho-mqtt==2.1.0
+PyYAML==6.0.2
+numpy==2.2.6
+PyOpenGL==3.1.9
+pyqtgraph==0.13.7
+# 远程（FRP）连接和从设备取日志用的 SSH
+paramiko==5.1.0
+# ZLM 拉流播放：FFmpeg 解码（wheel 自带 FFmpeg 库）
+av==15.1.0
+# STEP/STP 导入用的 OpenCASCADE 绑定（约 90 MB）；不装时其他功能照常，导入 STEP 会提示缺后端
+cadquery-ocp==7.7.2

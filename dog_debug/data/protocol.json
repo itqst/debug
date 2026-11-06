@@ -1,0 +1,1728 @@
+{
+ "schema_version": 1,
+ "source_sha256": "c9417f5468f2697fb3e024442d7634f87e0a2ef3be160c5582bd50338d0e449f",
+ "entries": [
+  {
+   "id": "cloud.gw.oss_config_get",
+   "method": "oss_config_get",
+   "module": "gw",
+   "category": "request",
+   "label": "GW 网关 · oss_config_get",
+   "template": {
+    "method": "oss_config_get",
+    "target": "gw",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:66",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "获取 OSS 配置",
+   "summary": "设备上线后向云端要对象存储配置，沙盒演示云端应答"
+  },
+  {
+   "id": "cloud.vfc.controllor",
+   "method": "controllor",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · controllor",
+   "template": {
+    "method": "controllor",
+    "target": "vfc",
+    "data": {
+     "owner": 1
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:122",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "控制权切换",
+   "summary": "owner 1 SDK、2 手柄遥控器、3 建图"
+  },
+  {
+   "id": "cloud.vfc.ctrl_mode",
+   "method": "ctrl_mode",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · ctrl_mode",
+   "template": {
+    "method": "ctrl_mode",
+    "target": "vfc",
+    "data": {
+     "mode": 1
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:150",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "SDK 模式切换",
+   "summary": "mode 1 巡航、3 普通 SDK"
+  },
+  {
+   "id": "cloud.vfc.move",
+   "method": "move",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · move",
+   "template": {
+    "method": "move",
+    "target": "vfc",
+    "data": {
+     "vx": 0,
+     "vy": 0,
+     "yaw_rate": 0
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:178",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "移动",
+   "summary": "按 vx 前后、vy 平移、yaw_rate 转向的速度移动，全 0 为停"
+  },
+  {
+   "id": "cloud.vfc.jump",
+   "method": "jump",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · jump",
+   "template": {
+    "method": "jump",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:194",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "原地跳",
+   "summary": "原地跳跃一次"
+  },
+  {
+   "id": "cloud.vfc.passive",
+   "method": "passive",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · passive",
+   "template": {
+    "method": "passive",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:205",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "阻尼/软急停",
+   "summary": "关节进入阻尼状态，机身会缓慢趴下"
+  },
+  {
+   "id": "cloud.vfc.lie_down",
+   "method": "lie_down",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · lie_down",
+   "template": {
+    "method": "lie_down",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:216",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "趴下",
+   "summary": "从站立趴下"
+  },
+  {
+   "id": "cloud.vfc.stand_up",
+   "method": "stand_up",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · stand_up",
+   "template": {
+    "method": "stand_up",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:227",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "站立",
+   "summary": "从趴下站起"
+  },
+  {
+   "id": "cloud.vfc.back_flip",
+   "method": "back_flip",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · back_flip",
+   "template": {
+    "method": "back_flip",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:238",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "后空翻",
+   "summary": "后空翻一次，注意场地"
+  },
+  {
+   "id": "cloud.vfc.front_jump",
+   "method": "front_jump",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · front_jump",
+   "template": {
+    "method": "front_jump",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:249",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "前跳",
+   "summary": "向前跳跃一次"
+  },
+  {
+   "id": "cloud.vfc.shake_hand",
+   "method": "shake_hand",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · shake_hand",
+   "template": {
+    "method": "shake_hand",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:260",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "握手/打招呼",
+   "summary": "抬前腿打招呼"
+  },
+  {
+   "id": "cloud.vfc.two_leg_stand",
+   "method": "two_leg_stand",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · two_leg_stand",
+   "template": {
+    "method": "two_leg_stand",
+    "target": "vfc",
+    "data": {
+     "vx": 0,
+     "yaw_rate": 0
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:271",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "双足站立",
+   "summary": "后腿站立，可带 vx、yaw_rate 行走"
+  },
+  {
+   "id": "cloud.vfc.attitude_control",
+   "method": "attitude_control",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · attitude_control",
+   "template": {
+    "method": "attitude_control",
+    "target": "vfc",
+    "data": {
+     "roll_vel": 10,
+     "pitch_vel": 0,
+     "yaw_vel": 0,
+     "height_vel": 0
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:285",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "文档示例10与声明范围不符，需核单位与限值",
+   "title": "姿态控制",
+   "summary": "调机身横滚、俯仰、偏航角速度和高度速度"
+  },
+  {
+   "id": "cloud.ptz.gimbal_control",
+   "method": "gimbal_control",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · gimbal_control",
+   "template": {
+    "method": "gimbal_control",
+    "target": "ptz",
+    "data": {
+     "index": 1,
+     "sn": "002",
+     "vx": 1500,
+     "vy": 1500
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:329",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "云台转动",
+   "summary": "按俯仰、偏航速度转动云台"
+  },
+  {
+   "id": "cloud.ptz.gimbal_reset",
+   "method": "gimbal_reset",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · gimbal_reset",
+   "template": {
+    "method": "gimbal_reset",
+    "target": "ptz",
+    "data": {
+     "index": 1,
+     "sn": "002"
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:349",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "云台回中",
+   "summary": "云台回到初始朝向"
+  },
+  {
+   "id": "cloud.ptz.gimbal_down",
+   "method": "gimbal_down",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · gimbal_down",
+   "template": {
+    "method": "gimbal_down",
+    "target": "ptz",
+    "data": {
+     "index": 1,
+     "sn": "002"
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:365",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "云台朝下",
+   "summary": "云台转到向下的角度"
+  },
+  {
+   "id": "cloud.ptz.camera_switch",
+   "method": "camera_switch",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · camera_switch",
+   "template": {
+    "method": "camera_switch",
+    "target": "ptz",
+    "data": {
+     "index": 1,
+     "sn": "002",
+     "type": 1
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:380",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "用户 2026-11-02 确认切镜头用 camera_switch，不用 live_lens_change，只用“其他机型”这组 type；文档里 M3D 云盒的 7/8/9 不用。未在实机核对",
+   "title": "切换镜头",
+   "summary": "type 1 可见光（变焦）、2 红外（不能变焦）、3 拼接"
+  },
+  {
+   "id": "cloud.ptz.camera_focal_length_set",
+   "method": "camera_focal_length_set",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · camera_focal_length_set",
+   "template": {
+    "method": "camera_focal_length_set",
+    "target": "ptz",
+    "data": {
+     "index": 1,
+     "sn": "002",
+     "type": 1
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:407",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "变焦",
+   "summary": "设置相机焦距倍数"
+  },
+  {
+   "id": "cloud.media.take_photo",
+   "method": "take_photo",
+   "module": "media",
+   "category": "command",
+   "label": "Media 音视频 · take_photo",
+   "template": {
+    "method": "take_photo",
+    "target": "vision",
+    "data": {
+     "index": 1,
+     "sn": "002"
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:433",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "云端 target 写 vision：当前 GW 把 vision 下的拍照/录像/直播转给 MEDIA，并删掉 target；直连 MEDIA 时不带 target",
+   "title": "拍照",
+   "summary": "当前相机拍一张照片"
+  },
+  {
+   "id": "cloud.media.camera_recording",
+   "method": "camera_recording",
+   "module": "media",
+   "category": "command",
+   "label": "Media 音视频 · camera_recording",
+   "template": {
+    "method": "camera_recording",
+    "target": "vision",
+    "data": {
+     "index": 1,
+     "sn": "002",
+     "mode": 1
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:449",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "云端 target 写 vision：当前 GW 把 vision 下的拍照/录像/直播转给 MEDIA，并删掉 target；直连 MEDIA 时不带 target",
+   "title": "录像",
+   "summary": "开始或停止录像"
+  },
+  {
+   "id": "cloud.media.camera_livestream",
+   "method": "camera_livestream",
+   "module": "media",
+   "category": "command",
+   "label": "Media 音视频 · camera_livestream",
+   "template": {
+    "method": "camera_livestream",
+    "target": "vision",
+    "data": {
+     "index": 1,
+     "sn": "002",
+     "state": 1,
+     "stream_type": "webrtc",
+     "mode": 2
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:469",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "云端 target 写 vision：当前 GW 把 vision 下的拍照/录像/直播转给 MEDIA，并删掉 target；直连 MEDIA 时不带 target",
+   "title": "直播推流",
+   "summary": "开始或停止直播推流"
+  },
+  {
+   "id": "cloud.ptz.ir_palette_set",
+   "method": "ir_palette_set",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · ir_palette_set",
+   "template": {
+    "method": "ir_palette_set",
+    "target": "ptz",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:574",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "原文样例无有效 JSON 请求，请手工核参数",
+   "title": "红外调色板",
+   "summary": "设置红外画面的伪彩色方案"
+  },
+  {
+   "id": "cloud.vfc.start_mapping",
+   "method": "start_mapping",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · start_mapping",
+   "template": {
+    "method": "start_mapping",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:600",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "开始建图",
+   "summary": "开始激光建图"
+  },
+  {
+   "id": "cloud.vfc.stop_mapping",
+   "method": "stop_mapping",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · stop_mapping",
+   "template": {
+    "method": "stop_mapping",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:627",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "停止建图",
+   "summary": "停止建图并保存"
+  },
+  {
+   "id": "cloud.vfc.get_all_compressed_pgm_map",
+   "method": "get_all_compressed_pgm_map",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · get_all_compressed_pgm_map",
+   "template": {
+    "method": "get_all_compressed_pgm_map",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:654",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "获取全部压缩地图",
+   "summary": "取设备上所有地图的压缩 PGM"
+  },
+  {
+   "id": "cloud.fsvr.get_map_list",
+   "method": "get_map_list",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · get_map_list",
+   "template": {
+    "method": "get_map_list",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "gw",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:858",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "地图列表",
+   "summary": "列出设备上的地图"
+  },
+  {
+   "id": "cloud.vfc.get_pgm_map",
+   "method": "get_pgm_map",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · get_pgm_map",
+   "template": {
+    "method": "get_pgm_map",
+    "target": "vfc",
+    "data": {
+     "map_id": 1
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:893",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "获取地图",
+   "summary": "按地图 ID 取 PGM 地图"
+  },
+  {
+   "id": "cloud.vfc.remove_map_by_id",
+   "method": "remove_map_by_id",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · remove_map_by_id",
+   "template": {
+    "method": "remove_map_by_id",
+    "target": "vfc",
+    "data": {
+     "map_ids": [
+      "",
+      ""
+     ]
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:920",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "删除地图",
+   "summary": "按地图 ID 删除"
+  },
+  {
+   "id": "cloud.vfc.rename_map_name",
+   "method": "rename_map_name",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · rename_map_name",
+   "template": {
+    "method": "rename_map_name",
+    "target": "vfc",
+    "data": {
+     "map_id": "",
+     "new_name": ""
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:948",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "重命名地图",
+   "summary": "修改地图名称"
+  },
+  {
+   "id": "cloud.vfc.get_all_paths",
+   "method": "get_all_paths",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · get_all_paths",
+   "template": {
+    "method": "get_all_paths",
+    "target": "vfc",
+    "data": {
+     "map_id": ""
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:979",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "协议标记未使用，真实发送待核",
+   "title": "获取导航路径",
+   "summary": "列出已保存的导航路径（文档标“未使用”）"
+  },
+  {
+   "id": "cloud.vfc.add_nav_path",
+   "method": "add_nav_path",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · add_nav_path",
+   "template": {
+    "method": "add_nav_path",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1022",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "协议标记未使用，真实发送待核",
+   "title": "添加导航路径",
+   "summary": "保存一条导航路径（文档标“未使用”）"
+  },
+  {
+   "id": "cloud.vfc.remove_nav_path",
+   "method": "remove_nav_path",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · remove_nav_path",
+   "template": {
+    "method": "remove_nav_path",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1061",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "协议标记未使用，真实发送待核",
+   "title": "删除导航路径",
+   "summary": "删除导航路径（文档标“未使用”）"
+  },
+  {
+   "id": "cloud.vfc.start_nav",
+   "method": "start_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · start_nav",
+   "template": {
+    "method": "start_nav",
+    "target": "vfc",
+    "data": {
+     "position": {
+      "x": 1.0,
+      "y": 2.0,
+      "z": 0.0
+     },
+     "orientation": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "w": 1.0
+     }
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1088",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "单点导航",
+   "summary": "导航到一个目标点"
+  },
+  {
+   "id": "cloud.vfc.start_multi_nav",
+   "method": "start_multi_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · start_multi_nav",
+   "template": {
+    "method": "start_multi_nav",
+    "target": "vfc",
+    "data": {
+     "map_id": "2026_07_25_15_16_06",
+     "path_id": "自定义路径1"
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1114",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "多点导航",
+   "summary": "按已保存路径依次导航"
+  },
+  {
+   "id": "cloud.vfc.start_multi_nav_by_points",
+   "method": "start_multi_nav_by_points",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · start_multi_nav_by_points",
+   "template": {
+    "method": "start_multi_nav_by_points",
+    "bid": "c2a3bcad3dca3dcaac3ea31da",
+    "target": "vfc",
+    "data": {
+     "map_id": "2026_07_25_15_16_06",
+     "task_name": "task_20260804",
+     "points": [
+      {
+       "position": {
+        "x": 1.0,
+        "y": 2.0,
+        "z": 0.0
+       },
+       "orientation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 1.0
+       },
+       "actions": [
+        {
+         "id": "",
+         "action": "take_photo",
+         "param1": []
+        }
+       ]
+      },
+      {
+       "position": {
+        "x": 3.0,
+        "y": 4.0,
+        "z": 0.0
+       },
+       "orientation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 1.0
+       },
+       "actions": [
+        {
+         "id": "",
+         "action": "take_photo",
+         "param": []
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1140",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "文档 param/param1 混用，实际 VFC 字段待核",
+   "title": "按航点多点导航",
+   "summary": "按给定航点列表依次导航，可带到点动作"
+  },
+  {
+   "id": "cloud.vfc.start_nav_return_home",
+   "method": "start_nav_return_home",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · start_nav_return_home",
+   "template": {
+    "method": "start_nav_return_home",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1204",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "返航",
+   "summary": "导航回起点"
+  },
+  {
+   "id": "cloud.vfc.stop_nav",
+   "method": "stop_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · stop_nav",
+   "template": {
+    "method": "stop_nav",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1228",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "停止导航",
+   "summary": "结束当前导航任务"
+  },
+  {
+   "id": "cloud.vfc.pause_nav",
+   "method": "pause_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · pause_nav",
+   "template": {
+    "method": "pause_nav",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1252",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "暂停导航",
+   "summary": "暂停当前导航"
+  },
+  {
+   "id": "cloud.vfc.continue_nav",
+   "method": "continue_nav",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · continue_nav",
+   "template": {
+    "method": "continue_nav",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1277",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "继续导航",
+   "summary": "从暂停处继续导航"
+  },
+  {
+   "id": "cloud.vfc.loc_load_map",
+   "method": "loc_load_map",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · loc_load_map",
+   "template": {
+    "method": "loc_load_map",
+    "target": "vfc",
+    "data": {
+     "map_id": 123
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1303",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "加载定位地图",
+   "summary": "加载地图用于定位"
+  },
+  {
+   "id": "cloud.vfc.loc_reset",
+   "method": "loc_reset",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · loc_reset",
+   "template": {
+    "method": "loc_reset",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1330",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "重定位",
+   "summary": "按给定位姿重置定位"
+  },
+  {
+   "id": "cloud.vision.start_ai",
+   "method": "start_ai",
+   "module": "vision",
+   "category": "command",
+   "label": "Vision 检测 · start_ai",
+   "template": {
+    "method": "start_ai",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "vision",
+    "data": {
+     "filters": [
+      1
+     ]
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1357",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "开启 AI 识别",
+   "summary": "开启目标检测"
+  },
+  {
+   "id": "cloud.vision.stop_ai",
+   "method": "stop_ai",
+   "module": "vision",
+   "category": "command",
+   "label": "Vision 检测 · stop_ai",
+   "template": {
+    "method": "stop_ai",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "vision",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1386",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "关闭 AI 识别",
+   "summary": "关闭目标检测"
+  },
+  {
+   "id": "cloud.fsvr.sync_map_file",
+   "method": "sync_map_file",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · sync_map_file",
+   "template": {
+    "method": "sync_map_file",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "gw",
+    "data": {
+     "map_id": [
+      "123",
+      "456"
+     ],
+     "upload_path": "http://a.com/xxx"
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1415",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "同步点云文件",
+   "summary": "把地图点云文件上传到云端"
+  },
+  {
+   "id": "cloud.fsvr.get_media_filelist",
+   "method": "get_media_filelist",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · get_media_filelist",
+   "template": {
+    "method": "get_media_filelist",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "gw",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1445",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "媒体文件列表",
+   "summary": "列出设备上的照片和录像"
+  },
+  {
+   "id": "cloud.fsvr.sync_media_file",
+   "method": "sync_media_file",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · sync_media_file",
+   "template": {
+    "method": "sync_media_file",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "gw",
+    "data": {
+     "file_path": [
+      "123/345.png",
+      "456/678.mp4"
+     ],
+     "upload_path": "http://a.com/xxx"
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1525",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "同步媒体文件",
+   "summary": "把照片或录像上传到云端"
+  },
+  {
+   "id": "cloud.vision.event_switch",
+   "method": "event_switch",
+   "module": "vision",
+   "category": "command",
+   "label": "Vision 检测 · event_switch",
+   "template": {
+    "method": "event_switch",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "vision",
+    "data": {
+     "mode": 0,
+     "upload_path": "http://a.com/xxx/"
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1559",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "预警上报开关",
+   "summary": "mode 0 关闭、1 开启检测结果上报"
+  },
+  {
+   "id": "cloud.media.speaker_play_start",
+   "method": "speaker_play_start",
+   "module": "media",
+   "category": "command",
+   "label": "Media 音视频 · speaker_play_start",
+   "template": {
+    "method": "speaker_play_start",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "audio",
+    "data": {
+     "play_id": "rec-8f3a2c11",
+     "url": "https://example.invalid/sample.mp3",
+     "md5": "9f86d081884c7d659a2feaa0c55ad015",
+     "format": "mp3",
+     "size": 20480,
+     "duration_ms": 3200,
+     "preempt": 1
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1579",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "喊话器播放",
+   "summary": "播放音频或文字喊话"
+  },
+  {
+   "id": "cloud.media.speaker_volume_set",
+   "method": "speaker_volume_set",
+   "module": "media",
+   "category": "command",
+   "label": "Media 音视频 · speaker_volume_set",
+   "template": {
+    "method": "speaker_volume_set",
+    "bid": "c2a3bcad-3dca3dc-aac3ea31da",
+    "target": "audio",
+    "data": {
+     "volume": 70
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1619",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "喊话器音量",
+   "summary": "设置喊话器音量"
+  },
+  {
+   "id": "cloud.ptz.ir_metering_mode_set",
+   "method": "ir_metering_mode_set",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · ir_metering_mode_set",
+   "template": {
+    "bid": "d1a3bcad-3dca3dc-aac3ea31ef",
+    "method": "ir_metering_mode_set",
+    "target": "ptz",
+    "data": {
+     "sn": "002",
+     "index": 1,
+     "video_type": 0
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1649",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "红外测温模式",
+   "summary": "设置测温模式"
+  },
+  {
+   "id": "cloud.ptz.ir_metering_point_set",
+   "method": "ir_metering_point_set",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · ir_metering_point_set",
+   "template": {
+    "bid": "d1a3bcad-3dca3dc-aac3ea31ef",
+    "method": "ir_metering_point_set",
+    "target": "ptz",
+    "data": {
+     "sn": "002",
+     "index": 1,
+     "x": 0.5,
+     "y": 0.5
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1679",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "点测温",
+   "summary": "测画面中一个点的温度"
+  },
+  {
+   "id": "cloud.ptz.ir_metering_area_set",
+   "method": "ir_metering_area_set",
+   "module": "ptz",
+   "category": "command",
+   "label": "PTZ 云台/红外 · ir_metering_area_set",
+   "template": {
+    "bid": "d1a3bcad-3dca3dc-aac3ea31ef",
+    "method": "ir_metering_area_set",
+    "target": "ptz",
+    "data": {
+     "sn": "002",
+     "index": 1,
+     "x": 0.5,
+     "y": 0.5,
+     "width": 0.8,
+     "height": 0.8
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1715",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "文档请求/应答 method 不一致",
+   "title": "区域测温",
+   "summary": "测画面中一个区域的温度"
+  },
+  {
+   "id": "cloud.vfc.mapping_status",
+   "method": "mapping_status",
+   "module": "vfc",
+   "category": "state",
+   "label": "VFC 运动/导航 · mapping_status",
+   "template": {
+    "method": "mapping_status",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1769",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "建图状态",
+   "summary": "设备上报建图进度和结果"
+  },
+  {
+   "id": "cloud.vfc.nav_status",
+   "method": "nav_status",
+   "module": "vfc",
+   "category": "state",
+   "label": "VFC 运动/导航 · nav_status",
+   "template": {
+    "method": "nav_status",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1793",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "导航状态",
+   "summary": "设备上报导航状态"
+  },
+  {
+   "id": "cloud.vfc.nav_status_progress",
+   "method": "nav_status_progress",
+   "module": "vfc",
+   "category": "state",
+   "label": "VFC 运动/导航 · nav_status_progress",
+   "template": {
+    "method": "nav_status_progress",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1816",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "导航进度",
+   "summary": "设备上报路径导航进度"
+  },
+  {
+   "id": "cloud.vfc.loc_status",
+   "method": "loc_status",
+   "module": "vfc",
+   "category": "state",
+   "label": "VFC 运动/导航 · loc_status",
+   "template": {
+    "method": "loc_status",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1837",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "定位状态",
+   "summary": "设备上报定位状态"
+  },
+  {
+   "id": "cloud.media.stream_status",
+   "method": "stream_status",
+   "module": "media",
+   "category": "state",
+   "label": "Media 音视频 · stream_status",
+   "template": {
+    "method": "stream_status",
+    "target": "media",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1860",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "视频流状态",
+   "summary": "设备上报视频流状态"
+  },
+  {
+   "id": "cloud.media.room_state",
+   "method": "room_state",
+   "module": "media",
+   "category": "state",
+   "label": "Media 音视频 · room_state",
+   "template": {
+    "method": "room_state",
+    "target": "media",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1887",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "直播房间状态",
+   "summary": "设备上报直播房间状态"
+  },
+  {
+   "id": "cloud.ptz.gimbal_status",
+   "method": "gimbal_status",
+   "module": "ptz",
+   "category": "state",
+   "label": "PTZ 云台/红外 · gimbal_status",
+   "template": {
+    "method": "gimbal_status",
+    "target": "ptz",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1913",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "云台状态",
+   "summary": "设备上报云台角度等状态"
+  },
+  {
+   "id": "cloud.gw.subsystem_status",
+   "method": "subsystem_status",
+   "module": "gw",
+   "category": "state",
+   "label": "GW 网关 · subsystem_status",
+   "template": {
+    "method": "subsystem_status",
+    "target": "gw",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1929",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "子系统状态",
+   "summary": "设备上报各模块在线状态"
+  },
+  {
+   "id": "cloud.fsvr.sync_map_file_status",
+   "method": "sync_map_file_status",
+   "module": "fsvr",
+   "category": "state",
+   "label": "FSVR 文件 · sync_map_file_status",
+   "template": {
+    "method": "sync_map_file_status",
+    "target": "fsvr",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1952",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "点云同步状态",
+   "summary": "设备上报点云文件上传进度"
+  },
+  {
+   "id": "cloud.fsvr.media_file_upload_status",
+   "method": "media_file_upload_status",
+   "module": "fsvr",
+   "category": "state",
+   "label": "FSVR 文件 · media_file_upload_status",
+   "template": {
+    "method": "media_file_upload_status",
+    "target": "fsvr",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1971",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "媒体上传状态",
+   "summary": "设备上报媒体文件上传进度"
+  },
+  {
+   "id": "cloud.fsvr.storage_status",
+   "method": "storage_status",
+   "module": "fsvr",
+   "category": "state",
+   "label": "FSVR 文件 · storage_status",
+   "template": {
+    "method": "storage_status",
+    "target": "fsvr",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:1988",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "存储状态",
+   "summary": "设备上报本地存储用量"
+  },
+  {
+   "id": "cloud.vision.ai_switch_status",
+   "method": "ai_switch_status",
+   "module": "vision",
+   "category": "state",
+   "label": "Vision 检测 · ai_switch_status",
+   "template": {
+    "method": "ai_switch_status",
+    "target": "vision",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:2005",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "AI 开关状态",
+   "summary": "设备上报 AI 识别开关"
+  },
+  {
+   "id": "cloud.ros2bridge.pcd",
+   "method": "pcd",
+   "module": "ros2bridge",
+   "category": "state",
+   "label": "ROS2BRIDGE 点云 · pcd",
+   "template": {
+    "method": "pcd",
+    "data": {
+     "type": "pointcloud",
+     "frame_id": "map",
+     "o_x": 0.0,
+     "o_y": 0.0,
+     "o_z": 0.0,
+     "o_yaw": 0.0,
+     "encoding": "xyz_i16_i8",
+     "scale": 0.001,
+     "count": 0,
+     "points": ""
+    }
+   },
+   "source": "MQTT通信协议-智身机器狗.md:2023；格式按 MQTT通信协议-点云数据pcd.md",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "GW 在建图中转发（vfc mapping_status result=5，或 ros2bridge 心跳 slam_mapping=true，遥控器建图也算），约 2 Hz。设备端点云程序 3.1.1 起点在原点坐标系里、带 o_x/o_y/o_z/o_yaw（点 = 偏移 + o），3.1.1 还没在实机验过；更早的报文没有 o_x，是雷达坐标系",
+   "title": "点云数据（云端）",
+   "summary": "tta/robotdog/{sn}/state 上 method=pcd，稀疏点云，仅供显示"
+  },
+  {
+   "id": "cloud.vision.detect_result_event",
+   "method": "detect_result_event",
+   "module": "vision",
+   "category": "event",
+   "label": "Vision 检测 · detect_result_event",
+   "template": {
+    "method": "detect_result_event",
+    "target": "vision",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:2064",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "",
+   "title": "目标检测事件",
+   "summary": "检测到目标时上报"
+  },
+  {
+   "id": "cloud.vfc.cancel_two_leg_stand",
+   "method": "cancel_two_leg_stand",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 运动/导航 · cancel_two_leg_stand",
+   "template": {
+    "method": "cancel_two_leg_stand",
+    "target": "vfc",
+    "data": {}
+   },
+   "source": "MQTT通信协议-智身机器狗.md:0",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "原文样例无有效 JSON 请求，请手工核参数",
+   "title": "取消双足站立",
+   "summary": "从双足站立回到四足"
+  },
+  {
+   "id": "observe.vfc.osd",
+   "method": "osd",
+   "module": "vfc",
+   "category": "observe",
+   "label": "VFC 运动/导航 · osd",
+   "template": {
+    "method": "osd",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "实时数据",
+   "summary": "设备定频上报位置、姿态、电量等"
+  },
+  {
+   "id": "observe.gw.online",
+   "method": "online",
+   "module": "gw",
+   "category": "observe",
+   "label": "GW 网关 · online",
+   "template": {
+    "method": "online",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "上线",
+   "summary": "设备上线通知，沙盒演示云端应答"
+  },
+  {
+   "id": "observe.gw.heartbeat",
+   "method": "heartbeat",
+   "module": "gw",
+   "category": "observe",
+   "label": "GW 网关 · heartbeat",
+   "template": {
+    "method": "heartbeat",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "心跳",
+   "summary": "设备心跳，沙盒演示云端应答"
+  },
+  {
+   "id": "observe.gw.subsystem_state",
+   "method": "subsystem_state",
+   "module": "gw",
+   "category": "observe",
+   "label": "GW 网关 · subsystem_state",
+   "template": {
+    "method": "subsystem_state",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "子系统在线",
+   "summary": "本地模块在线状态"
+  },
+  {
+   "id": "observe.fsvr.register_file",
+   "method": "register_file",
+   "module": "fsvr",
+   "category": "observe",
+   "label": "FSVR 文件 · register_file",
+   "template": {
+    "method": "register_file",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "登记文件",
+   "summary": "向 FSVR 登记一个待上传文件"
+  },
+  {
+   "id": "observe.fsvr.upload_detection_image",
+   "method": "upload_detection_image",
+   "module": "fsvr",
+   "category": "observe",
+   "label": "FSVR 文件 · upload_detection_image",
+   "template": {
+    "method": "upload_detection_image",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "上传检测图",
+   "summary": "请 FSVR 上传检测图"
+  },
+  {
+   "id": "observe.fsvr.detection_upload_status",
+   "method": "detection_upload_status",
+   "module": "fsvr",
+   "category": "observe",
+   "label": "FSVR 文件 · detection_upload_status",
+   "template": {
+    "method": "detection_upload_status",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "检测图上传状态",
+   "summary": "FSVR 上报检测图上传结果"
+  },
+  {
+   "id": "observe.media.capture_detection",
+   "method": "capture_detection",
+   "module": "media",
+   "category": "observe",
+   "label": "Media 音视频 · capture_detection",
+   "template": {
+    "method": "capture_detection",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "检测抓拍",
+   "summary": "Vision 请 Media 抓一张检测图"
+  },
+  {
+   "id": "observe.media.start_record",
+   "method": "start_record",
+   "module": "media",
+   "category": "observe",
+   "label": "Media 音视频 · start_record",
+   "template": {
+    "method": "start_record",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "开始录制",
+   "summary": "本地媒体开始录制"
+  },
+  {
+   "id": "observe.media.stop_record",
+   "method": "stop_record",
+   "module": "media",
+   "category": "observe",
+   "label": "Media 音视频 · stop_record",
+   "template": {
+    "method": "stop_record",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "停止录制",
+   "summary": "本地媒体停止录制"
+  },
+  {
+   "id": "observe.ptz.gimbal_action",
+   "method": "gimbal_action",
+   "module": "ptz",
+   "category": "observe",
+   "label": "PTZ 云台/红外 · gimbal_action",
+   "template": {
+    "method": "gimbal_action",
+    "data": {}
+   },
+   "source": "内部契约/专用通道，首版仅观测",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "专用上下文，不作为普通命令发送",
+   "title": "云台动作",
+   "summary": "本地云台动作指令"
+  },
+  {
+   "id": "local.fsvr.delete_file",
+   "method": "delete_file",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · delete_file",
+   "template": {
+    "method": "delete_file",
+    "target": "fsvr",
+    "data": {
+     "file_id": [
+      ""
+     ]
+    }
+   },
+   "source": "tta_fsvr/docs/mqtt_protocol.md:52",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "FSVR 扩展方法（tta_fsvr/docs/mqtt_protocol.md），只能直连 FSVR；当前 GW 不接受 target=fsvr，走云端会被拒",
+   "title": "删除文件",
+   "summary": "删除设备上的文件"
+  },
+  {
+   "id": "local.fsvr.delete_map_archive",
+   "method": "delete_map_archive",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · delete_map_archive",
+   "template": {
+    "method": "delete_map_archive",
+    "target": "fsvr",
+    "data": {
+     "map_id": [
+      ""
+     ]
+    }
+   },
+   "source": "tta_fsvr/docs/mqtt_protocol.md:53",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "FSVR 扩展方法（tta_fsvr/docs/mqtt_protocol.md），只能直连 FSVR；当前 GW 不接受 target=fsvr，走云端会被拒",
+   "title": "删除地图归档",
+   "summary": "删除地图归档文件"
+  },
+  {
+   "id": "local.fsvr.query_request",
+   "method": "query_request",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · query_request",
+   "template": {
+    "method": "query_request",
+    "target": "fsvr",
+    "data": {
+     "request_tid": "",
+     "requester": "gw"
+    }
+   },
+   "source": "tta_fsvr/docs/mqtt_protocol.md:54",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "FSVR 扩展方法（tta_fsvr/docs/mqtt_protocol.md），只能直连 FSVR；当前 GW 不接受 target=fsvr，走云端会被拒",
+   "title": "查询请求",
+   "summary": "按 tid 查询 FSVR 请求的当前状态"
+  },
+  {
+   "id": "local.fsvr.confirm_result",
+   "method": "confirm_result",
+   "module": "fsvr",
+   "category": "command",
+   "label": "FSVR 文件 · confirm_result",
+   "template": {
+    "method": "confirm_result",
+    "target": "fsvr",
+    "data": {
+     "request_tid": "",
+     "result_seq": 1,
+     "requester": "vision"
+    }
+   },
+   "source": "tta_fsvr/docs/mqtt_protocol.md:55",
+   "evidence": "documented",
+   "device_verified": false,
+   "unverified": "FSVR 扩展方法（tta_fsvr/docs/mqtt_protocol.md），只能直连 FSVR；当前 GW 不接受 target=fsvr，走云端会被拒",
+   "title": "确认结果",
+   "summary": "收到终态后向 FSVR 确认"
+  },
+  {
+   "id": "local.ros2bridge.pcd_switch",
+   "method": "pcd_switch",
+   "module": "ros2bridge",
+   "category": "command",
+   "label": "ROS2BRIDGE 点云 · pcd_switch",
+   "template": {
+    "method": "pcd_switch",
+    "target": "ros2bridge",
+    "data": {
+     "enable": true
+    }
+   },
+   "source": "MQTT文档(设备端 local).md「ros2bridge 主题」",
+   "evidence": "documented",
+   "device_verified": true,
+   "unverified": "本地指令，GW 建图时自己发；不建图时 GW 发现心跳 enabled 和期望不一致会补发关闭（最快 5 s）。云端没有这条指令",
+   "local_only": true,
+   "title": "点云采集开关",
+   "summary": "直接让 ros2bridge 开始/停止订阅雷达，回执 result 在根上、data.enable 是实际状态"
+  },
+  {
+   "id": "observe.ros2bridge.pointcloud",
+   "method": "pointcloud",
+   "module": "ros2bridge",
+   "category": "observe",
+   "label": "ROS2BRIDGE 点云 · pointcloud",
+   "template": {
+    "sn": "",
+    "data": {
+     "type": "pointcloud",
+     "frame_id": "map",
+     "o_x": 0.0,
+     "o_y": 0.0,
+     "o_z": 0.0,
+     "o_yaw": 0.0,
+     "encoding": "xyz_i16_i8",
+     "scale": 0.001,
+     "count": 0,
+     "points": ""
+    }
+   },
+   "source": "MQTT文档(设备端 local).md「ros2bridge 主题」",
+   "evidence": "documented",
+   "device_verified": true,
+   "unverified": "3.1.1 起 frame_id=map 并带 o_x/o_y/o_z/o_yaw，实机待验",
+   "title": "点云数据（本地）",
+   "summary": "local/robotdog/ros2bridge/data，采集时约 2 Hz，data 和云端 pcd 相同"
+  }
+ ]
+}

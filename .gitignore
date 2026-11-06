@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+runtime/
+*.sqlite*
+*.log
+.venv-win/
+build/
+
+# Windows 下载留下的标记、同事发来的源码包、IDE 配置
+*Zone.Identifier
+*.7z
+.idea/
+dist_next/

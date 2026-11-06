@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tta-dog-debug"
+dynamic = ["version"]
+description = "机器狗整机协议调试与证据诊断工作台"
+requires-python = ">=3.10"
+dependencies = ["PySide6-Essentials==6.8.3", "paho-mqtt==2.1.0", "PyYAML==6.0.2", "numpy==2.2.6", "PyOpenGL==3.1.9", "pyqtgraph==0.13.7", "paramiko==5.1.0", "av==15.1.0"]
+
+[project.optional-dependencies]
+test = ["pytest==8.3.5"]
+cad = ["cadquery-ocp==7.7.2"]
+
+[project.scripts]
+dog-debug = "dog_debug.app:main"
+
+[tool.setuptools.dynamic]
+# 版本号只在 dog_debug/__init__.py 里改，打包脚本也从那里读
+version = {attr = "dog_debug.__version__"}
+
+[tool.setuptools.package-data]
+dog_debug = ["data/*.json", "data/*.qss", "data/*.svg", "data/models/*.zip", "data/samples/*.step"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,8 @@
+Dog Debug 0.1.0　2026-10-29 11:33:01
+程序位置 C:\Users\Administrator\AppData\Local\Temp\狗 调试 包\DogDebug\DogDebug.exe　冻结运行 True
+Python 3.10.11　Windows-10-10.0.26100-SP0
+PySide6 6.8.3　numpy 2.2.6　PyOpenGL 3.1.9　pyqtgraph 0.13.7
+内置模型 L2 点足运动版：17 连杆，12 可动关节，511672 面
+内置模型 L2W 轮足运动版：17 连杆，16 可动关节，517112 面
+STEP 样件读取：2 个部件，单位 mm，尺寸 0.200×0.100×0.080 m
+3D 渲染：有效画面，模型像素约占视图 3.6%，截图 self_check_3d.png
