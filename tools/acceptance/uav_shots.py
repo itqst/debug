@@ -38,8 +38,13 @@ w.store.flush()
 end = time.monotonic() + 0.5
 while time.monotonic() < end:
     app.processEvents()
-for page, name in ((w.UAV, "uav"), (w.UAV_MISSION, "uav_mission")):
+for page, name in ((w.UAV, "uav"), (w.UAV_MISSION, "uav_mission"), (w.UAV, "uav_detail"), (w.UAV, "uav_related")):
     w._go(page)
+    # 后两张是点开卡片的详情：状态上报和相关指令
+    if name == "uav_detail":
+        w.uav._open_detail("system")
+    elif name == "uav_related":
+        w.uav.detail_view.set_index(1)
     end = time.monotonic() + 1.5
     while time.monotonic() < end:
         app.processEvents()

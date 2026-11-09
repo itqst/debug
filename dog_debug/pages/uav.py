@@ -9,18 +9,24 @@ import uuid
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QFileDialog, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
+    QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from ..core import BRIDGE, summarize
+from ..core import BRIDGE, payload_diff, requests, summarize
+from ..trace_view import Step, TraceView
 from ..registry import make_command
-from ..uav import changes, domain, DOMAINS, freshness, link, outcome, quality, reading, retained_command, WAITING_NEXT
-from ..ui import BLUE, button, card, FlowGrid, GRAY, GREEN, label, ORANGE, RED, scroller, tint
+from ..uav import changes, domain, DOMAINS, freshness, link, LINK_SECONDS, outcome, quality, reading, retained_command, WAITING_NEXT
+from ..ui import BLUE, button, card, FlowGrid, GRAY, GREEN, label, ModuleMessageModel, ORANGE, PillDelegate, RED, scroller, Segmented, tint
 
 QUALITY_COLORS = {"正常": GREEN, "失败": RED, "未知": ORANGE, "不适用": GRAY}
 RESULT_COLORS = {0: GREEN, 1: RED, 2: ORANGE}
 # 页面上直接点的 VFC 指令（data 为空，带当前任务的 bid）
+# 卡片详情“相关指令”列哪些：(模块, Bridge 动作前缀)；前缀为空就是这个模块的全部指令
+RELATED = {"system": ("bridge", ("system.", "job.")), "localization": ("bridge", ("relocalization.",)),
+           "relocalization": ("bridge", ("relocalization.",)), "navigation": ("bridge", ("navigation.",)),
+           "mapping": ("bridge", ("mapping.",)), "flight": ("bridge", ("flight.",)), "online": ("bridge", ()), "pose": ("bridge", ()),
+           "subsystem_status": ("vfc", ()), "nav_status": ("vfc", ()), "nav_status_progress": ("vfc", ())}
 QUICK = (("pause_nav", "暂停"), ("continue_nav", "继续"), ("stop_nav", "结束航线"), ("start_nav_return_home", "返航"), ("land", "降落"))
 
 
@@ -29,7 +35,9 @@ class UavPage:
 
     def __init__(self, app):
         self.app = app
-        self.session, self.latest, self.alerts, self.log = "", {}, {}, []
+        self.session, self.latest, self.alerts, self.log, self.since = "", {}, {}, [], 0.0
+        # 这次连接里各领域收到的消息（新的在后），卡片详情里比对字段、列变化用
+        self.history, self.detail_key, self.detail_drawn, self.detail_row = {}, None, None, None
         self.drawn_touch, self.drawn_at = None, 0.0
 
     def _uav_page(self):
@@ -48,16 +56,21 @@ class UavPage:
         layout.addWidget(self.link_note)
         self.cards = {}
         frames = []
+        self.frames = {}
         for key, (title, _) in DOMAINS.items():
-            frame = QFrame()
+            # 整张卡片可点，右侧展开这个领域的详情，和狗的状态总览一样
+            frame = Step()
             frame.setObjectName("card")
+            frame.setCursor(Qt.PointingHandCursor)
+            frame.clicked.connect(lambda k=key: self._open_detail(k))
+            self.frames[key] = frame
             box = QVBoxLayout(frame)
             box.setContentsMargins(14, 12, 14, 12)
             box.setSpacing(4)
             head = label(title, "groupHeader")
             word = label("未观测")
             word.setStyleSheet(f"font-size:17px;font-weight:600;color:{GRAY}")
-            msg, extra, age = label("", "caption", True), label("", "caption", True), label("", "caption")
+            msg, extra, age = label("", "caption", True), label("", "caption", True), label("", "caption", True)
             for widget in (head, word, msg, extra, age):
                 box.addWidget(widget)
             box.addStretch()
@@ -99,7 +112,13 @@ class UavPage:
         self.table.setMinimumHeight(320)
         tv.addWidget(self.table, 1)
         inner.addWidget(table_card, 1)
-        layout.addWidget(scroller(body), 1)
+        self.split = QSplitter()
+        self.split.setHandleWidth(14)
+        self.split.addWidget(scroller(body))
+        self.split.addWidget(self._detail())
+        self.split.setStretchFactor(0, 3)
+        self.split.setStretchFactor(1, 2)
+        layout.addWidget(self.split, 1)
         self.rows = []
         self.render()
         return page
@@ -110,6 +129,7 @@ class UavPage:
             return
         if event.session != self.session:
             self.session, self.latest, self.alerts, self.log = event.session, {}, {}, []
+            self.since, self.history = event.timestamp, {}
         if retained_command(event):
             self.alerts[event.topic] = event
         key = domain(event)
@@ -119,11 +139,186 @@ class UavPage:
                 for text, loud in changes(self.latest.get(key), event):
                     self._note(event, text, loud)
             self.latest[key] = event
+            kept = self.history.setdefault(key, [])
+            kept.append(event)
+            del kept[:-200]
         elif event.topic == BRIDGE + "events" and event.payload.get("type") == "waypoint_complete":
             info = event.payload.get("info") if isinstance(event.payload.get("info"), dict) else {}
             self._note(event, f"Bridge 到点事件：{info.get('data', '')}", True)
         elif event.topic == BRIDGE + "command" and event.payload.get("action") == "navigation.next":
             self._note(event, f"发出 navigation.next（{event.payload.get('client') or '未写 client'}，id {event.payload.get('id')}）", True)
+
+    def _detail(self):
+        """右侧领域详情，点卡片打开：状态上报（最新一条完整字段、和上一条比、这次连接里的变化）和相关指令"""
+        self.detail_card, dv = card(8, 16)
+        self.detail_card.setMinimumWidth(380)
+        head = QHBoxLayout()
+        self.detail_title = label("", "sectionTitle")
+        head.addWidget(self.detail_title)
+        head.addStretch()
+        head.addWidget(button("收起", lambda: self._open_detail(None), "link"))
+        dv.addLayout(head)
+        self.detail_topic = label("", "caption", True)
+        self.detail_topic.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        dv.addWidget(self.detail_topic)
+        self.detail_view = Segmented(["状态上报", "相关指令"])
+        self.detail_view.changed.connect(self._detail_view_changed)
+        dv.addWidget(self.detail_view)
+        self.detail_pages = QStackedWidget()
+        holder = QWidget()
+        self.detail_box = QVBoxLayout(holder)
+        self.detail_box.setContentsMargins(0, 0, 6, 0)
+        self.detail_box.setSpacing(10)
+        self.detail_pages.addWidget(scroller(holder))
+        listing = QWidget()
+        lv = QVBoxLayout(listing)
+        lv.setContentsMargins(0, 0, 0, 0)
+        self.detail_model = ModuleMessageModel()
+        self.detail_table = QTableView()
+        self.detail_table.setModel(self.detail_model)
+        self.detail_table.setItemDelegate(PillDelegate(self.detail_table))
+        self.detail_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.detail_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.detail_table.setShowGrid(False)
+        self.detail_table.verticalHeader().hide()
+        self.detail_table.verticalHeader().setDefaultSectionSize(34)
+        header = self.detail_table.horizontalHeader()
+        header.setStretchLastSection(True)
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        for column, width in enumerate((76, 190, 96)):
+            header.resizeSection(column, width)
+        self.detail_table.clicked.connect(self._detail_open)
+        lv.addWidget(self.detail_table, 1)
+        self.detail_empty = label("", "caption", True)
+        lv.addWidget(self.detail_empty)
+        self.detail_pages.addWidget(listing)
+        trace = QWidget()
+        tv = QVBoxLayout(trace)
+        tv.setContentsMargins(0, 0, 0, 0)
+        back = QHBoxLayout()
+        back.addWidget(button("‹ 返回列表", lambda: self.detail_pages.setCurrentIndex(1), "link"))
+        back.addStretch()
+        back.addWidget(button("在消息追踪里看", self._detail_to_messages, "link"))
+        tv.addLayout(back)
+        self.detail_trace = TraceView("")
+        self.detail_trace.original.connect(self.app._original)
+        self.detail_trace.store = self.app.store
+        tv.addWidget(self.detail_trace, 1)
+        self.detail_pages.addWidget(trace)
+        dv.addWidget(self.detail_pages, 1)
+        self.detail_card.hide()
+        return self.detail_card
+
+    def _open_detail(self, key):
+        self.detail_key, self.detail_drawn = key, None
+        for name, frame in self.frames.items():
+            frame.setStyleSheet("QFrame#card{border:1.5px solid %s}" % BLUE if name == key else "")
+        self.detail_card.setVisible(bool(key))
+        # 详情一开始是隐藏的，第一次展开时分栏没给它留宽度
+        sizes = self.split.sizes()
+        if key and sizes[1] < 460:
+            self.split.setSizes([max(sum(sizes) - 460, 300), 460])
+        if key:
+            self.detail_title.setText(DOMAINS[key][0] + " 详情")
+            self.detail_pages.setCurrentIndex(min(self.detail_view.index(), 1))
+            self._render_detail()
+
+    def _detail_view_changed(self, index):
+        self.detail_pages.setCurrentIndex(min(index, 1))
+        self.detail_drawn = None
+        self._render_detail()
+
+    def _render_detail(self):
+        """这个领域有新消息、相关指令有变化或换了分段才重画"""
+        key = self.detail_key
+        if not key:
+            return
+        module = RELATED[key][0]
+        kept = self.history.get(key, [])
+        stamp = (self.session, self.detail_view.index(), len(kept), kept[-1].event_id if kept else None,
+                 self.app.module_touched.get(module, 0) if self.detail_view.index() else 0)
+        if stamp == self.detail_drawn:
+            return
+        self.detail_drawn = stamp
+        self.detail_topic.setText("Topic " + (kept[-1].topic if kept else "—"))
+        if self.detail_view.index():
+            self._render_related(key)
+        else:
+            self._render_reports(kept)
+
+    def _render_reports(self, kept):
+        while self.detail_box.count():
+            item = self.detail_box.takeAt(0)
+            if item.widget():
+                item.widget().hide()
+                item.widget().deleteLater()
+        if not kept:
+            self.detail_box.addWidget(label("这次连接还没收到这个领域的消息", "caption", True))
+            self.detail_box.addStretch()
+            return
+        e = kept[-1]
+        before = kept[-2] if len(kept) > 1 else None
+        changed = {path: old for path, old, _ in payload_diff(before.payload, e.payload)} if before else {}
+        lines = []
+        for path, _, value in payload_diff({}, e.payload):
+            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            if path in changed:
+                lines.append(f"{html.escape(path)}　<b style='color:{ORANGE}'>{html.escape(text)}</b>"
+                             f"<span style='color:{GRAY}'>　（原 {html.escape(json.dumps(changed[path], ensure_ascii=False))}）</span>")
+            else:
+                lines.append(f"{html.escape(path)}　{html.escape(text)}")
+        source = "保留消息（订阅时 Broker 给的）" if e.retained else "实时"
+        block = label(f"<b>最新一条</b><span style='color:{GRAY}'>　{time.strftime('%H:%M:%S', time.localtime(e.timestamp))} 收到 · {source}"
+                      f"{' · 和上一条比，变了的标橙' if before else ''}</span><br>"
+                      f"<span style='font-family:Consolas,monospace;font-size:12px'>{'<br>'.join(lines) or '（没有字段）'}</span>", wrap=True)
+        block.setTextFormat(Qt.RichText)
+        block.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        block.setObjectName("detailBlock")
+        self.detail_box.addWidget(block)
+        # 状态词等关键变化之外，每次报文里变了的字段都列出来，新的在上
+        steps = []
+        for old, new in zip(kept, kept[1:]):
+            diff = [(path, a, b) for path, a, b in payload_diff(old.payload, new.payload) if path != "ts"]
+            if diff:
+                text = "；".join(f"{path} {json.dumps(a, ensure_ascii=False)} → {json.dumps(b, ensure_ascii=False)}" for path, a, b in diff[:6])
+                steps.append(f"{time.strftime('%H:%M:%S', time.localtime(new.timestamp))}　{html.escape(text)}")
+        self.detail_box.addWidget(label(f"这次连接里的变化 · 看最近收到的 {len(kept)} 条", "groupHeader"))
+        changes_text = label("<br>".join(reversed(steps[-50:])) or "收到的这几条内容都一样（ts 除外）", "caption", True)
+        changes_text.setTextFormat(Qt.RichText)
+        changes_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.detail_box.addWidget(changes_text)
+        self.detail_box.addStretch()
+
+    def _render_related(self, key):
+        """这个领域相关的指令和回执，一次请求一行，新的在前；只看这次连接"""
+        module, prefixes = RELATED[key]
+        fetched = [(i, e) for i, e in self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, session=self.session)
+                   if not prefixes or e.method.startswith(prefixes)] if self.session else []
+        found = sorted(requests(self.app.store, fetched), key=lambda r: -r.events[-1].timestamp)[:150]
+        rows = []
+        for r in found:
+            first = next((e for e in r.events if e.kind == "指令"), r.events[0])
+            note = "本机发出" if any(e.direction == "发送" for e in r.events) else "观测到" if first.kind == "指令" else "仅观测到回复"
+            rows.append((first, note, r.status, note))
+        self.detail_model.replace(rows)
+        for row, (e, *_) in enumerate(rows):
+            if (e.sn, e.session, e.tid) == self.detail_row:
+                self.detail_table.selectRow(row)
+        what = "VFC 的指令" if module == "vfc" else "Bridge 命令" + (f"（{'、'.join(p.rstrip('.') + '.*' for p in prefixes)}）" if prefixes else "")
+        self.detail_empty.setText(f"这次连接里列 {what}" + ("，还没有" if not rows else f"，{len(rows)} 次请求") + "；点一行看整条请求")
+        if self.detail_pages.currentIndex() == 2:
+            self.detail_trace.refresh()
+
+    def _detail_open(self, index):
+        e = self.detail_model.rows[index.row()][0]
+        self.detail_row = (e.sn, e.session, e.tid)
+        self.detail_trace.show_trace(e, self.app.store.trace(e))
+        self.detail_pages.setCurrentIndex(2)
+
+    def _detail_to_messages(self):
+        e = self.detail_trace.selected
+        if e and e.tid:
+            self.app.messages._show_request(summarize(self.app.store.trace(e)))
 
     def _note(self, event, text, loud):
         self.log.insert(0, (event.timestamp, text, loud))
@@ -165,7 +360,7 @@ class UavPage:
             if event is None:
                 word.setText("未观测" if live or not self.latest.get(key) else "已断开")
                 word.setStyleSheet(f"font-size:17px;font-weight:600;color:{GRAY}")
-                msg.setText("")
+                msg.setText(self._missing(key, now) if live else "")
                 extra.setText("")
                 age.setText("")
                 continue
@@ -179,13 +374,31 @@ class UavPage:
             extra.setText(more)
             seconds = now - event.timestamp
             stamp = f"{seconds:.0f} 秒前收到" if seconds < 120 else time.strftime("%H:%M:%S 收到", time.localtime(event.timestamp))
-            age.setText({"保留快照": "保留快照（订阅时 Broker 给的缓存），等实时上报", "超时没收到": f"超时没收到新上报 · {stamp}"}.get(fresh, stamp)
+            # Bridge 在线只在上线时发一条保留消息，不定时重发；掉线时 Broker 按遗嘱改成 OFFLINE，所以保留的这条就是现在的状态
+            online = key == "online" and fresh == "保留快照"
+            age.setText("上线时发的保留消息，Bridge 掉线时 Broker 会改成 OFFLINE" if online else
+                        {"保留快照": "保留快照（订阅时 Broker 给的缓存），等实时上报", "超时没收到": f"超时没收到新上报 · {stamp}"}.get(fresh, stamp)
                         + ("" if state == "正常" else f" · 数据{state}"))
-            age.setStyleSheet(f"color:{ORANGE if fresh != '实时' else GRAY}")
+            age.setStyleSheet(f"color:{ORANGE if fresh != '实时' and not online else GRAY}")
         touch = (self.app.module_touched.get("vfc", 0), self.app.module_touched.get("bridge", 0))
         if touch != self.drawn_touch:
             self.drawn_touch = touch
             self._render_timeline()
+        if hasattr(self, "detail_card"):
+            self._render_detail()
+
+    def _missing(self, key, now):
+        """连上后一直没收到的卡片写可能的原因，免得只看到“未观测”"""
+        vfc = ("subsystem_status", "nav_status", "nav_status_progress")
+        if key in vfc and not any(k in self.latest for k in vfc):
+            return "连上后没收到 VFC 的任何消息，VFC 服务可能没在跑" if now - self.since > LINK_SECONDS else ""
+        if key == "nav_status_progress":
+            return "只在执行航线时上报"
+        system = self.latest.get("system")
+        detail = (system.payload.get("info") or {}).get("detail") if system else None
+        if key == "pose" and isinstance(detail, dict) and detail.get("ros") == "DOWN":
+            return "Bridge 报 ros DOWN，没有位姿可发"
+        return ""
 
     def _render_changes(self):
         self.changes.clear()

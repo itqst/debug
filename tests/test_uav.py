@@ -444,3 +444,43 @@ def test_bridge_send_warns_when_vfc_online(window, monkeypatch):
     window.control._open_command("pause_nav")
     window.control._send()
     assert "绕开 VFC" not in notes[-1]
+
+
+def test_board_with_ros_down_and_no_vfc_explains_empty_cards(window):
+    """板上 ROS 没起、VFC 没跑时（11-09 板上实际情况）：在线卡不写“等实时上报”，没收到的卡写可能原因"""
+    import time
+    now = time.time()
+    window._ingest(Event("local/uav/bridge/heartbeat", {"sn": "", "type": "online", "state": 1,
+                         "info": {"result": 0, "msg": "机载服务在线", "data": "ONLINE"}}, sn="", session="s1", retained=True, timestamp=now - 10))
+    window._ingest(Event("local/uav/bridge/state/system", {"sn": "", "type": "system", "state": 1, "info": {"result": 0, "msg": "环境空闲，可以启动",
+                         "data": "READY", "detail": {"ros": "DOWN"}}}, sn="", session="s1", timestamp=now))
+    window.uav.render()
+    word, msg, _, age = window.uav.cards["online"]
+    assert word.text() == "ONLINE" and "等实时上报" not in age.text() and "OFFLINE" in age.text()
+    assert window.uav.cards["pose"][1].text() == "Bridge 报 ros DOWN，没有位姿可发"
+    assert "VFC 服务可能没在跑" in window.uav.cards["subsystem_status"][1].text()
+
+
+def test_card_click_opens_detail_with_fields_changes_and_related_commands(window):
+    """和狗的状态总览一样点卡片看详情：最新一条完整字段、变了的标橙、这次连接里的变化、相关指令点开看整条请求"""
+    for e in capture("commands.jsonl"):
+        window._ingest(e)
+    window.store.flush()
+    window.uav.render()
+    window.uav.frames["system"].clicked.emit()
+    assert not window.uav.detail_card.isHidden() and window.uav.detail_title.text() == "任务环境 详情"
+    texts = [window.uav.detail_box.itemAt(i).widget().text() for i in range(window.uav.detail_box.count())
+             if window.uav.detail_box.itemAt(i).widget()]
+    assert "info.data" in texts[0] and "local/uav/bridge/state/system" in window.uav.detail_topic.text()
+    assert any(t.startswith("这次连接里的变化") for t in texts)
+    window.uav.detail_view.set_index(1)
+    rows = window.uav.detail_model.rows
+    assert rows and all(e.method.startswith(("system.", "job.")) for e, *_ in rows)
+    window.uav._detail_open(window.uav.detail_model.index(0, 0))
+    assert window.uav.detail_pages.currentIndex() == 2 and window.uav.detail_trace.selected is rows[0][0]
+    # VFC 卡片列的是 VFC 指令
+    window.uav.frames["nav_status"].clicked.emit()
+    assert window.uav.detail_model.rows and all(e.module == "vfc" for e, *_ in window.uav.detail_model.rows)
+    window.uav.detail_view.set_index(0)
+    window.uav._open_detail(None)
+    assert window.uav.detail_card.isHidden()
