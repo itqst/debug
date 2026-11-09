@@ -277,11 +277,17 @@ class ControlPage:
             return
         self.form_note.setText("改这里会同步到 JSON；列表和对象请在 JSON 里改" if data else "data 为空")
         self.form_area.setVisible(bool(data))
-        route = self.selected["module"] == "vfc" and isinstance(data.get("points"), list)
-        self.points_table.setVisible(route)
+        # 狗也有 VFC 模块，航点表格只给无人机的开始航线
+        route = self._uav() and self.selected["module"] == "vfc" and isinstance(data.get("points"), list)
         if route:
-            self.points_table.load(data["points"])
-            data = {k: v for k, v in data.items() if k != "points"}
+            try:
+                self.points_table.load(data["points"])
+                data = {k: v for k, v in data.items() if k != "points"}
+            except ValueError as error:
+                # 手改成表格认不出的 points 时照原文留在 JSON 里，表格先收起，改回能认的再显示
+                self.form_note.setText(f"航点表格暂停：{error}；直接编辑下方 JSON")
+                route = False
+        self.points_table.setVisible(route)
         for index, (key, value) in enumerate(data.items()):
             row, column = divmod(index, 2)
             self.form_grid.addWidget(label(key, "caption"), row, column * 2)
@@ -358,9 +364,7 @@ class ControlPage:
         bid = str(payload.get("bid") or "")
         if payload.get("method") == "start_multi_nav_by_points":
             return bid or str(uuid.uuid4())
-        state = self.app.uav.latest.get("nav_status")
-        info = state.payload.get("info") if state else None
-        return (info.get("flight_id") if isinstance(info, dict) else "") or bid or str(uuid.uuid4())
+        return self.app.uav.current_task() or bid or str(uuid.uuid4())
 
     def _template(self, draft=None):
         """显示当前指令；draft 为之前没发出的 (Topic, 正文)，没有时按目录生成新模板（新 tid）"""
@@ -375,9 +379,9 @@ class ControlPage:
             note = "设备发起的上线/心跳/配置请求，沙盒里演示云端应答"
         self.contract.setText(self.selected["summary"] + ("　·　" + note if note else ""))
         # 无人机每次发送都自动换 tid / id，不用手换；开始航线要换的是 bid（新任务），其他指令的 bid 跟着当前任务
-        route = self.selected["method"] == "start_multi_nav_by_points"
-        self.new_tid_btn.setText("换新 bid" if route else "换新 tid")
-        self.new_tid_btn.setVisible(route or module not in ("vfc", "bridge"))
+        uav, route = self._uav(), self.selected["method"] == "start_multi_nav_by_points"
+        self.new_tid_btn.setText("换新 bid" if uav and route else "换新 tid")
+        self.new_tid_btn.setVisible(not uav or route)
         self.contract.setToolTip(self.selected["label"].split(" · ")[0] + "　·　" + self.selected["source"])
         if draft:
             self.editor.setPlainText(draft[1])
@@ -386,7 +390,7 @@ class ControlPage:
             payload = make_command(self.selected)
             if self.app.mode == "direct":
                 payload = local_payload(payload)
-            if module == "vfc":
+            if module == "vfc" and self._uav():
                 payload["bid"] = self._vfc_bid(payload)
             self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
             self._update_topic()

@@ -413,11 +413,17 @@ class UavPage:
                 item.setFont(font)
             self.changes.addItem(item)
 
-    def _task_bid(self):
-        """当前任务的 bid：VFC 任务状态里的 flight_id；还没有任务时新生成一个"""
+    def current_task(self):
+        """当前连接里 VFC 任务状态报的 flight_id（当前任务的 bid）；换了连接、新连接还没收到任务状态时为空，不沿用上一个连接的"""
         state = self.latest.get("nav_status")
-        info = state.payload.get("info", {}) if state else {}
-        return (info.get("flight_id") if isinstance(info, dict) else "") or str(uuid.uuid4())
+        if not state or state.session != self.app.mqtt.session:
+            return ""
+        info = state.payload.get("info")
+        return str(info.get("flight_id") or "") if isinstance(info, dict) else ""
+
+    def _task_bid(self):
+        """当前任务的 bid；还没有任务时新生成一个"""
+        return self.current_task() or str(uuid.uuid4())
 
     def _command(self, method, data=None, bid=None):
         """按无人机目录生成一条 VFC 指令（新 tid、ts），模拟 GW 发出；开关没开时由 MQTT 出口拒绝并提示"""
@@ -622,17 +628,25 @@ class PointsTable(QWidget):
         self.changed.emit()
 
     def load(self, points):
-        """按报文里的 points 填表，四元数换成航向角；不发 changed"""
+        """按报文里的 points 填表，四元数换成航向角；不发 changed。points 里有认不出的点时抛 ValueError，表格不动"""
+        rows = []
+        for index, point in enumerate(points):
+            try:
+                position = point.get("position") or {}
+                values = [str(position.get(k, "")) for k in "xyz"]
+                rows.append(values + [f"{yaw_of(point.get('orientation')):g}", format_actions(point.get("actions"))])
+            except (AttributeError, TypeError, ValueError):
+                raise ValueError(f"第 {index + 1} 个航点不是表格能认的格式")
         self.table.blockSignals(True)
-        self.table.setRowCount(0)
-        for point in points if isinstance(points, list) else []:
-            position = point.get("position") if isinstance(point, dict) and isinstance(point.get("position"), dict) else {}
-            values = [str(position.get(k, "")) for k in "xyz"] + [f"{yaw_of(point.get('orientation')):g}", format_actions(point.get("actions"))]
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            for column, value in enumerate(values):
-                self.table.setItem(row, column, QTableWidgetItem(value))
-        self.table.blockSignals(False)
+        try:
+            self.table.setRowCount(0)
+            for values in rows:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                for column, value in enumerate(values):
+                    self.table.setItem(row, column, QTableWidgetItem(value))
+        finally:
+            self.table.blockSignals(False)
         self.error.setText("")
 
     def points(self):

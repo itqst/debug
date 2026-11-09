@@ -631,3 +631,48 @@ def test_new_id_button_follows_command(window):
     window.device_box.setCurrentText("机器狗")
     window.control._open_command("take_photo")
     assert button.text() == "换新 tid" and not button.isHidden()
+
+
+def test_uav_bid_rules_do_not_touch_dog_vfc(window):
+    """狗也有 VFC 模块：狗的 move 模板不加 bid、不出航点表格，按钮照旧“换新 tid”"""
+    window.device_box.setCurrentText("机器狗")
+    window.mode_box.setCurrentText("直连模块")
+    window.control._open_command("move")
+    payload = json.loads(window.control.editor.toPlainText())
+    assert "bid" not in payload and window.control.points_table.isHidden()
+    assert window.control.new_tid_btn.text() == "换新 tid" and not window.control.new_tid_btn.isHidden()
+
+
+def test_points_table_survives_bad_points_in_json(window):
+    """手改 JSON 成表格认不出的 points（null、非数字四元数）：表格收起、JSON 原样保留、不报错；改回能认的表格接着用"""
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.control._open_command("start_multi_nav_by_points")
+    good = json.loads(window.control.editor.toPlainText())
+    for bad in ([None], [{"position": {"x": 0, "y": 0, "z": 1}, "orientation": {"z": "abc"}, "actions": []}]):
+        payload = dict(good, data=dict(good["data"], points=bad))
+        text = json.dumps(payload)
+        window.control.editor.setPlainText(text)
+        window.control._rebuild_form()
+        assert window.control.points_table.isHidden() and "航点表格暂停" in window.control.form_note.text()
+        assert window.control.editor.toPlainText() == text
+        assert not window.control.points_table.table.signalsBlocked()
+    window.control.editor.setPlainText(json.dumps(good))
+    window.control._rebuild_form()
+    table = window.control.points_table
+    assert not table.isHidden()
+    table.table.item(0, 3).setText("90")
+    assert json.loads(window.control.editor.toPlainText())["data"]["points"][0]["orientation"]["z"] == 0.707107
+
+
+def test_task_bid_not_carried_over_from_previous_connection(window):
+    """上一个连接的任务状态不当成当前任务：新连接还没收到 nav_status 时，降落不带旧 bid"""
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window._ingest(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "msg": "", "data": "Active",
+                                                                                              "flight_id": "OLD_TASK"}}, sn="", session="s1"))
+    assert window.uav.current_task() == "OLD_TASK"
+    window.mqtt.session = "s2"
+    window.control._open_command("land")
+    assert json.loads(window.control.editor.toPlainText())["bid"] != "OLD_TASK"
+    assert window.uav.current_task() == "" and window.uav._task_bid() != "OLD_TASK"

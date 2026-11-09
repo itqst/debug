@@ -810,3 +810,11 @@ GPT 冻结 a020ff9 独立测：317 项过、旅程过；90 组随机筛选两步
 ### 控制调试页按钮“换新 tid”跟着指令换
 老大指出开始航线那里应该是“换新 bid”。无人机发送时已自动换 tid / id，手换没用：开始航线显示“换新 bid”、只换 bid；其他无人机指令不显示（bid 跟当前任务，乱换反而错）；狗照旧“换新 tid”。测试加 1 项，326 项全过
 - 重新打包（25b8fe3），build.log 无 Build FAILED，打包自检通过
+
+### GPT 复核下午 4 个提交：修三处
+GPT 冻结 25b8fe3 独立测：发送新 id / 当前 ts、只换 bid、points 双向写回都过；旅程过。指出三处：
+- 无人机的 bid 规则和按钮误作用到狗：狗也有 VFC 模块，狗的 move 模板多了随机 bid、“换新 tid”按钮被藏。_template 补 bid、航点表格、按钮显隐都只在设备是无人机时走，狗照旧
+- 手改 JSON 成表格认不出的 points（[null]、四元数非数字）时 PointsTable.load 抛异常并把表格信号留在屏蔽状态。改成先整段转换、认不出抛 ValueError（“第 N 个航点不是表格能认的格式”），控制调试页收起表格、JSON 原样保留、参数说明写“航点表格暂停”；blockSignals 放 finally
+- 自动补的当前任务 bid 会沿用上一个连接的：新连接还没收到 nav_status 时 uav.latest 还是旧连接的。加 UavPage.current_task()，只认当前连接（state.session == mqtt.session）的 flight_id，控制调试页 _vfc_bid 和航线任务页快捷按钮都用它
+- GPT 那边 3 项剪贴板测试失败，纯 PySide 设剪贴板也读回空，判断是它的环境剪贴板不可用，不算产品回归
+- 测试加 3 项，329 项全过
