@@ -25,26 +25,18 @@
        "orientation": {
         "x": 0.0,
         "y": 0.0,
-        "z": 0.7071,
-        "w": 0.7071
+        "z": 0.0,
+        "w": 1.0
        },
-       "actions": [
-        {
-         "id": "a1",
-         "action": "pause",
-         "param": [
-          3
-         ]
-        }
-       ]
+       "actions": []
       }
      ]
     }
    },
    "title": "开始航线",
-   "summary": "模拟 GW 下发航线：VFC 写航点文件、启动任务环境（Bridge system.start）；ack 只表示受理，进度看 nav_status",
+   "summary": "模拟 GW 下发航线：VFC 写航点文件、启动任务环境（Bridge system.start）；ack 只表示受理，进度看 nav_status。按航向角编辑航点用“航线任务”页",
    "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": "顶层 bid 必填，作为任务 ID；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；VFC 不校验 map_id"
+   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；orientation 是四元数，只绕 z 轴转时 z=sin(yaw/2)、w=cos(yaw/2)，不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；VFC 现在不支持航点动作，带了会整条拒绝；VFC 不校验 map_id"
   },
   {
    "id": "uav.vfc.pause_nav",

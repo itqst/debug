@@ -375,7 +375,9 @@ def test_route_editor_converts_yaw_and_actions(window):
     window.uav_send.setChecked(True)
     window.uav._send_route()
     payload = json.loads(client.sent[-1][1])
-    assert payload["method"] == "start_multi_nav_by_points" and payload["data"]["points"][0]["orientation"]["z"] == 0.707107
+    # 默认那个点航向 0：四元数 (0,0,0,1)，不是全 0；动作默认为空（VFC 现在不支持航点动作）
+    assert payload["method"] == "start_multi_nav_by_points"
+    assert payload["data"]["points"][0]["orientation"] == {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0} and payload["data"]["points"][0]["actions"] == []
     assert payload["bid"] == editor.bid.text().strip() and not editor.error.text()
 
 
@@ -560,3 +562,26 @@ def test_bridge_duplicate_ack_is_flagged_not_executed(window):
     assert diagnose(ack).status == "重复请求未执行"
     assert summarize(window.store.trace(cmd)).status == "重复请求未执行"
     assert any(loud and "当重复请求" in text for _, text, loud in window.uav.log)
+
+
+def test_control_page_vfc_bid_auto_filled(window):
+    """11-09 真飞：手编的航线没带 bid 被 VFC 拒（缺少字段或为空：bid），返航、降落带的是模板随机 bid 不是当前任务的。
+    开始航线没填 bid 自动生成；其他 VFC 指令带当前任务的 bid；航线模板航向 0、动作为空"""
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.uav_send.setChecked(True)
+    window.control._open_command("start_multi_nav_by_points")
+    template = json.loads(window.control.editor.toPlainText())
+    assert template["bid"] and template["data"]["points"][0]["orientation"] == {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
+    assert template["data"]["points"][0]["actions"] == []
+    del template["bid"]
+    window.control.editor.setPlainText(json.dumps(template))
+    window.control._send()
+    assert json.loads(client.sent[-1][1])["bid"]
+    window._ingest(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "msg": "", "data": "Active",
+                                                                                              "flight_id": "11111"}}, sn="", session="s1"))
+    for method in ("start_nav_return_home", "land"):
+        window.control._open_command(method)
+        window.control._send()
+        assert json.loads(client.sent[-1][1])["bid"] == "11111"

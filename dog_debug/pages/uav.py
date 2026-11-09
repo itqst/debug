@@ -468,7 +468,9 @@ class UavPage:
             self.route.error.setText(str(error))
             return
         self.route.error.setText("")
-        if self._command("start_multi_nav_by_points", data, bid):
+        if any(point["actions"] for point in data["points"]):
+            self.app.notify("VFC 现在不支持航点动作，带了动作的航线会整条被拒绝")
+        if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4())):
             self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 任务卡和关键变化")
 
     def _render_task(self):
@@ -565,7 +567,7 @@ def parse_actions(text):
 class RouteEditor(QWidget):
     """编辑一条航线：每个航点填 x、y、z（米，z 相对起飞点）、偏航角（度）和动作，生成 start_multi_nav_by_points 的 data"""
 
-    COLUMNS = ["x", "y", "z", "偏航角 °", "动作（; 分隔，如 pause 5; take_photo）"]
+    COLUMNS = ["x", "y", "z", "航向角 yaw（°）", "动作（现在不支持，留空）"]
 
     def __init__(self):
         super().__init__()
@@ -579,14 +581,14 @@ class RouteEditor(QWidget):
             top.addWidget(field, 1)
         top.addWidget(button("换新 bid", lambda: self.bid.setText(str(uuid.uuid4())), "link"))
         layout.addLayout(top)
-        layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；动作可用 take_photo、start_record、stop_record、pause、gimbal_action、start_ai、stop_ai，"
-                               "VFC 不支持的动作会整条航线拒绝", "caption", True))
+        layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；航向角发出时换成四元数（x=0、y=0、z=sin(yaw/2)、w=cos(yaw/2)）。"
+                               "VFC 现在不支持航点动作，填了整条航线会被拒绝；以后支持时写法如“pause 5; take_photo”", "caption", True))
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setDefaultSectionSize(30)
         layout.addWidget(self.table, 1)
-        self._add(("0", "1", "1.2", "90", "pause 3"))
+        self._add(("0", "1", "1.2", "0", ""))
         self.error = label("", "caption", True)
         self.error.setStyleSheet(f"color:{RED}")
         layout.addWidget(self.error)

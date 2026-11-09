@@ -1,6 +1,7 @@
 """控制调试页：完整协议指令的目录、模板、参数表单、发送和本次结果"""
 
 import json
+import uuid
 
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor
@@ -323,6 +324,15 @@ class ControlPage:
         refresh_ids(payload)
         self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
 
+    def _vfc_bid(self, payload):
+        """VFC 指令的 bid（任务 ID，必填）：开始航线用填了的，没填就新生成；暂停、返航、降落这些带当前任务的，还没有任务时保留填的"""
+        bid = str(payload.get("bid") or "")
+        if payload.get("method") == "start_multi_nav_by_points":
+            return bid or str(uuid.uuid4())
+        state = self.app.uav.latest.get("nav_status")
+        info = state.payload.get("info") if state else None
+        return (info.get("flight_id") if isinstance(info, dict) else "") or bid or str(uuid.uuid4())
+
     def _template(self, draft=None):
         """显示当前指令；draft 为之前没发出的 (Topic, 正文)，没有时按目录生成新模板（新 tid）"""
         module = self.selected["module"]
@@ -343,6 +353,8 @@ class ControlPage:
             payload = make_command(self.selected)
             if self.app.mode == "direct":
                 payload = local_payload(payload)
+            if module == "vfc":
+                payload["bid"] = self._vfc_bid(payload)
             self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
             self._update_topic()
         self._rebuild_form()
@@ -361,6 +373,8 @@ class ControlPage:
             # VFC 和 Bridge 按 tid / id 认请求，同一个编号再发会被当成重复请求（Bridge 直接回旧的缓存结果、不执行），
             # 每次发送都换新编号和当前 ts；bid 是任务 ID，stop_nav 这类要带当前任务的，不换
             refresh_ids(payload, keep_bid=True)
+            if self.selected["module"] == "vfc":
+                payload["bid"] = self._vfc_bid(payload)
             text = json.dumps(payload, ensure_ascii=False, indent=2)
             self.editor.setPlainText(text)
         record = payload if isinstance(payload, dict) else {}
