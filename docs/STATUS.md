@@ -800,3 +800,8 @@ GPT 冻结 a020ff9 独立测：317 项过、旅程过；90 组随机筛选两步
 
 老大指出控制调试页的开始航线还得手填四元数。航点表格抽成 PointsTable（pages/uav.py），航线任务页和控制调试页共用：控制调试页选开始航线时 points 不再显示成只读 JSON，换成表格；改表格换算成四元数写回 JSON（填错的格子不写回，标出第几个航点），打开模板或手改 JSON 时四元数按 atan2 换回航向角显示。编辑卡放进竖向滚动区，窗口矮时不把表格、Payload 和按钮挤到一起。测试加 1 项，325 项全过
 - 重新打包（a1054c5），build.log 无 Build FAILED，打包自检通过
+
+### 待做：VFC 建图指令（nav 预告格式，等 VFC 交付测过后的最终版再做）
+- start_mapping：data {}，tid、bid 必填
+- stop_mapping：data {"save": true|false}，save 必填；界面上让操作的人明确选“保存地图”或“不保存”，不默认
+- local/uav/vfc/state 新增 type=mapping_status，info 里 result、msg、data（Bridge 原词 UNKNOWN/DISABLED/MAPPING/SAVING/SAVED/SAVE_FAILED）和 session_id
