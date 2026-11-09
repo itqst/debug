@@ -5,7 +5,7 @@
    "method": "start_multi_nav_by_points",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务 · start_multi_nav_by_points",
+   "label": "VFC 任务（模拟 GW 发） · start_multi_nav_by_points",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "start_multi_nav_by_points",
@@ -51,7 +51,7 @@
    "method": "pause_nav",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务 · pause_nav",
+   "label": "VFC 任务（模拟 GW 发） · pause_nav",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "pause_nav",
@@ -70,7 +70,7 @@
    "method": "continue_nav",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务 · continue_nav",
+   "label": "VFC 任务（模拟 GW 发） · continue_nav",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "continue_nav",
@@ -89,7 +89,7 @@
    "method": "stop_nav",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务 · stop_nav",
+   "label": "VFC 任务（模拟 GW 发） · stop_nav",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "stop_nav",
@@ -108,7 +108,7 @@
    "method": "start_nav_return_home",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务 · start_nav_return_home",
+   "label": "VFC 任务（模拟 GW 发） · start_nav_return_home",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "start_nav_return_home",
@@ -127,7 +127,7 @@
    "method": "land",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务 · land",
+   "label": "VFC 任务（模拟 GW 发） · land",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "land",
@@ -146,7 +146,7 @@
    "method": "system.status",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · system.status",
+   "label": "Bridge（模拟 VFC 发） · system.status",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -167,7 +167,7 @@
    "method": "system.start",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · system.start",
+   "label": "Bridge（模拟 VFC 发） · system.start",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -192,7 +192,7 @@
    "method": "system.stop",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · system.stop",
+   "label": "Bridge（模拟 VFC 发） · system.stop",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -215,7 +215,7 @@
    "method": "job.cancel",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · job.cancel",
+   "label": "Bridge（模拟 VFC 发） · job.cancel",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -238,7 +238,7 @@
    "method": "relocalization.start",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · relocalization.start",
+   "label": "Bridge（模拟 VFC 发） · relocalization.start",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -259,7 +259,7 @@
    "method": "navigation.next",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · navigation.next",
+   "label": "Bridge（模拟 VFC 发） · navigation.next",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -282,7 +282,7 @@
    "method": "navigation.pause",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · navigation.pause",
+   "label": "Bridge（模拟 VFC 发） · navigation.pause",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -303,7 +303,7 @@
    "method": "navigation.resume",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · navigation.resume",
+   "label": "Bridge（模拟 VFC 发） · navigation.resume",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -324,7 +324,7 @@
    "method": "navigation.return_home",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · navigation.return_home",
+   "label": "Bridge（模拟 VFC 发） · navigation.return_home",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -345,7 +345,7 @@
    "method": "navigation.uncertain_clear",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · navigation.uncertain_clear",
+   "label": "Bridge（模拟 VFC 发） · navigation.uncertain_clear",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -366,7 +366,7 @@
    "method": "flight.land",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge · flight.land",
+   "label": "Bridge（模拟 VFC 发） · flight.land",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",

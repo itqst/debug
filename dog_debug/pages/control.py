@@ -370,6 +370,8 @@ class ControlPage:
             self.app.notify("不是 JSON 对象，无法按对象模拟，已记录原文" if self.app.mode == "sandbox" else "已按原文发送")
         else:
             text = "沙盒已模拟完整链路" if self.app.mode == "sandbox" else "已发送，等待 ACK"
+            if self.selected["module"] == "bridge" and self.app.uav.vfc_online():
+                text += "；VFC 在线，直接发 Bridge 会绕开 VFC"
             self.app.notify(text + ("；" + self.app.demo_note if self.app.demo_note else ""))
 
     def _remember(self, item):

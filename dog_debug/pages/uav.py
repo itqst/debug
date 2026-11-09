@@ -133,6 +133,11 @@ class UavPage:
         self.drawn_touch = None
         self.render()
 
+    def vfc_online(self):
+        """这次连接里 VFC 还在报在线；VFC 在跑时直接给 Bridge 发命令会绕开它的状态机"""
+        event = self.latest.get("subsystem_status")
+        return bool(event) and freshness(event, time.time()) == "实时" and reading(event)[0] == "在线"
+
     def tick(self, now):
         """无人机页可见时事件队列每轮调用：卡片时效每秒更新，时间线在 VFC 或 Bridge 有新消息时重画"""
         touch = (self.app.module_touched.get("vfc", 0), self.app.module_touched.get("bridge", 0))

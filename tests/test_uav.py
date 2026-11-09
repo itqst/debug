@@ -423,3 +423,24 @@ def test_sidebar_follows_device_and_locks_while_connected(window, monkeypatch):
     window.connection._connect()
     assert window.device_box.isEnabled()
 
+
+
+def test_bridge_send_warns_when_vfc_online(window, monkeypatch):
+    """VFC 在线时直接发 Bridge 命令提示会绕开 VFC，不拦；VFC 指令不提示"""
+    import time
+    notes = []
+    monkeypatch.setattr(window, "notify", notes.append)
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.uav_send.setChecked(True)
+    window.control._open_command("system.status")
+    window.control._send()
+    assert "绕开 VFC" not in notes[-1]
+    window._ingest(Event("local/uav/vfc/state", {"sn": "", "type": "subsystem_status", "data": {"name": "vfc", "state": 1, "version": "1.0.0"}},
+                         sn="", session="s1", timestamp=time.time()))
+    window.control._send()
+    assert "绕开 VFC" in notes[-1] and client.sent[-1][0] == "local/uav/bridge/command"
+    window.control._open_command("pause_nav")
+    window.control._send()
+    assert "绕开 VFC" not in notes[-1]
