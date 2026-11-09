@@ -35,7 +35,7 @@ BLUE, GREEN, ORANGE, RED, GRAY = "#007AFF", "#34C759", "#FF9500", "#FF3B30", "#8
 PURPLE = "#AF52DE"
 MODULE_COLORS = {"gw": "#5856D6", "vfc": BLUE, "ptz": ORANGE, "media": "#FF2D55", "vision": "#AF52DE", "fsvr": GREEN,
                  "ros2bridge": "#A2845E", "zlm": "#30B0C7"}
-FAILED = {"失败", "错误线索"}
+FAILED = {"失败", "错误线索", "重复请求未执行"}
 WARNING = {"契约待核", "未活跃", "待核", "无 ACK", "保留消息", "结果不确定"}
 PROGRESS = {"已受理/上传中", "阶段待判", "受理中"}
 SUCCESS = {"操作成功", "完成", "活跃", "JPEG 已生成", "已开始", "请求已处理", "导航已受理"}

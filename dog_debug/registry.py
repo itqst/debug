@@ -51,8 +51,8 @@ def make_command(item):
     return refresh_ids(copy.deepcopy(item["template"]))
 
 
-def refresh_ids(payload):
-    """原地换新 tid、ts，带 bid 的也换；返回 payload
+def refresh_ids(payload, keep_bid=False):
+    """原地换新 tid、ts，带 bid 的也换（keep_bid 为真时不换）；返回 payload
 
     无人机 Bridge 的命令用 id 配对、不认多余的顶层字段，有 id 没有 tid 时只换 id（只能用字母、数字、_、-）
     """
@@ -61,7 +61,7 @@ def refresh_ids(payload):
     else:
         payload["tid"] = str(uuid.uuid4())
     payload["ts"] = int(time.time() * 1000)
-    if "bid" in payload:
+    if "bid" in payload and not keep_bid:
         payload["bid"] = str(uuid.uuid4())
     return payload
 

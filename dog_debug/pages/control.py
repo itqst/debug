@@ -357,6 +357,12 @@ class ControlPage:
             payload = json.loads(text)
         except ValueError:
             payload = text
+        if self._uav() and isinstance(payload, dict):
+            # VFC 和 Bridge 按 tid / id 认请求，同一个编号再发会被当成重复请求（Bridge 直接回旧的缓存结果、不执行），
+            # 每次发送都换新编号和当前 ts；bid 是任务 ID，stop_nav 这类要带当前任务的，不换
+            refresh_ids(payload, keep_bid=True)
+            text = json.dumps(payload, ensure_ascii=False, indent=2)
+            self.editor.setPlainText(text)
         record = payload if isinstance(payload, dict) else {}
         sent = self.app._emit(payload, text, topic, self.selected["module"])
         self._flash_send("✓ 已发出" if sent else "✗ 没发出")

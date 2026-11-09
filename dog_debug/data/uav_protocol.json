@@ -206,7 +206,7 @@
     "ts": 0
    },
    "title": "停止任务环境",
-   "summary": "异步；只能停 Bridge 管理的环境",
+   "summary": "异步；只能停 Bridge 管理的环境。VFC 自己起的环境落地后会自动停，别人起的由起的人去停；VFC 没有停环境的指令（stop_nav 是取消剩余航点、原地悬停）",
    "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
    "unverified": "confirm 必须为 true，表示已确认落地上锁"
   },

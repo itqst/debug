@@ -9,7 +9,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from dog_debug.app import Studio
-from dog_debug.core import Event
+from dog_debug.core import Event, summarize
 from dog_debug.uav import freshness, link, outcome, quality, reading
 
 DATA = Path(__file__).parent / "data" / "uav"
@@ -519,3 +519,44 @@ def test_related_commands_not_pushed_out_by_other_domains(window):
     window.uav._open_detail("navigation")
     window.uav.detail_view.set_index(1)
     assert [e.method for e, *_ in window.uav.detail_model.rows] == ["navigation.pause"]
+
+
+def test_every_uav_send_gets_new_id_and_current_ts(window):
+    """11-09 真机：同一条 stop_nav 原样发了 5 次、system.stop 带着上午的 id 和 ts，Bridge 当重复请求回了旧结果。
+    每次点发送都换新 tid / id 和当前 ts；VFC 的 bid 是任务 ID，不换"""
+    import time
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.uav_send.setChecked(True)
+    window.control._open_command("stop_nav")
+    old = json.loads(window.control.editor.toPlainText())
+    old["ts"] = 1794195129773
+    window.control.editor.setPlainText(json.dumps(old))
+    window.control._send()
+    window.control._send()
+    first, second = (json.loads(text) for _, text in client.sent[-2:])
+    assert first["tid"] != second["tid"] != old["tid"] and first["bid"] == second["bid"] == old["bid"]
+    assert abs(first["ts"] / 1000 - time.time()) < 5
+    assert json.loads(window.control.editor.toPlainText())["tid"] == second["tid"]
+    window.control._open_command("system.stop")
+    window.control._send()
+    window.control._send()
+    a, b = (json.loads(text) for _, text in client.sent[-2:])
+    assert a["id"] != b["id"] and a["id"].startswith("kunkun-") and "tid" not in a and abs(b["ts"] / 1000 - time.time()) < 5
+
+
+def test_bridge_duplicate_ack_is_flagged_not_executed(window):
+    """Bridge 回执带 duplicate: true：结论标红“重复请求未执行”，关键变化里醒目写明"""
+    from dog_debug.core import diagnose
+    cmd = Event("local/uav/bridge/command", {"sn": "", "id": "kunkun-5fc28597c47b471f", "type": "system", "action": "system.stop",
+                                            "args": {"confirm": True}, "client": "kunkun"}, sn="", session="s1")
+    ack = Event("local/uav/bridge/ack", {"sn": "", "id": "kunkun-5fc28597c47b471f", "type": "system", "state": 4, "action": "system.stop",
+                                        "status": "succeeded", "final": True, "job_id": "job-20261104-073246-7558b8",
+                                        "info": {"result": 0, "msg": "环境已停止", "data": "READY"}, "duplicate": True}, sn="", session="s1")
+    for e in (cmd, ack):
+        window._ingest(e)
+    window.store.flush()
+    assert diagnose(ack).status == "重复请求未执行"
+    assert summarize(window.store.trace(cmd)).status == "重复请求未执行"
+    assert any(loud and "当重复请求" in text for _, text, loud in window.uav.log)

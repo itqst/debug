@@ -618,7 +618,7 @@ def trace_report(events):
 
 
 # 请求列表的排序：失败最前，其次没收到回复的，再按最近时间
-REQUEST_ORDER = {"失败": 0, "无 ACK": 1, "结果不确定": 1, "契约待核": 2}
+REQUEST_ORDER = {"失败": 0, "重复请求未执行": 0, "无 ACK": 1, "结果不确定": 1, "契约待核": 2}
 # 这些来源的时间戳都是本机接收时间，可以相减算耗时；导入日志跨主机时钟不可比
 LOCAL_CLOCK = {"mqtt", "sandbox", "mock-gw"}
 
@@ -659,6 +659,9 @@ def _bridge_ack(p):
     info = p.get("info") if isinstance(p.get("info"), dict) else {}
     status, code, msg = str(p.get("status", "")), str(info.get("data", "")), str(info.get("msg", ""))
     text = f"{status} {code}：{msg}" if code else f"{status}：{msg}"
+    if p.get("duplicate"):
+        # Bridge 按 id 去重：收到用过的 id 不执行，原样回上次那条命令的缓存结果
+        return Diagnosis("重复请求未执行", "Bridge 认为这个 id 用过，回的是上次的缓存结果：" + text, "这次没有真正执行；换新 id 和当前 ts 再发")
     if not p.get("final"):
         return Diagnosis("受理中", "Bridge " + text, "等同一 id 的最终回执")
     if status == "succeeded":

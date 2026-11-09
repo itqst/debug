@@ -145,6 +145,8 @@ class UavPage:
         elif event.topic == BRIDGE + "events" and event.payload.get("type") == "waypoint_complete":
             info = event.payload.get("info") if isinstance(event.payload.get("info"), dict) else {}
             self._note(event, f"Bridge 到点事件：{info.get('data', '')}", True)
+        elif event.topic == BRIDGE + "ack" and event.payload.get("duplicate"):
+            self._note(event, f"Bridge 把 {event.payload.get('action')}（id {event.payload.get('id')}）当重复请求，回了旧的缓存结果，这次没有执行", True)
         elif event.topic == BRIDGE + "command" and event.payload.get("action") == "navigation.next":
             self._note(event, f"发出 navigation.next（{event.payload.get('client') or '未写 client'}，id {event.payload.get('id')}）", True)
 
