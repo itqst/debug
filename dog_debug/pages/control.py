@@ -122,7 +122,8 @@ class ControlPage:
         sr.addStretch()
         mv.addWidget(self.scenario_row)
         actions = QHBoxLayout()
-        actions.addWidget(button("换新 tid", self._new_tid))
+        self.new_tid_btn = button("换新 tid", self._new_tid)
+        actions.addWidget(self.new_tid_btn)
         actions.addWidget(button("恢复模板", lambda: self._template()))
         actions.addWidget(button("存为用例", self.app.suite._save_case))
         actions.addStretch()
@@ -338,7 +339,7 @@ class ControlPage:
         self.form_syncing = False
 
     def _new_tid(self):
-        """只换 tid、ts（有 bid 也换），参数和其他字段保持；用于同样参数再发一次"""
+        """只换 tid、ts（有 bid 也换），参数和其他字段保持；用于同样参数再发一次。无人机开始航线只换 bid（新任务）"""
         try:
             payload = json.loads(self.editor.toPlainText())
         except ValueError:
@@ -346,7 +347,10 @@ class ControlPage:
         if not isinstance(payload, dict):
             self.app.notify("不是 JSON 对象，没法换 tid，原文保持不变")
             return
-        refresh_ids(payload)
+        if self._uav():
+            payload["bid"] = str(uuid.uuid4())
+        else:
+            refresh_ids(payload)
         self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
 
     def _vfc_bid(self, payload):
@@ -370,6 +374,10 @@ class ControlPage:
         if module == "gw":
             note = "设备发起的上线/心跳/配置请求，沙盒里演示云端应答"
         self.contract.setText(self.selected["summary"] + ("　·　" + note if note else ""))
+        # 无人机每次发送都自动换 tid / id，不用手换；开始航线要换的是 bid（新任务），其他指令的 bid 跟着当前任务
+        route = self.selected["method"] == "start_multi_nav_by_points"
+        self.new_tid_btn.setText("换新 bid" if route else "换新 tid")
+        self.new_tid_btn.setVisible(route or module not in ("vfc", "bridge"))
         self.contract.setToolTip(self.selected["label"].split(" · ")[0] + "　·　" + self.selected["source"])
         if draft:
             self.editor.setPlainText(draft[1])

@@ -612,3 +612,22 @@ def test_control_page_route_edits_yaw_not_quaternion(window):
     # 别的指令不显示航点表格
     window.control._open_command("land")
     assert window.control.points_table.isHidden()
+
+
+def test_new_id_button_follows_command(window):
+    """无人机发送时自动换 tid / id，开始航线的按钮是“换新 bid”、只换 bid；其他无人机指令不显示；狗照旧“换新 tid”"""
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.control._open_command("start_multi_nav_by_points")
+    button = window.control.new_tid_btn
+    assert button.text() == "换新 bid" and not button.isHidden()
+    before = json.loads(window.control.editor.toPlainText())
+    window.control._new_tid()
+    after = json.loads(window.control.editor.toPlainText())
+    assert after["bid"] != before["bid"] and after["tid"] == before["tid"] and after["data"] == before["data"]
+    for method in ("land", "system.stop"):
+        window.control._open_command(method)
+        assert button.isHidden()
+    window.device_box.setCurrentText("机器狗")
+    window.control._open_command("take_photo")
+    assert button.text() == "换新 tid" and not button.isHidden()
