@@ -818,3 +818,4 @@ GPT 冻结 25b8fe3 独立测：发送新 id / 当前 ts、只换 bid、points �
 - 自动补的当前任务 bid 会沿用上一个连接的：新连接还没收到 nav_status 时 uav.latest 还是旧连接的。加 UavPage.current_task()，只认当前连接（state.session == mqtt.session）的 flight_id，控制调试页 _vfc_bid 和航线任务页快捷按钮都用它
 - GPT 那边 3 项剪贴板测试失败，纯 PySide 设剪贴板也读回空，判断是它的环境剪贴板不可用，不算产品回归
 - 测试加 3 项，329 项全过
+- 重新打包（caf5fdb），build.log 无 Build FAILED，打包自检通过
