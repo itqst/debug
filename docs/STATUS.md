@@ -794,3 +794,4 @@ GPT 冻结 a020ff9 独立测：317 项过、旅程过；90 组随机筛选两步
 - 航线任务页：表格只填航向角 yaw（度），发出时换成四元数；动作一栏默认空，标“现在不支持，留空”，填了发送时提示会被整条拒绝；bid 栏空着发时新生成，不再借用旧任务的 bid
 - 预告（未做）：VFC 要加 start_mapping、stop_mapping（data {}，tid、bid 必填）和 mapping_status 状态，等 nav 发最终格式
 - 测试加 1 项、改 1 项，324 项全过
+- 重新打包（fff78a4，17:55），build.log 无 Build FAILED，打包自检通过
