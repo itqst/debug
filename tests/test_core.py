@@ -222,6 +222,29 @@ def test_requests_sorted_failures_first_and_isolated():
     store.close()
 
 
+def test_request_cache_recomputes_only_when_its_tid_gets_new_messages():
+    """请求结论缓存：同一请求后来收到 ACK 要重算，别的请求不动；清库后缓存一起清"""
+    store = Store()
+    events = simulate(make_command(find("take_photo")), "a", "s1", "success")
+    commands = [e for e in events if e.kind == "指令"]
+    for e in commands:
+        store.add(e)
+    for e in simulate(make_command(find("take_photo")), "a", "s2", "failure"):
+        store.add(e)
+    first = {r.key: r for r in requests(store, store.query())}
+    assert first[("a", "s1", commands[0].tid)].status == "无 ACK"
+    for e in events:
+        if e.kind != "指令":
+            store.add(e)
+    again = {r.key: r for r in requests(store, store.query())}
+    assert again[("a", "s1", commands[0].tid)].status == "操作成功"
+    other = next(k for k in first if k[1] == "s2")
+    assert again[other] is first[other]
+    store.clear()
+    assert not store.request_cache and requests(store, store.query()) == []
+    store.close()
+
+
 def test_imported_request_has_no_cross_host_latency():
     from dog_debug.core import summarize
     events = simulate(make_command(find("take_photo")), "a", "s", "success")

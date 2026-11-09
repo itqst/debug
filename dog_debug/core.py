@@ -179,6 +179,8 @@ class Store:
         self.db = sqlite3.connect(self.path)
         # 写入次数：状态行和其他行（指令、ACK、事件、日志）分开计，界面据此判断请求列表、状态总览要不要重算
         self.status_version, self.request_version = 0, 0
+        # 请求结论按 (sn, session, tid) 缓存，这个 tid 进了新消息才重算；消息页换筛选时不用把几千个请求重新配一遍
+        self.request_cache = {}
         # WAL + NORMAL：崩溃最多丢最后一批未提交的消息，换来批量写入快很多
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
@@ -193,6 +195,8 @@ class Store:
         self.db.execute("CREATE INDEX IF NOT EXISTS by_device_method ON events(sn, method, stamp)")
         # 状态详情的“指令与回复”按模块取指令和 ACK；不走索引时状态多、指令少的模块要扫全表
         self.db.execute("CREATE INDEX IF NOT EXISTS by_module_kind ON events(module, kind, id)")
+        # 消息页不筛模块时按类型取最新的指令和 ACK 列请求；没有它要倒着扫全表，状态多的库一次两三百毫秒
+        self.db.execute("CREATE INDEX IF NOT EXISTS by_kind ON events(kind, id)")
         self.db.execute("CREATE TABLE IF NOT EXISTS notes (sn TEXT, session TEXT, tid TEXT, body TEXT, updated REAL, "
                         "PRIMARY KEY (sn, session, tid))")
         self.db.execute("CREATE TABLE IF NOT EXISTS connections (name TEXT PRIMARY KEY, body TEXT)")
@@ -251,6 +255,9 @@ class Store:
         uploads = sum(row[6] == "状态" and row[4] in UPLOAD_STATES for row in rows)
         self.status_version += statuses
         self.request_version += len(rows) - statuses + uploads
+        for row in rows:
+            if row[5]:
+                self.request_cache.pop((row[1], row[2], row[5]), None)
         self.db.executemany("INSERT INTO events(stamp,sn,session,module,method,tid,kind,body) VALUES(?,?,?,?,?,?,?,?)", rows)
 
     def flush(self):
@@ -432,6 +439,7 @@ class Store:
         self.db.execute("DELETE FROM events")
         self.db.execute("DELETE FROM notes")
         self.db.commit()
+        self.request_cache.clear()
         self.status_version += 1
         self.request_version += 1
         self.db.execute("VACUUM")
@@ -442,6 +450,7 @@ class Store:
         self.db.execute("DELETE FROM events WHERE sn=? AND session=?", (sn, session))
         self.db.execute("DELETE FROM notes WHERE sn=? AND session=?", (sn, session))
         self.db.commit()
+        self.request_cache.clear()
         self.status_version += 1
         self.request_version += 1
 
@@ -743,8 +752,15 @@ def requests(store, rows):
     """按筛选命中的事件找出所属请求，返回完整请求列表（失败置顶、再按时间倒序）"""
     # 只有指令和 ACK 的 tid 代表请求；实机 VFC 心跳也带 tid（如 <SN>-hb-347），不能每次心跳都算一个请求
     keys = list(dict.fromkeys((e.sn, e.session, e.tid) for _, e in rows if e.tid and e.kind in ("指令", "ACK")))
-    groups = store.groups(keys)
-    result = [summarize(groups[k]) for k in keys]
+    cache = store.request_cache
+    missing = [k for k in keys if k not in cache]
+    if len(cache) + len(missing) > 20000:
+        # 每个请求连着它的全部报文，长时间开着别让缓存无限长
+        cache.clear()
+        missing = keys
+    for k, events in store.groups(missing).items():
+        cache[k] = summarize(events)
+    result = [cache[k] for k in keys]
     result.sort(key=lambda r: (REQUEST_ORDER.get(r.status, 9), -r.events[-1].timestamp))
     return result
 
