@@ -290,7 +290,10 @@ class Store:
             clauses.append("instr(lower(body),lower(?))>0")
             params.append(text)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        rows = self.db.execute("SELECT id,body FROM events" + where + " ORDER BY id DESC LIMIT ?", params + [limit])
+        # 先只按行号排序取够条数，再取这些行的报文：直接排序会把每行报文都带进临时排序，
+        # 点云这类单条几十 KB 的模块点一下筛选要好几秒
+        rows = self.db.execute("SELECT id,body FROM events WHERE id IN (SELECT id FROM events" + where + " ORDER BY id DESC LIMIT ?) "
+                               "ORDER BY id DESC", params + [limit])
         return [(row_id, load_event(body)) for row_id, body in rows]
 
     def import_batches(self, limit=50):
