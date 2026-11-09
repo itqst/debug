@@ -585,3 +585,30 @@ def test_control_page_vfc_bid_auto_filled(window):
         window.control._open_command(method)
         window.control._send()
         assert json.loads(client.sent[-1][1])["bid"] == "11111"
+
+
+def test_control_page_route_edits_yaw_not_quaternion(window):
+    """控制调试页的开始航线：points 用航点表格编，只填航向角；改了同步成四元数写回 JSON，填错不写回"""
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.control._open_command("start_multi_nav_by_points")
+    table = window.control.points_table
+    assert not table.isHidden() and table.table.rowCount() == 1 and table.table.item(0, 3).text() == "0"
+    labels = [window.control.form_grid.itemAt(i).widget().text() for i in range(window.control.form_grid.count())]
+    assert "points" not in labels and "map_id" in labels
+    table.table.item(0, 3).setText("90")
+    point = json.loads(window.control.editor.toPlainText())["data"]["points"][0]
+    assert point["orientation"] == {"x": 0.0, "y": 0.0, "z": 0.707107, "w": 0.707107} and point["actions"] == []
+    table._add(("-5", "-9", "1.2", "180", ""))
+    assert len(json.loads(window.control.editor.toPlainText())["data"]["points"]) == 2
+    table.table.item(1, 0).setText("abc")
+    assert "第 2 个航点" in table.error.text() and json.loads(window.control.editor.toPlainText())["data"]["points"][1]["position"]["x"] == -5.0
+    # 手改 JSON 里的四元数，表格按航向角显示
+    payload = json.loads(window.control.editor.toPlainText())
+    payload["data"]["points"][0]["orientation"] = {"x": 0, "y": 0, "z": 1.0, "w": 0.0}
+    window.control.editor.setPlainText(json.dumps(payload))
+    window.control._rebuild_form()
+    assert window.control.points_table.table.item(0, 3).text() == "180"
+    # 别的指令不显示航点表格
+    window.control._open_command("land")
+    assert window.control.points_table.isHidden()

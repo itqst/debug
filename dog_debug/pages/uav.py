@@ -6,7 +6,7 @@ import math
 import time
 import uuid
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileDialog, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
@@ -564,10 +564,95 @@ def parse_actions(text):
     return actions
 
 
-class RouteEditor(QWidget):
-    """编辑一条航线：每个航点填 x、y、z（米，z 相对起飞点）、偏航角（度）和动作，生成 start_multi_nav_by_points 的 data"""
+def yaw_of(orientation):
+    """四元数 → 绕 z 轴的航向角（度，保留两位）；读进来的航线在表格里只显示这一个角"""
+    o = orientation if isinstance(orientation, dict) else {}
+    x, y, z, w = (float(o.get(k, 0) or 0) for k in "xyzw")
+    return round(math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))), 2)
+
+
+def format_actions(actions):
+    """动作列表 → “pause 5; take_photo”，和 parse_actions 互逆"""
+    parts = []
+    for action in actions if isinstance(actions, list) else []:
+        params = ",".join(json.dumps(v, ensure_ascii=False) for v in action.get("param") or [])
+        parts.append(f"{action.get('action', '')} {params}".strip())
+    return "; ".join(parts)
+
+
+class PointsTable(QWidget):
+    """航点表格：每个航点填 x、y、z（米，z 相对起飞点）、航向角 yaw（度）和动作；不显示四元数，取值时换算。
+    航线任务页和控制调试页的开始航线共用；表格改了发 changed"""
 
     COLUMNS = ["x", "y", "z", "航向角 yaw（°）", "动作（现在不支持，留空）"]
+    changed = Signal()
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；航向角发出时换成四元数（x=0、y=0、z=sin(yaw/2)、w=cos(yaw/2)）。"
+                               "VFC 现在不支持航点动作，填了整条航线会被拒绝；以后支持时写法如“pause 5; take_photo”", "caption", True))
+        self.table = QTableWidget(0, len(self.COLUMNS))
+        self.table.setHorizontalHeaderLabels(self.COLUMNS)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.itemChanged.connect(lambda _: self.changed.emit())
+        layout.addWidget(self.table, 1)
+        self.error = label("", "caption", True)
+        self.error.setStyleSheet(f"color:{RED}")
+        layout.addWidget(self.error)
+        buttons = QHBoxLayout()
+        buttons.addWidget(button("加一个航点", lambda: self._add(("0", "0", "1.2", "0", ""))))
+        buttons.addWidget(button("删掉选中的", self._remove))
+        buttons.addStretch()
+        layout.addLayout(buttons)
+
+    def _add(self, values):
+        self.table.blockSignals(True)
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        for column, value in enumerate(values):
+            self.table.setItem(row, column, QTableWidgetItem(value))
+        self.table.blockSignals(False)
+        self.changed.emit()
+
+    def _remove(self):
+        self.table.removeRow(self.table.currentRow())
+        self.changed.emit()
+
+    def load(self, points):
+        """按报文里的 points 填表，四元数换成航向角；不发 changed"""
+        self.table.blockSignals(True)
+        self.table.setRowCount(0)
+        for point in points if isinstance(points, list) else []:
+            position = point.get("position") if isinstance(point, dict) and isinstance(point.get("position"), dict) else {}
+            values = [str(position.get(k, "")) for k in "xyz"] + [f"{yaw_of(point.get('orientation')):g}", format_actions(point.get("actions"))]
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            for column, value in enumerate(values):
+                self.table.setItem(row, column, QTableWidgetItem(value))
+        self.table.blockSignals(False)
+        self.error.setText("")
+
+    def points(self):
+        """表格 → points；填得不对时抛 ValueError，文字说明是哪一行"""
+        points = []
+        for row in range(self.table.rowCount()):
+            cell = lambda c: (self.table.item(row, c).text() if self.table.item(row, c) else "").strip()
+            try:
+                x, y, z, yaw = (float(cell(c)) for c in range(4))
+                actions = parse_actions(cell(4))
+            except ValueError as error:
+                raise ValueError(f"第 {row + 1} 个航点填得不对：{error}")
+            points.append({"position": {"x": x, "y": y, "z": z}, "orientation": quaternion(yaw), "actions": actions})
+        if not points:
+            raise ValueError("至少要一个航点")
+        return points
+
+
+class RouteEditor(QWidget):
+    """航线任务页上编辑一条航线：map_id、task_name、bid 和航点表格，生成 start_multi_nav_by_points 的 data"""
 
     def __init__(self):
         super().__init__()
@@ -581,40 +666,11 @@ class RouteEditor(QWidget):
             top.addWidget(field, 1)
         top.addWidget(button("换新 bid", lambda: self.bid.setText(str(uuid.uuid4())), "link"))
         layout.addLayout(top)
-        layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；航向角发出时换成四元数（x=0、y=0、z=sin(yaw/2)、w=cos(yaw/2)）。"
-                               "VFC 现在不支持航点动作，填了整条航线会被拒绝；以后支持时写法如“pause 5; take_photo”", "caption", True))
-        self.table = QTableWidget(0, len(self.COLUMNS))
-        self.table.setHorizontalHeaderLabels(self.COLUMNS)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setDefaultSectionSize(30)
-        layout.addWidget(self.table, 1)
-        self._add(("0", "1", "1.2", "0", ""))
-        self.error = label("", "caption", True)
-        self.error.setStyleSheet(f"color:{RED}")
-        layout.addWidget(self.error)
-        buttons = QHBoxLayout()
-        buttons.addWidget(button("加一个航点", lambda: self._add(("0", "0", "1.2", "0", ""))))
-        buttons.addWidget(button("删掉选中的", lambda: self.table.removeRow(self.table.currentRow())))
-        buttons.addStretch()
-        layout.addLayout(buttons)
-
-    def _add(self, values):
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        for column, value in enumerate(values):
-            self.table.setItem(row, column, QTableWidgetItem(value))
+        self.points = PointsTable()
+        self.points._add(("0", "1", "1.2", "0", ""))
+        self.table, self.error, self._add = self.points.table, self.points.error, self.points._add
+        layout.addWidget(self.points, 1)
 
     def route(self):
         """(data, bid)；填得不对时抛 ValueError，文字说明是哪一行"""
-        points = []
-        for row in range(self.table.rowCount()):
-            cell = lambda c: (self.table.item(row, c).text() if self.table.item(row, c) else "").strip()
-            try:
-                x, y, z, yaw = (float(cell(c)) for c in range(4))
-                actions = parse_actions(cell(4))
-            except ValueError as error:
-                raise ValueError(f"第 {row + 1} 个航点填得不对：{error}")
-            points.append({"position": {"x": x, "y": y, "z": z}, "orientation": quaternion(yaw), "actions": actions})
-        if not points:
-            raise ValueError("至少要一个航点")
-        return {"map_id": self.map_id.text().strip(), "task_name": self.task_name.text().strip(), "points": points}, self.bid.text().strip()
+        return {"map_id": self.map_id.text().strip(), "task_name": self.task_name.text().strip(), "points": self.points.points()}, self.bid.text().strip()

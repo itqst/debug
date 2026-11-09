@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget,
 )
 
+from .uav import PointsTable
 from ..registry import find, local_payload, make_command, MODULES, refresh_ids, route, uav_entries
 from ..trace_view import TraceView
 from ..transport import simulate
@@ -96,9 +97,16 @@ class ControlPage:
         self.form_area = scroller(holder)
         self.form_area.setMaximumHeight(120)
         mv.addWidget(self.form_area)
+        # 无人机开始航线的 points 用航点表格编：只填航向角，不手填四元数
+        self.points_table = PointsTable()
+        self.points_table.setMinimumHeight(200)
+        self.points_table.changed.connect(self._points_edited)
+        self.points_table.hide()
+        mv.addWidget(self.points_table)
         mv.addWidget(label("Payload", "groupHeader"))
         self.editor = QPlainTextEdit()
         self.editor.setObjectName("code")
+        self.editor.setMinimumHeight(110)
         self.form_timer = QTimer(self.app)
         self.form_timer.setSingleShot(True)
         self.form_timer.setInterval(300)
@@ -124,7 +132,8 @@ class ControlPage:
         # 编辑在上、回复在下，发送后不用转头找结果
         work = QSplitter(Qt.Vertical)
         work.setHandleWidth(12)
-        work.addWidget(middle)
+        # 开始航线多了航点表格，窗口矮时编辑卡整体滚动，不把表格、Payload 和按钮挤到一起
+        work.addWidget(scroller(middle))
 
         right, rv = card(8, 16)
         rh = QHBoxLayout()
@@ -251,6 +260,7 @@ class ControlPage:
             if widget:
                 widget.hide()
                 widget.deleteLater()
+        self.points_table.hide()
         try:
             payload = json.loads(self.editor.toPlainText())
         except ValueError:
@@ -266,6 +276,11 @@ class ControlPage:
             return
         self.form_note.setText("改这里会同步到 JSON；列表和对象请在 JSON 里改" if data else "data 为空")
         self.form_area.setVisible(bool(data))
+        route = self.selected["module"] == "vfc" and isinstance(data.get("points"), list)
+        self.points_table.setVisible(route)
+        if route:
+            self.points_table.load(data["points"])
+            data = {k: v for k, v in data.items() if k != "points"}
         for index, (key, value) in enumerate(data.items()):
             row, column = divmod(index, 2)
             self.form_grid.addWidget(label(key, "caption"), row, column * 2)
@@ -281,6 +296,16 @@ class ControlPage:
                 field.setReadOnly(True)
                 field.setToolTip("列表/对象请在 JSON 里编辑")
             self.form_grid.addWidget(field, row, column * 2 + 1)
+
+    def _points_edited(self):
+        try:
+            points = self.points_table.points()
+        except ValueError as error:
+            # 填错的格子不写回 JSON，改对了再同步
+            self.points_table.error.setText(str(error))
+            return
+        self.points_table.error.setText("")
+        self._form_edited("points", points)
 
     def _form_text(self, key, kind, text, widget):
         """按原字段类型解析输入；数字字段整数小数都收（模板示例 0 不代表只能填整数），解析不了只标红，不写回 JSON"""
