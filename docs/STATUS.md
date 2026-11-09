@@ -805,3 +805,4 @@ GPT 冻结 a020ff9 独立测：317 项过、旅程过；90 组随机筛选两步
 - start_mapping：data {}，tid、bid 必填
 - stop_mapping：data {"save": true|false}，save 必填；界面上让操作的人明确选“保存地图”或“不保存”，不默认
 - local/uav/vfc/state 新增 type=mapping_status，info 里 result、msg、data（Bridge 原词 UNKNOWN/DISABLED/MAPPING/SAVING/SAVED/SAVE_FAILED）和 session_id
+- mapping_status 的 msg 也要显示：Bridge 掉线、状态过期或一直没收到时 VFC 自己报 UNKNOWN，原因只在 msg 里
