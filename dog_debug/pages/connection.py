@@ -14,6 +14,8 @@ class ConnectionPanel:
 
     def __init__(self, app):
         self.app = app
+        # 配置下拉上次生效的那项，选了不能用的配置时退回去
+        self.profile_index = 0
 
     def restore_connection(self):
         """填回上次点“连接”时的连接参数；只填不连，没记过就保持默认的沙盒"""
@@ -31,9 +33,17 @@ class ConnectionPanel:
             self.app.profile_box.addItem(name, config)
         if select:
             self.app.profile_box.setCurrentText(select)
+        self.profile_index = self.app.profile_box.currentIndex()
 
     def _profile_chosen(self, index):
         config = self.app.profile_box.itemData(index)
+        device = next(k for k, v in DEVICES.items() if v == (config or {}).get("device", "dog"))
+        # 连着或正在登录时换设备，侧栏会换成另一种设备而连接还是原来的，先断开再换
+        if config and (self.app.mqtt.client or self.ssh_connecting) and device != self.app.device_box.currentText():
+            self.app.profile_box.setCurrentIndex(self.profile_index)
+            self.app.notify(f"这个配置是{device}，先断开当前连接再选")
+            return
+        self.profile_index = index
         if config:
             self._profile_chosen_config(config)
 

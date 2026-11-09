@@ -263,10 +263,11 @@ class Store:
     def flush(self):
         self.db.commit()
 
-    def query(self, module="", method="", kind="", text="", limit=1000, before=None, sn="", live=False, methods=None, session=""):
+    def query(self, module="", method="", kind="", text="", limit=1000, before=None, sn="", live=False, methods=None, session="",
+              prefixes=()):
         """按条件取最新的 limit 条，返回 [(行号, 事件)]；before 为行号时只取更早的，用于翻页
 
-        kind 可以是一组类型；methods 为列表时只要这些方法。条件都在 SQL 里，先筛再取 limit 条，不会被别的消息挤掉
+        kind 可以是一组类型；methods 为列表时只要这些方法，prefixes 只要以这些前缀开头的方法（如 Bridge 的 "navigation."）。条件都在 SQL 里，先筛再取 limit 条，不会被别的消息挤掉
         sn 只取这台设备的；live 为真时不要导入的日志（会话以 import- 开头），实时总览不被历史日志顶掉
         """
         clauses, params = [], []
@@ -277,6 +278,10 @@ class Store:
         if methods is not None:
             clauses.append("method IN (" + ",".join("?" * len(methods)) + ")")
             params.extend(methods)
+        if prefixes:
+            # 前缀只有字母、点和下划线，GLOB 里没有要转义的
+            clauses.append("(" + " OR ".join("method GLOB ?" for _ in prefixes) + ")")
+            params.extend(prefix + "*" for prefix in prefixes)
         if sn:
             # 一元 + 让 SQLite 不走 (sn, session, tid) 索引：按主键倒着扫、取够就停，不必把这台设备的消息全取出来再排序
             clauses.append("+sn=?")

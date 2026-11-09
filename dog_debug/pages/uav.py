@@ -292,8 +292,8 @@ class UavPage:
     def _render_related(self, key):
         """这个领域相关的指令和回执，一次请求一行，新的在前；只看这次连接"""
         module, prefixes = RELATED[key]
-        fetched = [(i, e) for i, e in self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, session=self.session)
-                   if not prefixes or e.method.startswith(prefixes)] if self.session else []
+        # 领域在 SQL 里筛完再取条数，别的领域的命令再多也挤不掉这个领域的
+        fetched = self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, session=self.session, prefixes=prefixes) if self.session else []
         found = sorted(requests(self.app.store, fetched), key=lambda r: -r.events[-1].timestamp)[:150]
         rows = []
         for r in found:

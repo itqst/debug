@@ -484,3 +484,38 @@ def test_card_click_opens_detail_with_fields_changes_and_related_commands(window
     window.uav.detail_view.set_index(0)
     window.uav._open_detail(None)
     assert window.uav.detail_card.isHidden()
+
+
+def test_saved_dog_profile_cannot_switch_device_while_uav_connected(window, monkeypatch):
+    """连着无人机时选保存的狗配置：不应用、配置下拉退回去，侧栏和连接身份不分裂；断开后可以选"""
+    window.store.save_connection("狗", {"mode": "direct", "host": "10.0.0.2", "port": 1883, "sn": "D1", "user": "", "tls": False, "device": "dog"})
+    window.connection._load_profiles()
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.mqtt.client = None
+    monkeypatch.setattr(window.mqtt, "connect", lambda *a, **k: None)
+    window.connection._connect()
+    window.mqtt.client = object()
+    index = window.profile_box.findText("狗")
+    window.profile_box.setCurrentIndex(index)
+    window.connection._profile_chosen(index)
+    assert window.device_box.currentText() == "无人机" and window.profile_box.currentIndex() == 0
+    assert window.nav.item(0).text() == "控制调试"
+    window.mqtt.client = None
+    window.connection._profile_chosen(index)
+    assert window.device_box.currentText() == "机器狗" and window.host.text() == "10.0.0.2"
+
+
+def test_related_commands_not_pushed_out_by_other_domains(window):
+    """导航卡的相关指令在 SQL 里先按动作前缀筛：之后来 610 条 system.status 也挤不掉那条 navigation.pause"""
+    window._ingest(Event("local/uav/bridge/state/navigation", {"sn": "", "type": "navigation", "state": 4, "info": {"result": 0, "data": "ACTIVE"}},
+                         sn="", session="s1"))
+    window._ingest(Event("local/uav/bridge/command", {"sn": "", "id": "p1", "type": "navigation", "action": "navigation.pause", "client": "vfc"},
+                         sn="", session="s1"))
+    for i in range(610):
+        window._ingest(Event("local/uav/bridge/command", {"sn": "", "id": f"s{i}", "type": "system", "action": "system.status", "client": "vfc"},
+                             sn="", session="s1"))
+    window.store.flush()
+    window.uav._open_detail("navigation")
+    window.uav.detail_view.set_index(1)
+    assert [e.method for e, *_ in window.uav.detail_model.rows] == ["navigation.pause"]
