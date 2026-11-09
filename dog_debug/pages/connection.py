@@ -99,7 +99,8 @@ class ConnectionPanel:
                 self._connect()
             self.app.status.zlm_timer.stop()
         self.app.mode = mode
-        self.app.ssh_row.setVisible(mode == "direct")
+        # 无人机只直连板上 Broker，不走 FRP
+        self.app.ssh_row.setVisible(mode == "direct" and self.app.device_box.currentText() == "机器狗")
         sandbox = self.app.mode == "sandbox"
         self.app.control.scenario_row.setVisible(sandbox)
         self.app.control.send_btn.setEnabled(self.app.mode != "offline")
@@ -126,6 +127,7 @@ class ConnectionPanel:
             self.app.teleop.remote.halt()
             self.app.mqtt.close()
             self._close_ssh()
+            self.app.device_box.setEnabled(True)
             self._set_link("已断开", GRAY)
             return
         if self.app.mode in {"sandbox", "offline"}:
@@ -145,8 +147,9 @@ class ConnectionPanel:
             return
         self.app.mqtt.connect(self.app.host.text().strip(), self.app.port.value(), self.app.sn.text().strip(),
                           self.app.user.text(), self.app.password.text(), self.app.tls.isChecked(), device)
-        # 新连接回到只读，开关跟着关上
-        self.app.control.uav_send.setChecked(False)
+        # 新连接回到只读，开关跟着关上；连着的时候不能换设备，免得页面是无人机的、连着的却是狗
+        self.app.uav_send.setChecked(False)
+        self.app.device_box.setEnabled(False)
         self.app.scene.reset_telemetry()
         self.app.scene.clear_cloud()
         self._set_link("连接中…", ORANGE)
@@ -162,6 +165,7 @@ class ConnectionPanel:
     def _connect_frp(self):
         """经 FRP 登录狗、把 1883 和 80 转到本机，再按直连的方式连 Broker；登录在后台，结果进 inbox"""
         self.ssh_connecting = True
+        self.app.device_box.setEnabled(False)
         self._set_link(f"正在经 FRP 登录 {self.app.sn.text().strip()}…", ORANGE)
 
         def work():
@@ -207,8 +211,10 @@ class ConnectionPanel:
         self.app.teleop.remote.halt()
         self.app.mqtt.close()
         self._close_ssh()
+        self.app.device_box.setEnabled(True)
         self._set_link(str(note), RED)
 
     def _ssh_failed(self, note):
         self.ssh_connecting = False
+        self.app.device_box.setEnabled(True)
         self._set_link(note, RED)

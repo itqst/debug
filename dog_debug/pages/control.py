@@ -117,11 +117,6 @@ class ControlPage:
         actions.addWidget(button("恢复模板", lambda: self._template()))
         actions.addWidget(button("存为用例", self.app.suite._save_case))
         actions.addStretch()
-        # 无人机默认只读：打开这个开关才能往 VFC、Bridge 的指令主题发，换连接后自动关上
-        self.uav_send = Switch("允许向无人机发送")
-        self.uav_send.toggled.connect(lambda on: setattr(self.app.mqtt, "uav_send", on))
-        self.uav_send.hide()
-        actions.addWidget(self.uav_send)
         self.send_btn = button("发送", self._send, "primary")
         actions.addWidget(self.send_btn)
         mv.addLayout(actions)
@@ -214,7 +209,6 @@ class ControlPage:
         """换设备类型：指令目录换成那种设备的，未发出的草稿作废（报文格式不同）"""
         self.selected = None
         self.app.drafts.clear()
-        self.uav_send.setVisible(self._uav())
         self._commands()
 
     def _select_command(self, current, previous=None):

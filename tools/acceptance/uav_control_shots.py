@@ -16,7 +16,7 @@ end = time.monotonic() + 0.5
 while time.monotonic() < end: app.processEvents()
 w._go(w.CONTROL)
 w.control._open_command("start_multi_nav_by_points")
-w.control.uav_send.setChecked(True)
+w.uav_send.setChecked(True)
 w.control._send()
 tid = json.loads(w.control.editor.toPlainText())["tid"]
 w._ingest(Event("local/uav/vfc/ack", {"method": "start_multi_nav_by_points", "tid": tid, "bid": "", "result": 1,

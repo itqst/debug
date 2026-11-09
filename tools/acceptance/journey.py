@@ -91,7 +91,9 @@ def click_row(table, row, double=False):
 
 
 def click_nav(w, index):
-    rect = w.nav.visualItemRect(w.nav.item(index))
+    # 导航行跟着设备换，行号不等于页号，按每行记的页号找
+    row = next(r for r in range(w.nav.count()) if w.nav.item(r).data(Qt.UserRole) == index)
+    rect = w.nav.visualItemRect(w.nav.item(row))
     QTest.mouseClick(w.nav.viewport(), Qt.LeftButton, Qt.NoModifier, rect.center())
     app.processEvents()
 

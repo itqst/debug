@@ -278,7 +278,7 @@ def test_uav_send_needs_switch_and_only_goes_to_command_topics(window):
     window.control._open_command("pause_nav")
     window.control._send()
     assert client.sent == []
-    window.control.uav_send.setChecked(True)
+    window.uav_send.setChecked(True)
     window.control._send()
     assert [topic for topic, _ in client.sent] == ["local/uav/vfc/command"]
     sent = json.loads(client.sent[0][1])
@@ -295,13 +295,13 @@ def test_uav_send_needs_switch_and_only_goes_to_command_topics(window):
 
 
 def test_new_connection_turns_uav_send_off(window, monkeypatch):
-    window.control.uav_send.setChecked(True)
+    window.uav_send.setChecked(True)
     window.mqtt.client = None
     monkeypatch.setattr(window.mqtt, "connect", lambda *a: None)
     window.device_box.setCurrentText("无人机")
     window.mode_box.setCurrentText("直连模块")
     window.connection._connect()
-    assert not window.control.uav_send.isChecked() and not window.mqtt.uav_send
+    assert not window.uav_send.isChecked() and not window.mqtt.uav_send
 
 
 def test_flight_capture_changes_include_arming_takeoff_and_mode(window):
@@ -344,8 +344,7 @@ def test_quick_buttons_send_with_current_task_bid_at_qos1(window):
                                                                                               "flight_id": "task-7"}}, sn="", session="s1"))
     window.uav._quick("pause_nav")
     assert client.sent == []
-    window.uav.send_switch.setChecked(True)
-    assert window.control.uav_send.isChecked()
+    window.uav_send.setChecked(True)
     window.uav._quick("pause_nav")
     topic, text = client.sent[-1]
     payload = json.loads(text)
@@ -354,30 +353,30 @@ def test_quick_buttons_send_with_current_task_bid_at_qos1(window):
     assert client.options[-1] == (1, False)
 
 
-def test_route_editor_converts_yaw_and_actions(window, monkeypatch):
-    from dog_debug.pages.uav import RouteDialog, parse_actions, quaternion
-    from PySide6.QtWidgets import QDialog
+def test_route_editor_converts_yaw_and_actions(window):
+    from dog_debug.pages.uav import parse_actions, quaternion
     assert quaternion(90) == {"x": 0.0, "y": 0.0, "z": 0.707107, "w": 0.707107}
     assert parse_actions("pause 5; take_photo; gimbal_action 1,1") == [
         {"id": "a1", "action": "pause", "param": [5]}, {"id": "a2", "action": "take_photo", "param": []},
         {"id": "a3", "action": "gimbal_action", "param": [1, 1]}]
-    dialog = RouteDialog(window)
-    dialog._add(("2", "3", "1.5", "180", "take_photo"))
-    data, bid = dialog.route()
+    editor = window.uav.route
+    editor._add(("2", "3", "1.5", "180", "take_photo"))
+    data, bid = editor.route()
     assert len(data["points"]) == 2 and data["points"][1]["position"] == {"x": 2.0, "y": 3.0, "z": 1.5}
     assert data["points"][1]["orientation"]["w"] == 0.0 and data["points"][1]["orientation"]["z"] == 1.0 and bid
-    dialog.table.item(0, 0).setText("abc")
-    dialog._accept()
-    assert "第 1 个航点" in dialog.error.text()
-    # 点“发送航线”后发出的是 start_multi_nav_by_points，bid 用对话框里的
+    editor.table.item(0, 0).setText("abc")
+    window.uav._send_route()
+    assert "第 1 个航点" in editor.error.text()
+    editor.table.item(0, 0).setText("0")
+    # 点“发送航线”后发出的是 start_multi_nav_by_points，bid 用编辑器里的
     client = window.mqtt.client
     window.device_box.setCurrentText("无人机")
     window.mode_box.setCurrentText("直连模块")
-    window.control.uav_send.setChecked(True)
-    monkeypatch.setattr(RouteDialog, "exec", lambda self: QDialog.Accepted)
-    window.uav._edit_route()
+    window.uav_send.setChecked(True)
+    window.uav._send_route()
     payload = json.loads(client.sent[-1][1])
     assert payload["method"] == "start_multi_nav_by_points" and payload["data"]["points"][0]["orientation"]["z"] == 0.707107
+    assert payload["bid"] == editor.bid.text().strip() and not editor.error.text()
 
 
 def test_export_session_messages_as_jsonl(window, monkeypatch, tmp_path):
@@ -398,3 +397,29 @@ def test_capture_jsonl_imports_on_logs_page(tmp_path):
     acks = [e for e in events if e.topic == "local/uav/bridge/ack"]
     assert acks and acks[0].tid.startswith("bridge:vfc-") and acks[0].source_time == "14:51:21"
     assert events[0].retained and events[0].module == "bridge"
+
+
+def test_sidebar_follows_device_and_locks_while_connected(window, monkeypatch):
+    """选无人机后侧栏只剩无人机能用的页，日志页不给取设备日志；连上后不能换设备，断开才放开"""
+    rows = lambda: [window.nav.item(i).text() for i in range(window.nav.count())]
+    assert "遥控" in rows() and not window.uav_send.isVisible()
+    window.device_box.setCurrentText("无人机")
+    assert rows() == ["控制调试", "航线任务", "消息追踪", "状态总览", "日志排障"]
+    assert not window.uav_send.isHidden() and window.logs.fetch_logs.isHidden() and window.logs.live_follow.isHidden()
+    window._go(window.UAV_MISSION)
+    assert window.stack.currentIndex() == window.UAV_MISSION
+    # 切回狗，当前页狗没有，落到狗的第一页
+    window.device_box.setCurrentText("机器狗")
+    assert rows()[0] == "遥控" and window.stack.currentIndex() == window.REMOTE and window.uav_send.isHidden()
+    assert not window.logs.fetch_logs.isHidden()
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.mqtt.client = None
+    monkeypatch.setattr(window.mqtt, "connect", lambda *a, **k: None)
+    window.connection._connect()
+    assert not window.device_box.isEnabled()
+    window.mqtt.client = object()
+    monkeypatch.setattr(window.mqtt, "close", lambda: None)
+    window.connection._connect()
+    assert window.device_box.isEnabled()
+

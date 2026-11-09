@@ -1,4 +1,4 @@
-"""无人机页：指令主题上残留的保留消息告警、VFC 和 Bridge 各领域状态、指令时间线；第一期只读"""
+"""无人机的状态总览和航线任务两页：残留保留指令告警、VFC 和 Bridge 各领域状态、关键变化、指令时间线；航线编辑和常用 VFC 指令"""
 
 import html
 import json
@@ -9,14 +9,14 @@ import uuid
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem,
+    QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..core import BRIDGE, summarize
 from ..registry import make_command
 from ..uav import changes, domain, DOMAINS, freshness, link, outcome, quality, reading, retained_command, WAITING_NEXT
-from ..ui import BLUE, button, card, FlowGrid, GRAY, GREEN, label, ORANGE, RED, scroller, Switch, tint
+from ..ui import BLUE, button, card, FlowGrid, GRAY, GREEN, label, ORANGE, RED, scroller, tint
 
 QUALITY_COLORS = {"正常": GREEN, "失败": RED, "未知": ORANGE, "不适用": GRAY}
 RESULT_COLORS = {0: GREEN, 1: RED, 2: ORANGE}
@@ -33,11 +33,12 @@ class UavPage:
         self.drawn_touch, self.drawn_at = None, 0.0
 
     def _uav_page(self):
+        """设备选无人机时的“状态总览”"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "无人机", "订阅 local/uav/#：VFC 和 Bridge 的状态、指令和回执；默认只读，打开“允许向无人机发送”才发。"
-                              "时效按本机收到的时间算，板上时钟不准，报文里的 ts 只作参考")
+        self.app._page_header(layout, "状态总览", "VFC 和 Bridge 的状态、指令和回执；时效按本机收到的时间算，板上时钟不准",
+                              button("导出本次报文", self._export, "link"))
         self.banner = label("", wrap=True)
         self.banner.setTextFormat(Qt.RichText)
         self.banner.setStyleSheet(f"background:{tint(RED, 40)};color:{RED};border-radius:10px;padding:10px 14px")
@@ -45,20 +46,6 @@ class UavPage:
         layout.addWidget(self.banner)
         self.link_note = label("", "caption", True)
         layout.addWidget(self.link_note)
-        # 测试时常用的几条 VFC 指令直接放这里；发不发由“允许向无人机发送”决定，和控制调试页是同一个开关
-        tools = QHBoxLayout()
-        tools.setSpacing(6)
-        self.send_switch = Switch("允许向无人机发送")
-        self.send_switch.toggled.connect(lambda on: self.app.control.uav_send.setChecked(on))
-        self.app.control.uav_send.toggled.connect(self._send_toggled)
-        tools.addWidget(self.send_switch)
-        tools.addSpacing(10)
-        tools.addWidget(button("编辑航线…", self._edit_route, "primary"))
-        for method, text in QUICK:
-            tools.addWidget(button(text, lambda m=method: self._quick(m)))
-        tools.addStretch()
-        tools.addWidget(button("导出本次报文", self._export, "link"))
-        layout.addLayout(tools)
         self.cards = {}
         frames = []
         for key, (title, _) in DOMAINS.items():
@@ -166,6 +153,8 @@ class UavPage:
             self.link_note.setText("还没连无人机：左侧连接卡里设备选“无人机”、方式选“直连模块”，填板上 Broker 地址")
         self._render_alerts()
         self._render_changes()
+        if hasattr(self, "task_line"):
+            self._render_task()
         for key, (word, msg, extra, age) in self.cards.items():
             event = self.latest.get(key) if live else None
             if event is None:
@@ -204,12 +193,6 @@ class UavPage:
                 item.setFont(font)
             self.changes.addItem(item)
 
-    def _send_toggled(self, on):
-        self.send_switch.blockSignals(True)
-        self.send_switch.setChecked(on)
-        self.send_switch.blockSignals(False)
-        self.render()
-
     def _task_bid(self):
         """当前任务的 bid：VFC 任务状态里的 flight_id；还没有任务时新生成一个"""
         state = self.latest.get("nav_status")
@@ -225,16 +208,59 @@ class UavPage:
             payload["data"] = data
         return self.app._emit(payload, json.dumps(payload, ensure_ascii=False), item["topic"], "vfc")
 
+    def _mission_page(self):
+        """设备选无人机时的“航线任务”：常用 VFC 指令一键发，航线在表格里编，发出后到状态总览看进度"""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.app._page_header(layout, "航线任务", "模拟 GW 给 VFC 发指令，暂停、继续带当前任务的 bid；左侧打开“允许向无人机发送”才会真的发")
+        quick, qv = card(8, 16)
+        qv.addWidget(label("当前任务", "sectionTitle"))
+        self.task_line = label("还没有收到 VFC 的任务状态", "caption", True)
+        qv.addWidget(self.task_line)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        for method, text in QUICK:
+            row.addWidget(button(text, lambda m=method: self._quick(m)))
+        row.addStretch()
+        qv.addLayout(row)
+        layout.addWidget(quick)
+        layout.addSpacing(10)
+        route, rv = card(8, 16)
+        head = QHBoxLayout()
+        head.addWidget(label("编辑航线", "sectionTitle"))
+        head.addStretch()
+        head.addWidget(button("发送航线", self._send_route, "primary"))
+        rv.addLayout(head)
+        self.route = RouteEditor()
+        rv.addWidget(self.route, 1)
+        layout.addWidget(route, 1)
+        return page
+
     def _quick(self, method):
         if self._command(method):
-            self.app.notify(f"已发出 {method}，结果看下面的指令时间线")
+            self.app.notify(f"已发出 {method}，结果看状态总览的指令时间线")
 
-    def _edit_route(self):
-        dialog = RouteDialog(self.app)
-        if dialog.exec() == QDialog.Accepted:
-            data, bid = dialog.route()
-            if self._command("start_multi_nav_by_points", data, bid):
-                self.app.notify(f"已发出航线（bid {bid}），结果看下面的指令时间线和 VFC 任务卡")
+    def _send_route(self):
+        try:
+            data, bid = self.route.route()
+        except ValueError as error:
+            self.route.error.setText(str(error))
+            return
+        self.route.error.setText("")
+        if self._command("start_multi_nav_by_points", data, bid):
+            self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 任务卡和关键变化")
+
+    def _render_task(self):
+        state, progress = self.latest.get("nav_status"), self.latest.get("nav_status_progress")
+        if not state:
+            self.task_line.setText("还没有收到 VFC 的任务状态（VFC 没在跑或没连上 Broker 时就是这样）")
+            return
+        word, msg, _, extra = reading(state)
+        text = f"<b>{html.escape(word)}</b>　{html.escape(msg)}　{html.escape(extra)}"
+        if progress:
+            text += f"　航点 {html.escape(reading(progress)[0])}"
+        self.task_line.setText(text)
 
     def _export(self):
         """把这次无人机连接收发的全部报文导出成 jsonl，一行一条：本机时间、Topic、retain、报文"""
@@ -316,23 +342,22 @@ def parse_actions(text):
     return actions
 
 
-class RouteDialog(QDialog):
+class RouteEditor(QWidget):
     """编辑一条航线：每个航点填 x、y、z（米，z 相对起飞点）、偏航角（度）和动作，生成 start_multi_nav_by_points 的 data"""
 
     COLUMNS = ["x", "y", "z", "偏航角 °", "动作（; 分隔，如 pause 5; take_photo）"]
 
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.setWindowTitle("编辑航线")
-        self.resize(820, 460)
+    def __init__(self):
+        super().__init__()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setContentsMargins(0, 0, 0, 0)
         top = QHBoxLayout()
         self.map_id, self.task_name = QLineEdit("20261023_142339"), QLineEdit("test_route")
         self.bid = QLineEdit(str(uuid.uuid4()))
         for text, field in (("map_id", self.map_id), ("task_name", self.task_name), ("bid（任务 ID）", self.bid)):
             top.addWidget(label(text, "caption"))
             top.addWidget(field, 1)
+        top.addWidget(button("换新 bid", lambda: self.bid.setText(str(uuid.uuid4())), "link"))
         layout.addLayout(top)
         layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；动作可用 take_photo、start_record、stop_record、pause、gimbal_action、start_ai、stop_ai，"
                                "VFC 不支持的动作会整条航线拒绝", "caption", True))
@@ -341,8 +366,7 @@ class RouteDialog(QDialog):
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setDefaultSectionSize(30)
         layout.addWidget(self.table, 1)
-        for row in (("0", "1", "1.2", "90", "pause 3"),):
-            self._add(row)
+        self._add(("0", "1", "1.2", "90", "pause 3"))
         self.error = label("", "caption", True)
         self.error.setStyleSheet(f"color:{RED}")
         layout.addWidget(self.error)
@@ -350,8 +374,6 @@ class RouteDialog(QDialog):
         buttons.addWidget(button("加一个航点", lambda: self._add(("0", "0", "1.2", "0", ""))))
         buttons.addWidget(button("删掉选中的", lambda: self.table.removeRow(self.table.currentRow())))
         buttons.addStretch()
-        buttons.addWidget(button("取消", self.reject))
-        buttons.addWidget(button("发送航线", self._accept, "primary"))
         layout.addLayout(buttons)
 
     def _add(self, values):
@@ -374,11 +396,3 @@ class RouteDialog(QDialog):
         if not points:
             raise ValueError("至少要一个航点")
         return {"map_id": self.map_id.text().strip(), "task_name": self.task_name.text().strip(), "points": points}, self.bid.text().strip()
-
-    def _accept(self):
-        try:
-            self.route()
-        except ValueError as error:
-            self.error.setText(str(error))
-            return
-        self.accept()

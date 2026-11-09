@@ -20,6 +20,7 @@ w.resize(int(sys.argv[3]), int(sys.argv[4]))
 w.show()
 w.mqtt.connected, w.mqtt.device, w.mqtt.session, w.mqtt.host = True, "uav", "shot", "192.168.1.230"
 w.mqtt.client = object()
+w.device_box.setCurrentText("无人机")
 data = Path(sys.argv[1]) / "tests" / "data" / "uav"
 for name in ("flight.jsonl", "commands.jsonl"):
     rows = [json.loads(l) for l in (data / name).read_text(encoding="utf-8").splitlines()]
@@ -37,13 +38,14 @@ w.store.flush()
 end = time.monotonic() + 0.5
 while time.monotonic() < end:
     app.processEvents()
-w._go(w.UAV)
-end = time.monotonic() + 1.5
-while time.monotonic() < end:
+for page, name in ((w.UAV, "uav"), (w.UAV_MISSION, "uav_mission")):
+    w._go(page)
+    end = time.monotonic() + 1.5
+    while time.monotonic() < end:
+        app.processEvents()
+    # 切页动画用 deleteLater 收掉旧页截图，processEvents 不处理延迟删除，这里补上
+    app.sendPostedEvents(None, QEvent.DeferredDelete)
+    w.uav.render()
     app.processEvents()
-# 切页动画用 deleteLater 收掉旧页截图，processEvents 不处理延迟删除，这里补上
-app.sendPostedEvents(None, QEvent.DeferredDelete)
-w.uav.render()
-app.processEvents()
-w.grab().save(os.path.join(sys.argv[2], f"uav_{sys.argv[3]}_{sys.argv[5]}.png"))
+    w.grab().save(os.path.join(sys.argv[2], f"{name}_{sys.argv[3]}_{sys.argv[5]}.png"))
 w.mqtt.client = None

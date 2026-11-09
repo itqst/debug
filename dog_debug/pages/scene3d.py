@@ -18,7 +18,7 @@ from ..pointcloud import CloudError, decode as decode_cloud, summary as cloud_su
 from ..robot import VARIANTS
 from ..scene import LIVE_SECONDS, osd_fields
 from ..ui import (
-    button, card, Compass, GRAY, GREEN, guard_wheel, label, method_label, ORANGE, pill, PURPLE, Segmented,
+    button, card, Compass, GRAY, glyph_icon, GREEN, guard_wheel, label, method_label, ORANGE, pill, PURPLE, Segmented,
     SPARK_COLORS, Sparkline, Switch, tint,
 )
 
@@ -605,6 +605,14 @@ class ScenePanel:
         self._device_card()
 
     def _device_card(self):
+        uav = self.app.device_box.currentText() == "无人机"
+        self.app.device_badge.setPixmap(glyph_icon("UAV" if uav else "L2", "#1C1C1E").pixmap(30, 30))
+        if uav:
+            linked = self.app.mqtt.connected and self.app.mqtt.device == "uav"
+            self.app.device_name.setText("无人机")
+            self.app.device_meta.setText(f"VFC / Bridge  ·  {self.app.mqtt.host if linked else '未连接'}")
+            self.app.device_dot.setStyleSheet(f"background:{GREEN if linked else '#C7C7CC'};border-radius:4px")
+            return
         osd, live = self.app.scene.osd, self.app.scene.live
         sn = self.app.mqtt.sn if self.app.mqtt.connected else self.app.sn.text().strip()
         self.app.device_name.setText(sn or "未设置 SN")

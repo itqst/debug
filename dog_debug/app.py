@@ -48,8 +48,12 @@ from .pages.uav import UavPage
 
 
 class Studio(QMainWindow):
-    PAGES = ["遥控", "控制调试", "导航与文件", "消息追踪", "状态总览", "无人机", "日志排障", "回归测试", "协议覆盖"]
-    REMOTE, CONTROL, MISSION, MESSAGES, STATUS, UAV, LOGS, SUITE, COVERAGE = range(9)
+    # 页面栈里的序号；左侧导航按连接卡里选的设备只列这种设备用得上的页面，名字和顺序各设备自己定
+    REMOTE, CONTROL, MISSION, MESSAGES, STATUS, UAV, LOGS, SUITE, COVERAGE, UAV_MISSION = range(10)
+    NAV = {"dog": [("遥控", REMOTE), ("控制调试", CONTROL), ("导航与文件", MISSION), ("消息追踪", MESSAGES), ("状态总览", STATUS),
+                   ("日志排障", LOGS), ("回归测试", SUITE), ("协议覆盖", COVERAGE)],
+           "uav": [("控制调试", CONTROL), ("航线任务", UAV_MISSION), ("消息追踪", MESSAGES), ("状态总览", UAV), ("日志排障", LOGS)]}
+    PAGES = [title for title, _ in NAV["dog"]]
     # 这些页旁边显示 3D 观察区；其余是分析页，整宽显示
     OBSERVED = (REMOTE, CONTROL)
 
@@ -125,7 +129,7 @@ class Studio(QMainWindow):
         self.stack = QStackedWidget()
         for page in (self.teleop._remote_page(), self.control._control_page(), self.mission._mission_page(),
                      self.messages._message_page(), self.status._status_page(), self.uav._uav_page(),
-                     self.logs._logs_page(), self.suite._suite_page(), self.coverage._coverage_page()):
+                     self.logs._logs_page(), self.suite._suite_page(), self.coverage._coverage_page(), self.uav._mission_page()):
             self.stack.addWidget(page)
         # 观察区放在页面栈外，切页时模型、镜头和轨迹都不动；比例可拖
         self.workspace = QSplitter()
@@ -142,7 +146,8 @@ class Studio(QMainWindow):
         self.toast = Toast(root)
         # 任何页面按 Ctrl+K 直接调出指令目录，选中后在控制调试页编辑
         QShortcut(QKeySequence("Ctrl+K"), self, self.control._quick_pick)
-        self.nav.setCurrentRow(0)
+        # 上次保存的配置可能是无人机，开在当前设备导航的第一页
+        self._go(self.NAV[DEVICES[self.device_box.currentText()]][0][1])
 
     def _page_header(self, layout, title, caption, *extra):
         row = QHBoxLayout()
@@ -189,11 +194,8 @@ class Studio(QMainWindow):
         self.nav.setItemDelegate(NavDelegate(self.nav))
         self.nav.setMouseTracking(True)
         self.nav.setSpacing(1)
-        for title in self.PAGES:
-            self.nav.addItem(QListWidgetItem(title))
-        # 行高 40 加上下各 1 px 间距；固定高度，窗口矮时由侧栏整体滚动
-        self.nav.setFixedHeight(len(self.PAGES) * 42 + 4)
-        self.nav.currentRowChanged.connect(self._page)
+        self._fill_nav("dog")
+        self.nav.currentRowChanged.connect(lambda row: row >= 0 and self._page(self.nav.item(row).data(Qt.UserRole)))
         layout.addWidget(self.nav)
         layout.addStretch()
 
@@ -201,10 +203,11 @@ class Studio(QMainWindow):
         device = Step()
         device.setObjectName("sideCard")
         device.setCursor(Qt.PointingHandCursor)
-        device.clicked.connect(lambda: self._go(self.REMOTE))
+        device.clicked.connect(lambda: self._go(self.UAV if self.device_box.currentText() == "无人机" else self.REMOTE))
         dl = QHBoxLayout(device)
         dl.setContentsMargins(12, 10, 12, 10)
         badge = QLabel()
+        self.device_badge = badge
         badge.setPixmap(glyph_icon("L2", "#1C1C1E").pixmap(30, 30))
         dl.addWidget(badge)
         text = QVBoxLayout()
@@ -244,10 +247,10 @@ class Studio(QMainWindow):
         more.setMenu(menu)
         saved.addWidget(more)
         form.addLayout(saved)
-        # 设备类型跟着连接走（随连接配置保存）；无人机第一期只订阅本地主题、不发送
+        # 设备类型跟着连接走（随连接配置保存），左侧导航跟着换；连上后锁住，断开才能换
         self.device_box = QComboBox()
         self.device_box.addItems(DEVICES)
-        self.device_box.currentTextChanged.connect(lambda _: (self.control.device_changed(), self._show_observer(self.stack.currentIndex())))
+        self.device_box.currentTextChanged.connect(lambda _: self._device_changed())
         self.mode_box = QComboBox()
         self.mode_box.addItems(MODES)
         # 当前生效的模式；切换时要先按旧模式补发停止再更新，所以不直接读下拉框
@@ -307,6 +310,11 @@ class Studio(QMainWindow):
         account.addWidget(self.ssh_password)
         ssh.addLayout(account)
         form.addWidget(self.ssh_row)
+        # 无人机默认只读：打开才往 VFC、Bridge 的指令主题发，控制调试页和航线任务页都受它管；每次新连接自动关上
+        self.uav_send = Switch("允许向无人机发送")
+        self.uav_send.toggled.connect(lambda on: (setattr(self.mqtt, "uav_send", on), self.uav.render()))
+        self.uav_send.hide()
+        form.addWidget(self.uav_send)
         actions = QHBoxLayout()
         actions.addWidget(self.tls)
         actions.addStretch()
@@ -429,7 +437,7 @@ class Studio(QMainWindow):
     def _page(self, index):
         self._slide_to(index)
         page = {self.STATUS: self.status, self.MESSAGES: self.messages, self.LOGS: self.logs, self.REMOTE: self.teleop,
-                self.UAV: self.uav}.get(index)
+                self.UAV: self.uav, self.UAV_MISSION: self.uav}.get(index)
         if page:
             page.shown()
         self._show_observer(index)
@@ -484,8 +492,45 @@ class Studio(QMainWindow):
         group.finished.connect(done)
         group.start(QParallelAnimationGroup.DeleteWhenStopped)
 
+    def _fill_nav(self, device):
+        """左侧导航换成这种设备的页面；每行记着页面栈序号，不按行号对页面"""
+        self.nav.blockSignals(True)
+        self.nav.clear()
+        for title, index in self.NAV[device]:
+            item = QListWidgetItem(title)
+            item.setData(Qt.UserRole, index)
+            self.nav.addItem(item)
+        # 行高 40 加上下各 1 px 间距；固定高度，窗口矮时由侧栏整体滚动
+        self.nav.setFixedHeight(len(self.NAV[device]) * 42 + 4)
+        self.nav.blockSignals(False)
+
+    def _device_changed(self):
+        """连接卡里换设备：左侧导航、指令目录、发送开关跟着换；当前页这种设备没有就切到第一页"""
+        device = DEVICES[self.device_box.currentText()]
+        current = self.stack.currentIndex()
+        self._fill_nav(device)
+        self.uav_send.setVisible(device == "uav")
+        # 无人机的主题里不带 SN，也不走 FRP
+        self.sn.setVisible(device == "dog")
+        if device == "uav":
+            self.frp.setChecked(False)
+        self.ssh_row.setVisible(device == "dog" and self.mode == "direct")
+        self.scene3d._device_card()
+        self.control.device_changed()
+        self.logs.device_changed(device)
+        pages = [index for _, index in self.NAV[device]]
+        self._go(current if current in pages else pages[0])
+        self._show_observer(self.stack.currentIndex())
+
     def _go(self, index):
-        self.nav.setCurrentRow(index)
+        row = next((r for r in range(self.nav.count()) if self.nav.item(r).data(Qt.UserRole) == index), None)
+        if row is None:
+            # 这种设备的导航里没有这一页（比如设备选狗时打开无人机页），直接切过去
+            self._page(index)
+        elif row == self.nav.currentRow():
+            self._page(index)
+        else:
+            self.nav.setCurrentRow(row)
 
     def notify(self, text):
         self.toast.pop(text)
@@ -775,6 +820,8 @@ def self_check(window, folder):
     # 以隐藏方式启动时第一次 show 会沿用隐藏标志，这里再显式显示一次，OpenGL 才会真正出帧
     window.showNormal()
     window.raise_()
+    # 3D 观察区只在设备选狗时显示，上次配置是无人机时先换过来
+    window.device_box.setCurrentText("机器狗")
     window._go(window.REMOTE)
     deadline = time.monotonic() + 30
     # 窗口刚显示时布局还在调整，此时截图里 3D 区是空白的；视图尺寸和上一次检查相同才算稳定

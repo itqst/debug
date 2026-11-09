@@ -32,8 +32,8 @@ def prepare():
     w._go(w.REMOTE)
 
 def capture():
-    for i in range(len(w.PAGES)):
-        w._go(i)
+    for i, (_, page) in enumerate(w.NAV["dog"]):
+        w._go(page)
         # 等切页动画（260 ms）放完再截，否则新页还是半透明
         settle = time.monotonic() + 0.4
         while time.monotonic() < settle:

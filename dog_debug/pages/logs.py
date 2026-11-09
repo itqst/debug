@@ -41,9 +41,9 @@ class LogsPage:
         # 设备日志经 SSH 直接取（远程走 FRP，局域网连狗的 IP），取下来留在本机一份并自动导入；实时跟随把新写的行逐条加进来
         self.live_follow = Switch("实时跟随")
         self.live_follow.toggled.connect(self._toggle_follow)
+        self.fetch_logs = button("从设备取日志…", self._ask_device_logs)
         self.app._page_header(layout, "日志排障", "导入后在这里直接看：搜索、筛模块或只看错误，点一行看全文、原文附近和对应请求",
-                          self.live_follow, button("从设备取日志…", self._ask_device_logs),
-                          button("选择文件…", self._import, "primary"))
+                          self.live_follow, self.fetch_logs, button("选择文件…", self._import, "primary"))
         tools = QHBoxLayout()
         tools.setSpacing(8)
         self.log_batch = QComboBox()
@@ -591,6 +591,14 @@ class LogsPage:
         self.import_row.show()
         self.import_state.setText(f"准备读取 {total / 1e6:.1f} MB")
         self.app._go(self.app.LOGS)
+
+    def device_changed(self, device):
+        """取设备日志和实时跟随走狗的 SSH 和日志目录，无人机还没有对应的日志位置，先只留导入文件"""
+        dog = device == "dog"
+        if not dog:
+            self.live_follow.setChecked(False)
+        self.live_follow.setVisible(dog)
+        self.fetch_logs.setVisible(dog)
 
     def shown(self):
         self._show_store_size()
