@@ -676,3 +676,59 @@ def test_task_bid_not_carried_over_from_previous_connection(window):
     window.control._open_command("land")
     assert json.loads(window.control.editor.toPlainText())["bid"] != "OLD_TASK"
     assert window.uav.current_task() == "" and window.uav._task_bid() != "OLD_TASK"
+
+
+def mapping_state(data, msg, session_id="", result=0):
+    return Event("local/uav/vfc/state", {"name": "vfc", "version": "1.1.0", "state": 1, "type": "mapping_status",
+                                         "info": {"result": result, "msg": msg, "data": data, "session_id": session_id}}, sn="", session="s1")
+
+
+def test_mapping_commands_follow_vfc_format(window):
+    """建图：start_mapping 新 bid、data {}；stop_mapping 带当前任务 bid，save 必须由人选“保存地图”或“不保存”才发得出去"""
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.uav_send.setChecked(True)
+    window._ingest(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "msg": "建图中（session 待确认）",
+                                                                                              "data": "Active", "flight_id": "MAP-1"}}, sn="", session="s1"))
+    window.control._open_command("start_mapping")
+    assert window.control.new_tid_btn.text() == "换新 bid"
+    window.control._send()
+    sent = json.loads(client.sent[-1][1])
+    assert sent["method"] == "start_mapping" and sent["data"] == {} and sent["bid"] and sent["bid"] != "MAP-1" and sent["tid"]
+    assert client.options[-1] == (1, False)
+    window.control._open_command("stop_mapping")
+    template = json.loads(window.control.editor.toPlainText())
+    assert template["data"] == {"save": None} and template["bid"] == "MAP-1"
+    count = len(client.sent)
+    window.control._send()
+    assert len(client.sent) == count
+    from PySide6.QtWidgets import QRadioButton
+    options = {o.text(): o for o in window.control.form_area.findChildren(QRadioButton)}
+    assert set(options) == {"保存地图", "不保存"} and not any(o.isChecked() for o in options.values())
+    options["不保存"].setChecked(True)
+    window.control._send()
+    sent = json.loads(client.sent[-1][1])
+    assert sent["method"] == "stop_mapping" and sent["data"] == {"save": False} and sent["bid"] == "MAP-1"
+    # 航线任务页：开始建图新 bid，停止两个按钮各自带明确的 save
+    window.uav._start_mapping()
+    assert json.loads(client.sent[-1][1])["bid"] != "MAP-1"
+    window.uav._stop_mapping(True)
+    sent = json.loads(client.sent[-1][1])
+    assert sent["data"] == {"save": True} and sent["bid"] == "MAP-1"
+
+
+def test_mapping_status_card_shows_data_msg_session(window):
+    """mapping_status：卡片显示 Bridge 原词、msg 和 session_id；VFC 自报 UNKNOWN 的原因看 msg；保存结果醒目记一条；session 能复制"""
+    window._ingest(mapping_state("DISABLED", "当前不在建图"))
+    window._ingest(mapping_state("MAPPING", "正在建图", "20261109_140005"))
+    window._ingest(mapping_state("SAVING", "正在保存地图", "20261109_140005"))
+    window._ingest(mapping_state("SAVED", "地图已保存", "20261109_140005"))
+    window.uav.render()
+    word, msg, extra, _ = window.uav.cards["mapping_status"]
+    assert word.text() == "SAVED" and msg.text() == "地图已保存" and extra.text() == "session 20261109_140005"
+    assert any(loud and text == "VFC 建图 SAVED：地图已保存" for _, text, loud in window.uav.log)
+    assert window.uav.mapping_session() == "20261109_140005" and "SAVED" in window.uav.mapping_line.text()
+    window._ingest(mapping_state("UNKNOWN", "Bridge 建图状态过期", result=2))
+    window.uav.render()
+    assert window.uav.cards["mapping_status"][1].text() == "Bridge 建图状态过期"

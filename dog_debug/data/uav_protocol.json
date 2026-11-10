@@ -134,6 +134,46 @@
    "unverified": "无人机新增指令，平台暂时不发"
   },
   {
+   "id": "uav.vfc.start_mapping",
+   "method": "start_mapping",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · start_mapping",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "start_mapping",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "开始建图",
+   "summary": "VFC 启动建图任务环境；ack 只表示受理，进度看 nav_status 和 mapping_status（session_id 生成地图时要用）",
+   "source": "nav 指挥家 11-10 给的最终格式（VFC 本机黑盒验收 53/53）；本地外壳和航线一样",
+   "unverified": "tid、bid 必填，bid 是这次建图任务的 ID，空着发送时自动生成；上一个任务没收尾、环境启停在途、Bridge 离线时会被拒"
+  },
+  {
+   "id": "uav.vfc.stop_mapping",
+   "method": "stop_mapping",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · stop_mapping",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "stop_mapping",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "save": null
+    }
+   },
+   "title": "停止建图",
+   "summary": "停止 VFC 起的建图并关闭任务环境；save 选是否保存地图，保没保存成功看 mapping_status（SAVING → SAVED / SAVE_FAILED）",
+   "source": "nav 指挥家 11-10 给的最终格式（VFC 本机黑盒验收 53/53）；本地外壳和航线一样",
+   "unverified": "save 必填，取值 true 或 false，要先选“保存地图”或“不保存”才发得出去；bid 带当前任务的；飞机没落地时 Bridge 会回 STOP_REFUSED"
+  },
+  {
    "id": "uav.bridge.system.status",
    "method": "system.status",
    "module": "bridge",

@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileDialog, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
-    QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..core import BRIDGE, payload_diff, requests, summarize
@@ -26,7 +26,8 @@ RESULT_COLORS = {0: GREEN, 1: RED, 2: ORANGE}
 RELATED = {"system": ("bridge", ("system.", "job.")), "localization": ("bridge", ("relocalization.",)),
            "relocalization": ("bridge", ("relocalization.",)), "navigation": ("bridge", ("navigation.",)),
            "mapping": ("bridge", ("mapping.",)), "flight": ("bridge", ("flight.",)), "online": ("bridge", ()), "pose": ("bridge", ()),
-           "subsystem_status": ("vfc", ()), "nav_status": ("vfc", ()), "nav_status_progress": ("vfc", ())}
+           "subsystem_status": ("vfc", ()), "nav_status": ("vfc", ()), "nav_status_progress": ("vfc", ()),
+           "mapping_status": ("vfc", ("start_mapping", "stop_mapping"))}
 QUICK = (("pause_nav", "暂停"), ("continue_nav", "继续"), ("stop_nav", "结束航线"), ("start_nav_return_home", "返航"), ("land", "降落"))
 
 
@@ -85,7 +86,7 @@ class UavPage:
         inner.addSpacing(8)
         changes_card, cv = card(6, 12)
         cv.addWidget(label("关键变化", "sectionTitle"))
-        cv.addWidget(label("状态词、航点进度、飞控解锁/落地/模式/起飞、VFC 任务说明的变化，新的在上；到点放行相关的标蓝加粗", "caption", True))
+        cv.addWidget(label("状态词、航点进度、飞控解锁/落地/模式/起飞、VFC 任务说明和建图状态的变化，新的在上；到点放行、地图保存结果标蓝加粗", "caption", True))
         self.changes = QListWidget()
         self.changes.setMinimumHeight(200)
         cv.addWidget(self.changes)
@@ -391,11 +392,13 @@ class UavPage:
 
     def _missing(self, key, now):
         """连上后一直没收到的卡片写可能的原因，免得只看到“未观测”"""
-        vfc = ("subsystem_status", "nav_status", "nav_status_progress")
+        vfc = ("subsystem_status", "nav_status", "nav_status_progress", "mapping_status")
         if key in vfc and not any(k in self.latest for k in vfc):
             return "连上后没收到 VFC 的任何消息，VFC 服务可能没在跑" if now - self.since > LINK_SECONDS else ""
         if key == "nav_status_progress":
             return "只在执行航线时上报"
+        if key == "mapping_status":
+            return "VFC 在报别的状态但没有建图状态，板上可能还是没有建图功能的旧版 VFC"
         system = self.latest.get("system")
         detail = (system.payload.get("info") or {}).get("detail") if system else None
         if key == "pose" and isinstance(detail, dict) and detail.get("ros") == "DOWN":
@@ -452,6 +455,25 @@ class UavPage:
         qv.addLayout(row)
         layout.addWidget(quick)
         layout.addSpacing(10)
+        # 建图：停止时保不保存地图由人明确选，两个按钮分开，不给默认
+        mapping, mv = card(8, 16)
+        mv.addWidget(label("建图", "sectionTitle"))
+        status = QHBoxLayout()
+        self.mapping_line = label("", "caption", True)
+        self.mapping_line.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        status.addWidget(self.mapping_line, 1)
+        status.addWidget(button("复制 session_id", self._copy_mapping_session, "link"))
+        mv.addLayout(status)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(button("开始建图", self._start_mapping))
+        row.addSpacing(12)
+        row.addWidget(button("停止并保存地图", lambda: self._stop_mapping(True)))
+        row.addWidget(button("停止，不保存地图", lambda: self._stop_mapping(False)))
+        row.addStretch()
+        mv.addLayout(row)
+        layout.addWidget(mapping)
+        layout.addSpacing(10)
         route, rv = card(8, 16)
         head = QHBoxLayout()
         head.addWidget(label("编辑航线", "sectionTitle"))
@@ -467,6 +489,32 @@ class UavPage:
         if self._command(method):
             self.app.notify(f"已发出 {method}，结果看状态总览的指令时间线")
 
+    def _start_mapping(self):
+        # 建图是新任务，bid 新生成，不借用上一个任务的
+        bid = str(uuid.uuid4())
+        if self._command("start_mapping", {}, bid):
+            self.app.notify(f"已发出开始建图（bid {bid}），进度看 VFC 任务和 VFC 建图")
+
+    def _stop_mapping(self, save):
+        if self._command("stop_mapping", {"save": save}):
+            self.app.notify("已发出停止建图（" + ("保存地图" if save else "不保存地图") + "），保没保存看 VFC 建图状态")
+
+    def mapping_session(self):
+        """当前连接里 VFC 建图状态报的 session_id，生成地图时要用；没有时为空"""
+        state = self.latest.get("mapping_status")
+        if not state or state.session != self.app.mqtt.session:
+            return ""
+        info = state.payload.get("info")
+        return str(info.get("session_id") or "") if isinstance(info, dict) else ""
+
+    def _copy_mapping_session(self):
+        session = self.mapping_session()
+        if not session:
+            self.app.notify("还没有收到建图的 session_id")
+            return
+        QApplication.clipboard().setText(session)
+        self.app.notify(f"已复制 session_id {session}")
+
     def _send_route(self):
         try:
             data, bid = self.route.route()
@@ -480,6 +528,12 @@ class UavPage:
             self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 任务卡和关键变化")
 
     def _render_task(self):
+        mapping = self.latest.get("mapping_status")
+        if mapping:
+            word, msg, _, extra = reading(mapping)
+            self.mapping_line.setText(f"<b>{html.escape(word)}</b>　{html.escape(msg)}　{html.escape(extra)}")
+        else:
+            self.mapping_line.setText("还没有收到 VFC 的建图状态（旧版 VFC 没有建图功能时也是这样）")
         state, progress = self.latest.get("nav_status"), self.latest.get("nav_status_progress")
         if not state:
             self.task_line.setText("还没有收到 VFC 的任务状态（VFC 没在跑或没连上 Broker 时就是这样）")

@@ -801,12 +801,13 @@ GPT 冻结 a020ff9 独立测：317 项过、旅程过；90 组随机筛选两步
 老大指出控制调试页的开始航线还得手填四元数。航点表格抽成 PointsTable（pages/uav.py），航线任务页和控制调试页共用：控制调试页选开始航线时 points 不再显示成只读 JSON，换成表格；改表格换算成四元数写回 JSON（填错的格子不写回，标出第几个航点），打开模板或手改 JSON 时四元数按 atan2 换回航向角显示。编辑卡放进竖向滚动区，窗口矮时不把表格、Payload 和按钮挤到一起。测试加 1 项，325 项全过
 - 重新打包（a1054c5），build.log 无 Build FAILED，打包自检通过
 
-### 待做：VFC 建图指令（nav 预告格式，等 VFC 交付测过后的最终版再做）
-- start_mapping：data {}，tid、bid 必填
-- stop_mapping：data {"save": true|false}，save 必填；界面上让操作的人明确选“保存地图”或“不保存”，不默认
-- local/uav/vfc/state 新增 type=mapping_status，info 里 result、msg、data（Bridge 原词 UNKNOWN/DISABLED/MAPPING/SAVING/SAVED/SAVE_FAILED）和 session_id
-- mapping_status 的 msg 也要显示：Bridge 掉线、状态过期或一直没收到时 VFC 自己报 UNKNOWN，原因只在 msg 里
-
+### VFC 建图指令（nav 指挥家 11-10 给最终格式，VFC 本机黑盒验收 53/53；板上还是旧版 VFC，上板后再实测）
+- 目录加开始建图 start_mapping（data {}）和停止建图 stop_mapping（data {"save": null}）。外壳和航线一样，不带 target（nav 示例里写了 target:"vfc"，其他 VFC 指令都不带、真飞也没带，已告知 nav）
+- bid：start_mapping 和开始航线一样是新任务，空着时新生成、按钮“换新 bid”（control.NEW_TASK）；stop_mapping 带当前任务的 bid
+- save 必须由人选：控制调试页 save 是“保存地图”“不保存”两个单选，模板都不选，没选点发送提示且不发；航线任务页的建图卡是“开始建图”“停止并保存地图”“停止，不保存地图”三个按钮
+- mapping_status 进 DOMAINS（“VFC 建图”，3 s 过期）：卡片显示 data 原词、msg、session_id；变化进关键变化，SAVED / SAVE_FAILED 醒目；航线任务页建图卡显示同样内容，“复制 session_id”。VFC 在报别的状态但没有建图状态时，卡上写“可能还是没有建图功能的旧版 VFC”
+- VFC_TO_BRIDGE 加 start_mapping → system.start、stop_mapping → system.stop（时间线就近配对用，候选）
+- 测试加 2 项，331 项全过
 ### 控制调试页按钮“换新 tid”跟着指令换
 老大指出开始航线那里应该是“换新 bid”。无人机发送时已自动换 tid / id，手换没用：开始航线显示“换新 bid”、只换 bid；其他无人机指令不显示（bid 跟当前任务，乱换反而错）；狗照旧“换新 tid”。测试加 1 项，326 项全过
 - 重新打包（25b8fe3），build.log 无 Build FAILED，打包自检通过

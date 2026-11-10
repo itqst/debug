@@ -6,7 +6,8 @@ import uuid
 from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget,
+    QButtonGroup, QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QRadioButton, QSplitter,
+    QVBoxLayout, QWidget,
 )
 
 from .uav import PointsTable
@@ -17,6 +18,9 @@ from ..ui import (
     button, card, CommandDelegate, DEVICES, GRAY, label, MODULE_COLORS, pill, RED, SCENARIOS, scroller, Segmented,
     Switch, tint,
 )
+
+# 无人机开始新任务的 VFC 指令：bid 新生成，按钮是“换新 bid”；其他 VFC 指令带当前任务的 bid
+NEW_TASK = ("start_multi_nav_by_points", "start_mapping")
 
 
 class ControlPage:
@@ -291,7 +295,9 @@ class ControlPage:
         for index, (key, value) in enumerate(data.items()):
             row, column = divmod(index, 2)
             self.form_grid.addWidget(label(key, "caption"), row, column * 2)
-            if isinstance(value, bool):
+            if key == "save" and self._uav() and self.selected["method"] == "stop_mapping":
+                field = self._save_choice(value)
+            elif isinstance(value, bool):
                 field = Switch()
                 field.setChecked(value)
                 field.toggled.connect(lambda on, key=key: self._form_edited(key, on))
@@ -303,6 +309,21 @@ class ControlPage:
                 field.setReadOnly(True)
                 field.setToolTip("列表/对象请在 JSON 里编辑")
             self.form_grid.addWidget(field, row, column * 2 + 1)
+
+    def _save_choice(self, value):
+        """停止建图的 save：“保存地图”“不保存”两个选项，模板里不选，必须由人选一个"""
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        group = QButtonGroup(box)
+        for text, choice in (("保存地图", True), ("不保存", False)):
+            option = QRadioButton(text)
+            option.setChecked(value is choice)
+            option.toggled.connect(lambda on, choice=choice: on and self._form_edited("save", choice))
+            group.addButton(option)
+            row.addWidget(option)
+        row.addStretch()
+        return box
 
     def _points_edited(self):
         try:
@@ -362,7 +383,7 @@ class ControlPage:
     def _vfc_bid(self, payload):
         """VFC 指令的 bid（任务 ID，必填）：开始航线用填了的，没填就新生成；暂停、返航、降落这些带当前任务的，还没有任务时保留填的"""
         bid = str(payload.get("bid") or "")
-        if payload.get("method") == "start_multi_nav_by_points":
+        if payload.get("method") in NEW_TASK:
             return bid or str(uuid.uuid4())
         return self.app.uav.current_task() or bid or str(uuid.uuid4())
 
@@ -379,7 +400,7 @@ class ControlPage:
             note = "设备发起的上线/心跳/配置请求，沙盒里演示云端应答"
         self.contract.setText(self.selected["summary"] + ("　·　" + note if note else ""))
         # 无人机每次发送都自动换 tid / id，不用手换；开始航线要换的是 bid（新任务），其他指令的 bid 跟着当前任务
-        uav, route = self._uav(), self.selected["method"] == "start_multi_nav_by_points"
+        uav, route = self._uav(), self.selected["method"] in NEW_TASK
         self.new_tid_btn.setText("换新 bid" if uav and route else "换新 tid")
         self.new_tid_btn.setVisible(not uav or route)
         self.contract.setToolTip(self.selected["label"].split(" · ")[0] + "　·　" + self.selected["source"])
@@ -406,6 +427,11 @@ class ControlPage:
             payload = json.loads(text)
         except ValueError:
             payload = text
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if self._uav() and isinstance(payload, dict) and payload.get("method") == "stop_mapping" \
+                and not (isinstance(data, dict) and isinstance(data.get("save"), bool)):
+            self.app.notify("停止建图要先选“保存地图”还是“不保存”")
+            return
         if self._uav() and isinstance(payload, dict):
             # VFC 和 Bridge 按 tid / id 认请求，同一个编号再发会被当成重复请求（Bridge 直接回旧的缓存结果、不执行），
             # 每次发送都换新编号和当前 ts；bid 是任务 ID，stop_nav 这类要带当前任务的，不换

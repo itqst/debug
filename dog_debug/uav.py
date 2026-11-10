@@ -11,7 +11,7 @@ VFC = "local/uav/vfc/"
 COMMAND_TOPICS = (VFC + "command", BRIDGE + "command")
 
 # 状态卡：键 → (名称, 多久没新消息算过期（秒，None 为不按时效判断）)
-# Bridge 各领域没变化也至少每秒重发一次；VFC 的 subsystem_status 每 2 s 一次，nav_status 每 1 s 一次；
+# Bridge 各领域没变化也至少每秒重发一次；VFC 的 subsystem_status 每 2 s 一次，nav_status、mapping_status 每 1 s 一次；
 # 在线消息只在变化时发（保留），航点进度只在到点时发，这两类不按时效判断；位姿约 2 Hz，只在里程计新鲜时发
 DOMAINS = {
     "online": ("Bridge 在线", None),
@@ -25,12 +25,14 @@ DOMAINS = {
     "subsystem_status": ("VFC 在线", 5),
     "nav_status": ("VFC 任务", 3),
     "nav_status_progress": ("航点进度", None),
+    "mapping_status": ("VFC 建图", 3),
 }
 
 # VFC 收到这些 GW 指令时会给 Bridge 发对应的命令（nav 指挥家 11-06 按 VFC 源码给出）
 VFC_TO_BRIDGE = {"start_multi_nav_by_points": "system.start", "pause_nav": "navigation.pause",
                  "continue_nav": "navigation.resume", "stop_nav": "navigation.pause",
-                 "start_nav_return_home": "navigation.return_home", "land": "flight.land"}
+                 "start_nav_return_home": "navigation.return_home", "land": "flight.land",
+                 "start_mapping": "system.start", "stop_mapping": "system.stop"}
 # VFC 自己发起、没有对应 GW 指令的 Bridge 命令：放行下一个航点、任务结束停环境、启动时读状态快照
 VFC_AUTO = {"navigation.next", "system.stop", "system.status"}
 # VFC 单线程按顺序处理，同一条指令触发的 Bridge 命令实测 20 ms 内跟上；留足余量，又不至于串到下一条
@@ -70,6 +72,9 @@ def reading(event):
         return f"{data.get('current_index', '?')} / {data.get('count', '?')}", msg, result, f"任务 {info.get('flight_id') or '—'}"
     if key == "nav_status":
         return str(info.get("data", "")), msg, result, f"任务 {info.get('flight_id') or '—'}"
+    if key == "mapping_status":
+        # data 照报 Bridge 的原词；VFC 自己报 UNKNOWN 时原因只在 msg 里。session_id 生成地图时要用
+        return str(info.get("data", "")), msg, result, f"session {info.get('session_id') or '—'}"
     detail = info.get("detail") if isinstance(info.get("detail"), dict) else {}
     extra = ""
     if key == "navigation":
@@ -122,6 +127,10 @@ def changes(before, event):
             out.append((f"VFC 任务 {word}：{msg}", "已到达" in msg))
         return out
     if key in ("subsystem_status", "pose"):
+        return out
+    if key == "mapping_status":
+        if not old or (word, msg) != old[:2]:
+            out.append((f"VFC 建图 {word}：{msg}", word in ("SAVED", "SAVE_FAILED")))
         return out
     if not old or word != old[0]:
         text = f"{name} {old[0] if old else '—'} → {word}"
