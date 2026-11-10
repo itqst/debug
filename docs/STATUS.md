@@ -802,7 +802,7 @@ GPT 冻结 a020ff9 独立测：317 项过、旅程过；90 组随机筛选两步
 - 重新打包（a1054c5），build.log 无 Build FAILED，打包自检通过
 
 ### VFC 建图指令（nav 指挥家 11-10 给最终格式，VFC 本机黑盒验收 53/53；板上还是旧版 VFC，上板后再实测）
-- 目录加开始建图 start_mapping（data {}）和停止建图 stop_mapping（data {"save": null}）。外壳和航线一样，不带 target（nav 示例里写了 target:"vfc"，其他 VFC 指令都不带、真飞也没带，已告知 nav）
+- 目录加开始建图 start_mapping（data {}）和停止建图 stop_mapping（data {"save": null}）。外壳和航线一样，不带 target（nav 确认：VFC 的 ParseCommand 不看 target，GW 转发时会去掉，本地直发不带）
 - bid：start_mapping 和开始航线一样是新任务，空着时新生成、按钮“换新 bid”（control.NEW_TASK）；stop_mapping 带当前任务的 bid
 - save 必须由人选：控制调试页 save 是“保存地图”“不保存”两个单选，模板都不选，没选点发送提示且不发；航线任务页的建图卡是“开始建图”“停止并保存地图”“停止，不保存地图”三个按钮
 - mapping_status 进 DOMAINS（“VFC 建图”，3 s 过期）：卡片显示 data 原词、msg、session_id；变化进关键变化，SAVED / SAVE_FAILED 醒目；航线任务页建图卡显示同样内容，“复制 session_id”。VFC 在报别的状态但没有建图状态时，卡上写“可能还是没有建图功能的旧版 VFC”
