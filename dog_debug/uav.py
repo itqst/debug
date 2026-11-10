@@ -4,6 +4,8 @@
 板上时钟不准（实测慢约 36 h），时效一律按本机收到的时间算，报文里的 ts 只用来显示
 """
 
+import math
+
 from .core import BRIDGE
 
 VFC = "local/uav/vfc/"
@@ -69,9 +71,12 @@ def reading(event):
     if key == "vfc_osd":
         # 测量值在 data 里，没数据的键不出现；缺的显示“—”，不当成 0。坐标跟 Bridge 模式走、heading 零度方向未定，都原值显示
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        value = lambda name, unit="": f"{data[name]}{unit}" if name in data else "—"
-        return (f"电量 {value('batteryRemain', '%')}", f"x {value('x')}　y {value('y')}　z {value('z')}（米）", 0,
-                f"速度 {value('speed', ' m/s')} · 航向 {value('heading', '°')}")
+        # 只有有限的数才算测量值；字符串、null、true/false 也显示“—”，并标成未知，原文到详情里看
+        measured = lambda name: isinstance(data.get(name), (int, float)) and not isinstance(data[name], bool) and math.isfinite(data[name])
+        value = lambda name, unit="": f"{data[name]}{unit}" if measured(name) else "—"
+        bad = [name for name in OSD_KEYS if name in data and not measured(name)]
+        extra = f"速度 {value('speed', ' m/s')} · 航向 {value('heading', '°')}" + (f"（{'、'.join(bad)} 不是数字）" if bad else "")
+        return f"电量 {value('batteryRemain', '%')}", f"x {value('x')}　y {value('y')}　z {value('z')}（米）", 2 if bad else 0, extra
     if key == "subsystem_status":
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         return "在线" if data.get("state") == 1 else f"state {data.get('state')}", f"v{data.get('version', '?')}", 0, ""
@@ -114,6 +119,8 @@ def _yes(value):
     return {True: "是", False: "否", None: "—"}.get(value, str(value))
 
 
+# VFC OSD 里的测量值
+OSD_KEYS = ("x", "y", "z", "speed", "heading", "batteryRemain")
 # 到点放行要醒目：航点完成等待放行、控制桥转向完成可以放行
 WAITING_NEXT = "WAYPOINT_COMPLETE_WAITING_EXTERNAL_TRIGGER"
 YAW_DONE = {"HOLD", "WAITING_TRAJECTORY"}

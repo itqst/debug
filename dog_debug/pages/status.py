@@ -406,7 +406,8 @@ class StatusPage:
         needle = self.detail_filter.text().strip().lower()
         # 类型和方法都在查询里筛，状态报得再多也挤不掉指令和回复；方法按目录里的中文名和 method 匹配
         methods = [item["method"] for item in self.app.catalog if needle in (item["method"] + item["title"]).lower()] if needle else None
-        fetched = self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, sn=self._status_sn(), live=True, methods=methods)
+        fetched = self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, sn=self._status_sn(), live=True, methods=methods,
+                                       dog_only=True)
         merged = {}
         for _, e in fetched:
             key = self._detail_row_key(e)
@@ -809,7 +810,7 @@ class StatusPage:
         self.status_drawn = (self.app.store.status_version, self._status_sn())
         before, self.status_seen = self.status_seen, {}
         latest = {}
-        for _, e in self.app.store.query(kind="状态", limit=3000, sn=self._status_sn(), live=True):
+        for _, e in self.app.store.query(kind="状态", limit=3000, sn=self._status_sn(), live=True, dog_only=True):
             info = e.payload.get("info", {})
             index = str(info.get("index", "")) if isinstance(info, dict) else ""
             latest.setdefault((e.module, e.method, index), e)

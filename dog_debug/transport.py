@@ -36,7 +36,8 @@ class MqttTransport:
         """device 为 "dog" 时订阅狗的本地和云端主题，"uav" 时订阅无人机本地主题（VFC 和 Bridge），只读"""
         import paho.mqtt.client as mqtt
         self.close()
-        self.host, self.sn, self.session, self.device = host, sn, str(uuid.uuid4()), device
+        # 无人机的主题不带 SN，连接卡里隐藏着的狗 SN 不能记到无人机的消息上，否则狗的状态总览按 SN 查会混进来
+        self.host, self.sn, self.session, self.device = host, "" if device == "uav" else sn, str(uuid.uuid4()), device
         # 每次新连接都回到只读
         self.uav_send = False
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="dog-debug-" + uuid.uuid4().hex[:12],

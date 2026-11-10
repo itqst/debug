@@ -754,3 +754,47 @@ def test_vfc_osd_card_shows_raw_values_and_age(window):
     assert time.strftime("%H:%M:%S", time.localtime(at)) + " 收到 · 4 秒前" in age.text() and "超时没收到" in age.text()
     assert window.scene.osd == {}
     assert not any("OSD" in text for _, text, _ in window.uav.log)
+
+
+def test_osd_non_numbers_shown_as_dash_and_unknown(window):
+    """OSD 里类型不对的值（false、null、字符串、true）不当测量值：显示“—”、写明哪几项不是数字、数据标未知"""
+    from dog_debug.uav import quality, reading
+    e = Event("local/uav/vfc/osd", {"sn": "", "data": {"x": False, "y": None, "z": "oops", "speed": True, "heading": None,
+                                                       "batteryRemain": None}}, sn="", session="s1")
+    word, msg, result, extra = reading(e)
+    assert word == "电量 —" and msg == "x —　y —　z —（米）" and extra.startswith("速度 — · 航向 —")
+    assert "x、y、z、speed、heading、batteryRemain 不是数字" in extra and quality(e) == "未知"
+    ok = Event("local/uav/vfc/osd", {"sn": "", "data": {"x": 0, "batteryRemain": 72}}, sn="", session="s1")
+    assert reading(ok)[0] == "电量 72%" and reading(ok)[1].startswith("x 0　y —") and quality(ok) == "正常"
+
+
+def test_uav_messages_do_not_show_on_dog_status(window, monkeypatch):
+    """连无人机时连接卡里隐藏着狗的 SN：无人机消息不再记这个 SN；旧库里已经记了狗 SN 的无人机消息，狗的状态总览也不取"""
+    window.store.add(Event("local/uav/vfc/osd", {"sn": "", "data": {"x": 15, "y": 20}}, sn="TEST_DOG_001", session="old-uav"))
+    window.store.add(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "data": "Active"}},
+                           sn="TEST_DOG_001", session="old-uav"))
+    window.store.add(Event("local/robotdog/vfc/state", {"type": "subsystem_status", "data": {"state": 1}}, sn="TEST_DOG_001", session="dog"))
+    window.store.flush()
+    rows = window.store.query(kind="状态", sn="TEST_DOG_001", live=True, dog_only=True)
+    assert [e.topic for _, e in rows] == ["local/robotdog/vfc/state"]
+    assert len(window.store.query(kind="状态", sn="TEST_DOG_001", live=True)) == 3
+    # 新连接：无人机的消息 sn 为空
+    import queue
+    import paho.mqtt.client as mqtt
+    from dog_debug.transport import MqttTransport
+
+    class Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+
+    monkeypatch.setattr(mqtt, "Client", Client)
+    inbox = queue.Queue()
+    transport = MqttTransport(inbox)
+    transport.connect("192.168.1.230", 1883, "TEST_DOG_001", device="uav")
+    message = type("M", (), {"topic": "local/uav/vfc/osd", "payload": b'{"data": {"x": 1}}', "qos": 0, "retain": False, "dup": False})()
+    transport._message(None, None, message)
+    events = [item[1] for item in list(inbox.queue) if item[0] == "event"]
+    assert transport.sn == "" and events and events[-1].sn == ""

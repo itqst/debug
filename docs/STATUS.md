@@ -828,3 +828,9 @@ local/uav/vfc/osd（QoS 0、不保留、每 1 s、空闲时整条不发），格
 - 这个 Topic 也以 /osd 结尾：scene.osd_fields 对 local/uav/ 返回空，不驱动狗的 3D 和设备卡；Store.OSD_ROWS 排除 local/uav/，狗的 OSD 回放列表不出现无人机会话。指令部分、狗的页面没改
 - 测试加 1 项，332 项全过
 - 打包（daf8079，11-10 10:05），build.log 无 Build FAILED，打包自检通过
+
+### GPT 复核建图和 OSD 两版：修两处
+GPT 冻结 daf8079 独立测：save 闸门（null、{}、0、1、"true" 都拦，恢复模板回未选）、建图 bid、OSD 缺键显示“—”、OSD 和狗 3D / 回放隔离都过。指出两处：
+- 狗的状态总览混进无人机消息：连无人机时连接卡里隐藏着狗的 SN，无人机消息记的是这个 SN，狗的状态总览按 SN 查就取到了。老大的库里实测：真狗 SN 10300262998249 下最新 3000 条状态全是无人机的。改两处：连无人机时 MqttTransport.sn 为空（收发记账都用它）；Store.query 加 dog_only（body 里 topic 不是 local/uav/），狗状态总览的模块状态和“指令与回复”都用它，管住旧库里已经记了狗 SN 的无人机消息。老大的库上这条查询多 0.02～0.05 秒
+- OSD 里类型不对的值被当测量值（false、null、"oops"、true 显示成 False、None、oops）。只有有限的数算测量值，其他显示“—”，写明哪几项不是数字，数据标未知（橙）
+- 测试加 2 项，334 项全过
