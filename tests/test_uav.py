@@ -732,3 +732,25 @@ def test_mapping_status_card_shows_data_msg_session(window):
     window._ingest(mapping_state("UNKNOWN", "Bridge 建图状态过期", result=2))
     window.uav.render()
     assert window.uav.cards["mapping_status"][1].text() == "Bridge 建图状态过期"
+
+
+def test_vfc_osd_card_shows_raw_values_and_age(window):
+    """VFC OSD（local/uav/vfc/osd）：缺的键显示“—”不当 0，原值显示；写明最近一次收到的时间和距今秒数；不驱动狗的 3D"""
+    import time
+    window.uav.render()
+    window.uav.since = time.time() - 10
+    window._ingest(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "msg": "", "data": "StandBy"}},
+                         sn="", session="s1"))
+    window.uav.render()
+    assert "收不到是正常的" in window.uav.cards["vfc_osd"][1].text()
+    at = time.time() - 4
+    window._ingest(Event("local/uav/vfc/osd", {"sn": "", "ts": 1793760000000, "data": {"sn": "", "x": 0.42, "y": 3.1, "z": 1.2, "speed": 0.98,
+                                                                                  "heading": 81, "ts": 1793760000000}},
+                         sn="", session="s1", timestamp=at))
+    window.uav.render()
+    word, msg, extra, age = window.uav.cards["vfc_osd"]
+    assert word.text() == "电量 —" and msg.text() == "x 0.42　y 3.1　z 1.2（米）" and extra.text() == "速度 0.98 m/s · 航向 81°"
+    # 4 秒没新的就算超时（每 1 s 一条），时间和秒数照样写
+    assert time.strftime("%H:%M:%S", time.localtime(at)) + " 收到 · 4 秒前" in age.text() and "超时没收到" in age.text()
+    assert window.scene.osd == {}
+    assert not any("OSD" in text for _, text, _ in window.uav.log)

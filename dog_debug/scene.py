@@ -23,7 +23,9 @@ OSD_FIELDS = ("x", "y", "z", "heading", "speed", "batteryRemain", "functionMode"
 
 
 def osd_fields(event):
-    """从 OSD 类消息取出遥测字段；不是 OSD 返回空字典"""
+    """从 OSD 类消息取出遥测字段；不是 OSD 返回空字典。无人机的 OSD（local/uav/vfc/osd）在无人机页看，不驱动狗的 3D"""
+    if event.topic.startswith("local/uav/"):
+        return {}
     if event.topic.endswith("/osd"):
         body = event.payload
         # VFC 实际发的是根上 sn/ts、遥测放在 data 里（local/robotdog/vfc/osd）；文档样例是扁平的，两种都认

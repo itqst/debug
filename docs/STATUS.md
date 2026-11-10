@@ -821,3 +821,9 @@ GPT 冻结 25b8fe3 独立测：发送新 id / 当前 ts、只换 bid、points �
 - 测试加 3 项，329 项全过
 - 重新打包（caf5fdb），build.log 无 Build FAILED，打包自检通过
 - 打包（3f72046），build.log 无 Build FAILED，打包自检通过
+
+### VFC OSD 显示（nav 指挥家 11-10，老大批）
+local/uav/vfc/osd（QoS 0、不保留、每 1 s、空闲时整条不发），格式依据 nav/tta_vfc/版本更新说明.md“新增 osd”。
+- DOMAINS 加 vfc_osd（“VFC OSD”，3 s 过期），和 VFC 任务、VFC 建图放在一起：大字电量，下面 x / y / z（米）、速度、航向，都是原值；缺的键显示“—”不当 0。卡底写“HH:MM:SS 收到 · N 秒前”，超时照样标橙；一直没收到时写“VFC 空闲时不发 OSD，收不到是正常的；旧版 VFC 也没有 OSD”。不进关键变化
+- 这个 Topic 也以 /osd 结尾：scene.osd_fields 对 local/uav/ 返回空，不驱动狗的 3D 和设备卡；Store.OSD_ROWS 排除 local/uav/，狗的 OSD 回放列表不出现无人机会话。指令部分、狗的页面没改
+- 测试加 1 项，332 项全过

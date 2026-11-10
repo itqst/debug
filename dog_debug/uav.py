@@ -12,7 +12,8 @@ COMMAND_TOPICS = (VFC + "command", BRIDGE + "command")
 
 # 状态卡：键 → (名称, 多久没新消息算过期（秒，None 为不按时效判断）)
 # Bridge 各领域没变化也至少每秒重发一次；VFC 的 subsystem_status 每 2 s 一次，nav_status、mapping_status 每 1 s 一次；
-# 在线消息只在变化时发（保留），航点进度只在到点时发，这两类不按时效判断；位姿约 2 Hz，只在里程计新鲜时发
+# 在线消息只在变化时发（保留），航点进度只在到点时发，这两类不按时效判断；位姿约 2 Hz，只在里程计新鲜时发；
+# VFC 的 OSD 每 1 s 一条，空闲（没有位姿和电量）时整条不发
 DOMAINS = {
     "online": ("Bridge 在线", None),
     "system": ("任务环境", 3),
@@ -26,6 +27,7 @@ DOMAINS = {
     "nav_status": ("VFC 任务", 3),
     "nav_status_progress": ("航点进度", None),
     "mapping_status": ("VFC 建图", 3),
+    "vfc_osd": ("VFC OSD", 3),
 }
 
 # VFC 收到这些 GW 指令时会给 Bridge 发对应的命令（nav 指挥家 11-06 按 VFC 源码给出）
@@ -51,6 +53,8 @@ def domain(event):
         if rest.startswith("state/"):
             return rest[len("state/"):]
         return None
+    if topic == VFC + "osd":
+        return "vfc_osd"
     if topic == VFC + "state":
         kind = event.payload.get("type")
         # GW 也认旧名 subsystem_state
@@ -62,6 +66,12 @@ def reading(event):
     """状态卡上显示的内容：(状态词, 说明, result, 附加信息)；result 0 正常、1 失败、2 未知或过期"""
     payload = event.payload
     key = domain(event)
+    if key == "vfc_osd":
+        # 测量值在 data 里，没数据的键不出现；缺的显示“—”，不当成 0。坐标跟 Bridge 模式走、heading 零度方向未定，都原值显示
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        value = lambda name, unit="": f"{data[name]}{unit}" if name in data else "—"
+        return (f"电量 {value('batteryRemain', '%')}", f"x {value('x')}　y {value('y')}　z {value('z')}（米）", 0,
+                f"速度 {value('speed', ' m/s')} · 航向 {value('heading', '°')}")
     if key == "subsystem_status":
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         return "在线" if data.get("state") == 1 else f"state {data.get('state')}", f"v{data.get('version', '?')}", 0, ""
@@ -126,7 +136,7 @@ def changes(before, event):
         elif not old or (word, msg) != old[:2]:
             out.append((f"VFC 任务 {word}：{msg}", "已到达" in msg))
         return out
-    if key in ("subsystem_status", "pose"):
+    if key in ("subsystem_status", "pose", "vfc_osd"):
         return out
     if key == "mapping_status":
         if not old or (word, msg) != old[:2]:

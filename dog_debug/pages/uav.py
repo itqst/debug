@@ -27,7 +27,7 @@ RELATED = {"system": ("bridge", ("system.", "job.")), "localization": ("bridge",
            "relocalization": ("bridge", ("relocalization.",)), "navigation": ("bridge", ("navigation.",)),
            "mapping": ("bridge", ("mapping.",)), "flight": ("bridge", ("flight.",)), "online": ("bridge", ()), "pose": ("bridge", ()),
            "subsystem_status": ("vfc", ()), "nav_status": ("vfc", ()), "nav_status_progress": ("vfc", ()),
-           "mapping_status": ("vfc", ("start_mapping", "stop_mapping"))}
+           "mapping_status": ("vfc", ("start_mapping", "stop_mapping")), "vfc_osd": ("vfc", ())}
 QUICK = (("pause_nav", "暂停"), ("continue_nav", "继续"), ("stop_nav", "结束航线"), ("start_nav_return_home", "返航"), ("land", "降落"))
 
 
@@ -377,6 +377,9 @@ class UavPage:
             extra.setText(more)
             seconds = now - event.timestamp
             stamp = f"{seconds:.0f} 秒前收到" if seconds < 120 else time.strftime("%H:%M:%S 收到", time.localtime(event.timestamp))
+            if key == "vfc_osd":
+                # OSD 空闲时整条不发，要看得出最近一次是什么时候、隔了多久
+                stamp = time.strftime("%H:%M:%S", time.localtime(event.timestamp)) + f" 收到 · {seconds:.0f} 秒前"
             # Bridge 在线只在上线时发一条保留消息，不定时重发；掉线时 Broker 按遗嘱改成 OFFLINE，所以保留的这条就是现在的状态
             online = key == "online" and fresh == "保留快照"
             age.setText("上线时发的保留消息，Bridge 掉线时 Broker 会改成 OFFLINE" if online else
@@ -392,13 +395,15 @@ class UavPage:
 
     def _missing(self, key, now):
         """连上后一直没收到的卡片写可能的原因，免得只看到“未观测”"""
-        vfc = ("subsystem_status", "nav_status", "nav_status_progress", "mapping_status")
+        vfc = ("subsystem_status", "nav_status", "nav_status_progress", "mapping_status", "vfc_osd")
         if key in vfc and not any(k in self.latest for k in vfc):
             return "连上后没收到 VFC 的任何消息，VFC 服务可能没在跑" if now - self.since > LINK_SECONDS else ""
         if key == "nav_status_progress":
             return "只在执行航线时上报"
         if key == "mapping_status":
             return "VFC 在报别的状态但没有建图状态，板上可能还是没有建图功能的旧版 VFC"
+        if key == "vfc_osd":
+            return "VFC 空闲（没有位姿和电量）时不发 OSD，收不到是正常的；旧版 VFC 也没有 OSD"
         system = self.latest.get("system")
         detail = (system.payload.get("info") or {}).get("detail") if system else None
         if key == "pose" and isinstance(detail, dict) and detail.get("ros") == "DOWN":

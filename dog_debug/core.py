@@ -386,7 +386,7 @@ class Store:
         return list(groups.values())
 
     # 回放用：OSD 消息只按 Topic 认（云端 .../osd，本地 vfc/data），Topic 在 body 里
-    OSD_ROWS = "kind='状态' AND (body LIKE '%/osd\"%' OR body LIKE '%local/robotdog/vfc/data%')"
+    OSD_ROWS = "kind='状态' AND (body LIKE '%/osd\"%' OR body LIKE '%local/robotdog/vfc/data%') AND body NOT LIKE '%\"topic\":\"local/uav/%'"
 
     def osd_sessions(self, limit=20):
         """带 OSD 消息的 (设备, 会话)，最近导入或收到的在前：[(sn, session, OSD 条数)]；要扫全表，大库放后台线程调用"""
