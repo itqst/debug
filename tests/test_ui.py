@@ -1122,24 +1122,32 @@ def test_stream_rows_name_cameras(window):
     assert [r[1] for r in window.status.stream_rows] == ["001（机体相机）", "002（云台相机）"]
 
 
-@pytest.mark.parametrize("mode, topic", [("直连模块", "local/robotdog/ptz/command"), ("云端 → 真实 GW", "tta/robotdog/A/services")])
-def test_lens_switch_sends_camera_switch_type(mode, topic):
-    """镜头发 camera_switch，type 1 可见光、2 红外、3 拼接，带当前相机 index/sn；红外禁变焦"""
-    window, client = live_window(mode)
-    window.sn.setText("A")
-    window.teleop.remote.camera_index.setValue(1)
+def test_remote_page_no_longer_switches_lens(window):
+    """云台固定主码流可见光、副码流红外，遥控页不再有切镜头按钮，变焦一直可用；目录里的 camera_switch 标明平台不应下发"""
+    from dog_debug.registry import find
+    remote = window.teleop.remote
+    assert not hasattr(remote, "lens") and all(zoom.isEnabled() for zoom in remote.zoom_buttons)
+    assert "平台不应下发" in find("camera_switch")["title"] and "打断两路直播" in find("camera_switch")["summary"]
+
+
+def test_room_follows_reported_room_state(window):
+    """房间号：没收到 room_state 时按“整机SN_相机SN”算；收到后用当前相机报的房间；手改过就不再跟"""
+    window.sn.setText("10300262998249")
     window.teleop.remote.camera_sn.setText("002")
-    assert [window.teleop.remote.lens.group.button(i).text() for i in range(3)] == ["可见光", "红外", "拼接"]
-    for index in (1, 2, 0):
-        window.teleop.remote._lens(index)
-        sent_topic, text = client.sent[-1]
-        sent = json.loads(text)
-        assert sent_topic == topic and sent["method"] == "camera_switch"
-        assert sent["data"] == {"index": 1, "sn": "002", "type": index + 1}
-        # 直连发的是 GW 转给模块的样子，不带 target
-        assert sent.get("target") == (None if mode == "直连模块" else "ptz")
-        assert all(zoom.isEnabled() == (index != 1) for zoom in window.teleop.remote.zoom_buttons)
-    window.close()
+    assert window.status.room.text() == "10300262998249_002"
+    window._ingest(Event("local/robotdog/media/state", {"type": "room_state", "info": {"result": 0, "info": [
+        {"sn": "001", "index": 0, "room": "10300262998249_001", "userId": "001"},
+        {"sn": "002", "index": 1, "room": "R-FROM-CLOUD", "userId": "visible"},
+        {"sn": "002", "index": 2, "room": "R-FROM-CLOUD", "userId": "infrared"}]}}, sn="10300262998249", session="s"))
+    window.store.flush()
+    window.status._refresh_status()
+    assert window.status.room.text() == "R-FROM-CLOUD"
+    assert [(r[0], r[6]) for r in window.status.stream_rows] == [("0", "001"), ("1", "visible"), ("2", "infrared")]
+    window.teleop.remote.camera_sn.setText("001")
+    assert window.status.room.text() == "10300262998249_001"
+    window.status.room.setText("手填的")
+    window.teleop.remote.camera_sn.setText("002")
+    assert window.status.room.text() == "手填的"
 
 
 def test_live_lens_change_no_longer_offered(window):

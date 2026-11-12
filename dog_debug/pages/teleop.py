@@ -148,13 +148,6 @@ class RemotePanel(QWidget):
         holder.addStretch()
         layout.addLayout(holder)
         self.gimbal_speed = self._slider(layout, "速度", 1, 10, 4, 50, "")
-        self.lens = Segmented(["可见光", "红外", "拼接"])
-        self.lens.changed.connect(self._lens)
-        row = QHBoxLayout()
-        row.addWidget(label("镜头", "caption"))
-        row.addWidget(self.lens)
-        row.addStretch()
-        layout.addLayout(row)
         row = QHBoxLayout()
         self.zoom_buttons = []
         for text, kind in (("放大", 1), ("缩小", 2)):
@@ -169,7 +162,8 @@ class RemotePanel(QWidget):
             row.addWidget(zoom)
         row.addWidget(button("一键向下", lambda: self.send("gimbal_down", self.camera()), "tile"))
         layout.addLayout(row)
-        layout.addWidget(label("方向键按住转动，松手回中；方向键盘 ↑↓←→ 同样可用", "caption", True))
+        # 云台固定在主码流可见光、副码流红外，不再切镜头；红外不能变焦，变焦只作用在可见光
+        layout.addWidget(label("方向键按住转动，松手回中；方向键盘 ↑↓←→ 同样可用。可见光和红外两路一直同时在出，变焦只作用在可见光", "caption", True))
         return frame
 
     def _action_card(self):
@@ -229,12 +223,6 @@ class RemotePanel(QWidget):
 
     def camera(self):
         return {"index": self.camera_index.value(), "sn": self.camera_sn.text().strip()}
-
-    def _lens(self, index):
-        """发 camera_switch 切镜头，type 1 可见光（变焦）、2 红外、3 拼接；红外不能变焦，发出后禁用变焦按钮"""
-        if self.send("camera_switch", {**self.camera(), "type": index + 1}):
-            for zoom in self.zoom_buttons:
-                zoom.setEnabled(index != 1)
 
     def _live(self, state):
         self.send("camera_livestream", {**self.camera(), "state": state, "stream_type": "webrtc",

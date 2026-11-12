@@ -336,8 +336,8 @@
    "evidence": "documented",
    "device_verified": false,
    "unverified": "用户 2026-11-02 确认切镜头用 camera_switch，不用 live_lens_change，只用“其他机型”这组 type；文档里 M3D 云盒的 7/8/9 不用。未在实机核对",
-   "title": "切换镜头",
-   "summary": "type 1 可见光（变焦）、2 红外（不能变焦）、3 拼接"
+   "title": "切换镜头（平台不应下发）",
+   "summary": "ptz 已不再切镜头：现场固定模式 3（主码流可见光、副码流红外），直播切换由 media 拉两路流完成。发了 ptz 仍会给相机发 0x11 切模式，ZT6 重启约 12 s，可能改掉主副码流和编码，会打断两路直播，调试时也别轻易发"
   },
   {
    "id": "cloud.ptz.camera_focal_length_set",

@@ -836,3 +836,11 @@ GPT 冻结 daf8079 独立测：save 闸门（null、{}、0、1、"true" 都拦�
 - 测试加 2 项，334 项全过
 - 打包（df1cc25，11-10 10:17），build.log 无 Build FAILED，打包自检通过
 - GPT 针对性复测 df1cc25 通过：狗状态总览不再混无人机消息，OSD 非数字值显示“—”标未知；源码阶段收口。真机建图和 OSD 联调要等板上部署新版 VFC
+
+### 机器狗：PTZ 不再切镜头、房间号按上报（dog 指挥家 11-12 口径）
+依据 dog_L2/doc/123MQTT文档(设备端 local).md（11-11）和 dog 指挥家答复；ptz 以文档为准（本地 tta_ptz 是 10-19 旧代码不作数），media 以 tta_media RobotDog 分支（板上 3.1.0）docs/LIVESTREAM_MODE.md 第 5 节为准。
+- 切镜头：云台固定模式 3（主码流可见光、副码流红外），直播切换由 media 拉两路流完成，平台不应再下发 camera_switch。遥控页去掉“可见光 / 红外 / 拼接”，变焦不再按选了红外禁用（变焦只作用在可见光，待 ptz 同事确认）；目录里 camera_switch 保留，标题“切换镜头（平台不应下发）”，说明写发了仍会发 0x11、ZT6 重启约 12 s、可能改掉主副码流、打断两路直播
+- 房间号：仍是一路相机一个、规则 整机SN_相机SN，但以 room_state 上报为准（云端开流下发的地址带房间时设备用下发的）。音视频预览的房间号优先取当前相机在 room_state 里报的，没有时按规则算，手改过不再跟。云台房间有 visible、infrared 两个成员，预览下写了说明
+- room_state 现在三项（001/index0/userId 001、002/index1/visible、002/index2/infrared），红外 stream_status 的 index 是 "2"（只在状态里，开关仍用 index 1）。直播表格改成三行高；沙盒的 room_state 按新格式（房间 SN_001 / SN_002、三个成员）
+- 测温：老大 11-11 定测温完全由 ptz 处理、温度在 ptz ACK 里回；文档里 ptz 3.2.0 的 ir_metering 数据流、media 叠加、ir_temp_alarm 不采用。测温命令要不要调整待问老大
+- 测试：切镜头测试换成“遥控页没有镜头按钮、变焦可用、目录标明不应下发”，加房间号跟上报 1 项；334 项全过，旅程通过

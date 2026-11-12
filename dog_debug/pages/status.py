@@ -1,4 +1,4 @@
-"""状态总览页：当前设备各模块的上报、详情里的指令与回复、ZLM 流、直播两路和拉流播放"""
+"""状态总览页：当前设备各模块的上报、详情里的指令与回复、ZLM 流、直播和拉流播放"""
 
 import html
 import json
@@ -26,7 +26,7 @@ from ..ui import (
 
 
 class StatusPage:
-    """状态总览页：各模块卡片、模块详情（上报、指令与回复）、ZLM、直播两路和拉流"""
+    """状态总览页：各模块卡片、模块详情（上报、指令与回复）、ZLM、直播和拉流"""
 
     def __init__(self, app):
         self.app = app
@@ -108,7 +108,7 @@ class StatusPage:
 
         live, lv = self.live_card = card(6, 16)
         head = QHBoxLayout()
-        head.addWidget(label("直播两路", "sectionTitle"))
+        head.addWidget(label("直播", "sectionTitle"))
         head.addWidget(label("推流是否在跑看 stream_status；room_state 只说明到哪个房间/用户拉流，不代表推流活跃", "caption"), 1)
         lv.addLayout(head)
         self.stream_table = QTableWidget(0, 7)
@@ -119,7 +119,8 @@ class StatusPage:
         self.stream_table.verticalHeader().hide()
         self.stream_table.verticalHeader().setDefaultSectionSize(34)
         self.stream_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.stream_table.setFixedHeight(34 * 3 + 8)
+        # 表头加三行：机体、云台可见光、云台红外
+        self.stream_table.setFixedHeight(34 * 4 + 8)
         lv.addWidget(self.stream_table)
         layout.addSpacing(10)
         layout.addWidget(live)
@@ -128,14 +129,16 @@ class StatusPage:
         wv.addWidget(label("音视频预览", "sectionTitle"))
         row = QHBoxLayout()
         self.web_url = QLineEdit("https://124.126.230.115:5500/")
-        # WebRTC 房间号是 `<整机SN>_<相机SN>`，一个相机一个房间，跟着左侧 SN 和遥控页当前相机走
-        self.room = QLineEdit()
+        # WebRTC 房间号一路相机一个：以设备 room_state 上报的为准（云端开流下发的地址里带了房间时设备用下发的），
+        # 还没收到时按 `<整机SN>_<相机SN>` 算；跟着左侧 SN 和遥控页当前相机走
+        self.room, self.room_auto = QLineEdit(), ""
         self.room.setPlaceholderText("房间号")
         row.addWidget(self.web_url, 2)
         row.addWidget(self.room, 1)
         row.addWidget(button("复制房间", lambda: QApplication.clipboard().setText(self.room.text())))
         row.addWidget(button("打开 WebRTC 网页", lambda: webbrowser.open(self.web_url.text()), "primary"))
         wv.addLayout(row)
+        wv.addWidget(label("云台房间（相机 002）里有 visible（可见光）、infrared（红外）两个成员，网页里选拉哪个；机体房间（001）的成员是 001", "caption", True))
         # 拉流地址从设备拉流配置和 ZLM 流列表自动列出（相机直连、ZLM 原始、处理后的各种协议），也可以直接填别的地址
         pull = QHBoxLayout()
         self.pull_url = QComboBox()
@@ -159,7 +162,18 @@ class StatusPage:
         return page
 
     def _room_follow(self):
-        self.room.setText(f"{self.app.sn.text().strip()}_{self.app.teleop.remote.camera_sn.text().strip()}")
+        """房间号自动填：当前相机在 room_state 里报的房间，没有时按规则算；手改过就不再跟"""
+        camera = self.app.teleop.remote.camera_sn.text().strip()
+        room = f"{self.app.sn.text().strip()}_{camera}"
+        for e in getattr(self, "status_latest", {}).get("media", []):
+            info = e.payload.get("info")
+            if e.method == "room_state" and isinstance(info, dict):
+                rooms = [item.get("room") for item in info.get("info") or [] if isinstance(item, dict) and str(item.get("sn")) == camera]
+                room = str(next((r for r in rooms if r), room))
+                break
+        if self.room.text() in ("", self.room_auto):
+            self.room.setText(room)
+        self.room_auto = room
 
     def _toggle_status_filter(self, hidden, key, shown):
         if shown:
@@ -199,7 +213,7 @@ class StatusPage:
         self.module_filter.setText("模块：" + ("全部" if len(shown) == len(MODULES) else "、".join(m.upper() for m in shown) or "无"))
         self.type_filter.setText("状态类型：" + (f"隐藏 {len(self.hidden_types)} 类" if self.hidden_types else "全部"))
         self.status_grid.show_only([self.module_frames[m] for m in shown])
-        # 直播两路和预览都是 Media 的内容，不看 Media 时一起收起
+        # 直播和预览都是 Media 的内容，不看 Media 时一起收起
         self.live_card[0].setVisible("media" in shown)
         self.web_card[0].setVisible("media" in shown)
         if self.detail_module in self.hidden_modules:
@@ -862,6 +876,7 @@ class StatusPage:
                             f"{html.escape(self._brief(e.payload)).replace(chr(10), '<br>')}</span></p>")
             content.setText("".join(rows))
         self._refresh_streams()
+        self._room_follow()
         self._status_ages()
         if self.detail_module:
             self._render_detail()

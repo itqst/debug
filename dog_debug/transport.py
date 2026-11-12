@@ -192,8 +192,9 @@ def simulate(payload, sn, session, scenario="success"):
                 "result": 0 if payload.get("data", {}).get("state") == 2 else 1, "msg": "Mock 状态"}
         events.append(Event(f"local/robotdog/media/state", {"type": "stream_status", "info": info}, source="sandbox", sn=sn, session=session, module="media"))
         events.append(Event(f"local/robotdog/media/state", {"type": "room_state", "info": {"result": 0, "info": [
-            {"index": 0, "sn": "001", "room": sn, "userId": "001"},
-            {"index": 1, "sn": "002", "room": sn, "userId": "002"}]}}, source="sandbox", sn=sn, session=session, module="media"))
+            {"index": 0, "sn": "001", "room": f"{sn}_001", "userId": "001"},
+            {"index": 1, "sn": "002", "room": f"{sn}_002", "userId": "visible"},
+            {"index": 2, "sn": "002", "room": f"{sn}_002", "userId": "infrared"}]}}, source="sandbox", sn=sn, session=session, module="media"))
     if not failure and method in UPLOAD:
         state_method = "media_file_upload_status" if method == "sync_media_file" else "sync_map_file_status"
         for state, percent in (("1", 35), ("0", 100)):
