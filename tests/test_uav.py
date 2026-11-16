@@ -406,7 +406,7 @@ def test_sidebar_follows_device_and_locks_while_connected(window, monkeypatch):
     rows = lambda: [window.nav.item(i).text() for i in range(window.nav.count())]
     assert "遥控" in rows() and not window.uav_send.isVisible()
     window.device_box.setCurrentText("无人机")
-    assert rows() == ["控制调试", "航线任务", "消息追踪", "状态总览", "日志排障"]
+    assert rows() == ["控制调试", "航线任务", "状态总览", "日志排障"]
     assert not window.uav_send.isHidden() and window.logs.fetch_logs.isHidden() and window.logs.live_follow.isHidden()
     window._go(window.UAV_MISSION)
     assert window.stack.currentIndex() == window.UAV_MISSION

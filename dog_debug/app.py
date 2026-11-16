@@ -28,7 +28,7 @@ from .pointcloud import cloud_data
 from .registry import entries, find, local_payload, make_command
 from .robot import VARIANTS
 from .scene import Scene
-from .trace_view import Step
+from .trace_view import Step, TraceView
 from .transport import MqttTransport, simulate
 from .ui import (
     APP_NAME, apply_theme, button, DEVICES, dot, FAILED, glyph_icon, GRAY, guard_wheel, label, logo_icon, logo_image,
@@ -51,9 +51,10 @@ from .pages.uav import UavPage
 class Studio(QMainWindow):
     # 页面栈里的序号；左侧导航按连接卡里选的设备只列这种设备用得上的页面，名字和顺序各设备自己定
     REMOTE, CONTROL, MISSION, MESSAGES, STATUS, UAV, LOGS, SUITE, COVERAGE, UAV_MISSION, DEVICE_CONFIG = range(11)
-    NAV = {"dog": [("遥控", REMOTE), ("控制调试", CONTROL), ("导航与文件", MISSION), ("消息追踪", MESSAGES), ("状态总览", STATUS),
+    # 消息追踪页不进导航：要看整条请求的地方就地展开或单独开窗口（open_request）；页面还留着给诊断包导出用
+    NAV = {"dog": [("遥控", REMOTE), ("控制调试", CONTROL), ("导航与文件", MISSION), ("状态总览", STATUS),
                    ("日志排障", LOGS), ("设备配置", DEVICE_CONFIG), ("回归测试", SUITE), ("协议覆盖", COVERAGE)],
-           "uav": [("控制调试", CONTROL), ("航线任务", UAV_MISSION), ("消息追踪", MESSAGES), ("状态总览", UAV), ("日志排障", LOGS)]}
+           "uav": [("控制调试", CONTROL), ("航线任务", UAV_MISSION), ("状态总览", UAV), ("日志排障", LOGS)]}
     PAGES = [title for title, _ in NAV["dog"]]
     # 这些页旁边显示 3D 观察区；其余是分析页，整宽显示
     OBSERVED = (REMOTE, CONTROL)
@@ -431,8 +432,26 @@ class Studio(QMainWindow):
 
     def _open_quick(self):
         if self.quick:
-            self.messages.filter_text.setText(self.quick.tid)
-            self._go(self.MESSAGES)
+            self.open_request(self.quick)
+
+    def open_request(self, event, events=None):
+        """单独开一个窗口看这条消息所在的整条请求：结论、证据链、原始 JSON；events 不给时按 tid 从库里取"""
+        self.store.flush()
+        events = events or (self.store.trace(event) if event.tid else [event])
+        focus = next((e for e in events if diagnose(e).status in ("失败", "错误线索")), event if event in events else events[-1])
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"请求 {event.method} · {event.tid or '无 tid'}")
+        dialog.resize(980, 720)
+        layout = QVBoxLayout(dialog)
+        view = TraceView("")
+        view.original.connect(self._original)
+        view.store, view.nearby_logs = self.store, True
+        view.nearby.connect(lambda chosen: self.logs._nearby_logs(chosen, self.stack.currentIndex()))
+        view.show_trace(focus, events)
+        layout.addWidget(view)
+        dialog.setAttribute(Qt.WA_DeleteOnClose)
+        dialog.show()
+        return dialog
 
 
     # ---- 页面与状态 ----

@@ -145,7 +145,7 @@ class ControlPage:
         self.result_title = label("本次结果", "sectionTitle")
         rh.addWidget(self.result_title)
         rh.addStretch()
-        rh.addWidget(button("在消息页打开", self._open_watch, "link"))
+        rh.addWidget(button("单独窗口打开", self._open_watch, "link"))
         rv.addLayout(rh)
         self.result = TraceView("发送后在这里看 ACK、状态和失败原因")
         self.result.original.connect(self.app._original)
@@ -486,22 +486,15 @@ class ControlPage:
         if not self.watch:
             self.app.notify("还没有发送过指令")
             return
-        self.app.messages.filter_text.setText(self.watch.tid)
-        self.app._go(self.app.MESSAGES)
+        self.app.open_request(self.watch)
 
     def _demo(self):
         payload = make_command(find("take_photo"))
-        for event in simulate(payload, "TEST_DOG_001", "demo-" + self.app.session, "failure"):
+        events = simulate(payload, "TEST_DOG_001", "demo-" + self.app.session, "failure")
+        for event in events:
             self.app.store.add(event)
-        self.app.store.flush()
-        self.app._go(self.app.MESSAGES)
-        self.app.messages._refresh()
-        if self.app.messages.views.currentIndex() == 0:
-            self.app.messages.request_table.selectRow(0)
-            self.app.messages._inspect_request(self.app.messages.request_model.index(0, 0))
-        else:
-            self.app.messages.table.selectRow(0)
-            self.app.messages._inspect(self.app.messages.model.index(0, 0))
+        # 演示的失败请求单独开窗口看：结论卡、证据链和原始 JSON
+        self.app.open_request(events[0])
 
     def refresh_result(self):
         """本次结果有新消息时重画，还停在用户点开的那条上"""

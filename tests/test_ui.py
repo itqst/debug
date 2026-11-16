@@ -34,12 +34,31 @@ def select(window, method):
     assert window.control.selected["method"] == method
 
 
-def test_demo_opens_actionable_trace(window):
+def demo_on_messages(window):
+    """演示一次失败请求，再到消息追踪页（已不在导航里）选中它，测消息页自己的功能"""
     window.control._demo()
-    text = window.messages.details.text()
+    window._go(window.MESSAGES)
+    window.messages._refresh()
+    if window.messages.views.currentIndex() == 0:
+        window.messages.request_table.selectRow(0)
+        window.messages._inspect_request(window.messages.request_model.index(0, 0))
+
+
+def test_demo_opens_actionable_trace(window):
+    """演示故障定位单独开窗口看整条请求，不再跳到消息追踪"""
+    from dog_debug.trace_view import TraceView
+    before = window.stack.currentIndex()
+    window.control._demo()
+    views = [v for v in window.findChildren(TraceView) if v.window() is not window and v.window().isVisible()]
+    text = views[-1].text()
     assert "MEDIA 返回失败" in text and "相机连接超时" in text
     assert "下一步" in text and "sandbox" in text
-    assert window.stack.currentIndex() == window.MESSAGES
+    assert window.stack.currentIndex() == before
+
+
+def test_messages_page_not_in_sidebar(window):
+    rows = [window.nav.item(i).text() for i in range(window.nav.count())]
+    assert "消息追踪" not in rows and "日志排障" in rows
 
 
 def test_all_control_modules_have_templates(window):
@@ -78,7 +97,7 @@ def test_builtin_suite(window):
 
 
 def test_failure_filter(window):
-    window.control._demo()
+    demo_on_messages(window)
     window.messages.failures_only.setChecked(True)
     assert window.messages.model.rows
     assert all(row[1].kind == "ACK" for row in window.messages.model.rows)
@@ -308,7 +327,7 @@ def test_edit_payload_opens_control_page(window):
 
 def test_request_view_puts_failure_first_and_opens_messages(window):
     window.suite._run_suite()
-    window.control._demo()
+    demo_on_messages(window)
     rows = window.messages.request_model.rows
     assert rows[0].status == "失败"
     assert "MEDIA 返回失败" in window.messages.details.text()
@@ -597,7 +616,7 @@ def test_status_card_ages_without_new_messages(window, monkeypatch):
 def test_request_note_saved_shown_and_exported(window, tmp_path, monkeypatch):
     import zipfile
     from PySide6.QtCore import QTimer
-    window.control._demo()
+    demo_on_messages(window)
     key = window.messages.current_request
     assert window.messages.note_btn.isEnabled()
 
@@ -760,7 +779,7 @@ def test_yaml_case_with_bom_and_chinese_path(window, tmp_path):
 
 def test_diagnostic_zip_to_chinese_path_reopens(window, tmp_path):
     import zipfile
-    window.control._demo()
+    demo_on_messages(window)
     window.store.set_note(window.messages.current_request, {"expected": "拍照成功", "actual": "相机超时", "remark": "中文备注"})
     path = tmp_path / "诊断 包" / "狗一号 诊断.zip"
     path.parent.mkdir()
@@ -816,7 +835,7 @@ def test_wheel_over_unfocused_slider_scrolls_page(window):
 
 
 def test_copy_selected_rows(window):
-    window.control._demo()
+    demo_on_messages(window)
     window.messages.request_table.selectRow(0)
     window.messages._copy_selection()
     assert "失败" in QApplication.clipboard().text() and "tid=" in QApplication.clipboard().text()
@@ -834,7 +853,7 @@ def test_command_list_groups_each_module_once(window):
 def test_clicking_trace_step_with_real_mouse_does_not_crash(window):
     from PySide6.QtTest import QTest
     from dog_debug.trace_view import Step
-    window.control._demo()
+    demo_on_messages(window)
     window.show()
     steps = [s for s in window.messages.details.findChildren(Step) if s.isVisible()]
     QTest.mouseClick(steps[0], Qt.LeftButton)
@@ -1480,18 +1499,11 @@ def test_request_view_keeps_old_requests_after_status_burst(window):
     window.store.add_rows([window.store.row(Event("local/robotdog/media/state", {"type": "stream_status", "info": {"index": 1}},
                                                   sn="A", session="s")) for _ in range(3500)])
     window.store.flush()
-    # 消息页上次选过别的类型、方法和只看失败
-    window._go(window.MESSAGES)
-    window.messages.filter_kind.set_index(3)
-    window.messages.filter_method.setCurrentText("move")
-    window.messages.failures_only.setChecked(True)
+    # 状态刷得再多，状态总览详情的“指令与回复”里也还有那次旧请求
     window._go(window.STATUS)
     window.status._open_module("media")
     window.status.detail_view.set_index(1)
-    window.status._detail_all_requests()
-    assert window.messages.filter_kind.index() == 0 and window.messages.filter_method.currentIndex() == 0 and not window.messages.failures_only.isChecked()
-    assert window.stack.currentIndex() == window.MESSAGES and window.messages.filter_module.index() == MODULES.index("media") + 1
-    assert [(r.events[0].tid, r.status) for r in window.messages.request_model.rows] == [("old", "失败")]
+    assert [(e.tid, status) for e, _, status, _ in window.status.detail_model.rows] == [("old", "失败")]
 
 
 def test_trace_copies_topic_and_message_and_names_log_lines():

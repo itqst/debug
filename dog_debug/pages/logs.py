@@ -43,7 +43,8 @@ class LogsPage:
         self.live_follow.toggled.connect(self._toggle_follow)
         self.fetch_logs = button("从设备取日志…", self._ask_device_logs)
         self.app._page_header(layout, "日志排障", "导入后在这里直接看：搜索、筛模块或只看错误，点一行看全文、原文附近和对应请求",
-                          self.live_follow, self.fetch_logs, button("选择文件…", self._import, "primary"))
+                          self.live_follow, self.fetch_logs, button("导出诊断包…", self.app.messages._export),
+                          button("选择文件…", self._import, "primary"))
         tools = QHBoxLayout()
         tools.setSpacing(8)
         self.log_batch = QComboBox()

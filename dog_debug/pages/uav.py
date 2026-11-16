@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QApplication, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from ..core import BRIDGE, payload_diff, requests, summarize
+from ..core import BRIDGE, payload_diff, requests
 from ..trace_view import Step, TraceView
 from ..registry import make_command
 from ..uav import changes, domain, DOMAINS, freshness, link, LINK_SECONDS, outcome, quality, reading, retained_command, WAITING_NEXT
@@ -95,7 +95,7 @@ class UavPage:
         table_card, tv = card(6, 12)
         tv.addWidget(label("指令时间线", "sectionTitle"))
         tv.addWidget(label("Bridge 命令不带 VFC 的 tid，按动作对应、时间就近配到 VFC 指令（候选，不代表一定是因果）；"
-                           "VFC 的 ACK 里写了这条 Bridge 回执的状态和原因码时标“已对上”。双击一行在消息追踪里看全部报文", "caption", True))
+                           "VFC 的 ACK 里写了这条 Bridge 回执的状态和原因码时标“已对上”。双击一行单独开窗口看全部报文", "caption", True))
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["时间", "来源", "动作", "编号", "关联", "结果"])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -201,7 +201,7 @@ class UavPage:
         back = QHBoxLayout()
         back.addWidget(button("‹ 返回列表", lambda: self.detail_pages.setCurrentIndex(1), "link"))
         back.addStretch()
-        back.addWidget(button("在消息追踪里看", self._detail_to_messages, "link"))
+        back.addWidget(button("单独窗口打开", lambda: self.detail_trace.selected and self.app.open_request(self.detail_trace.selected), "link"))
         tv.addLayout(back)
         self.detail_trace = TraceView("")
         self.detail_trace.original.connect(self.app._original)
@@ -317,11 +317,6 @@ class UavPage:
         self.detail_row = (e.sn, e.session, e.tid)
         self.detail_trace.show_trace(e, self.app.store.trace(e))
         self.detail_pages.setCurrentIndex(2)
-
-    def _detail_to_messages(self):
-        e = self.detail_trace.selected
-        if e and e.tid:
-            self.app.messages._show_request(summarize(self.app.store.trace(e)))
 
     def _note(self, event, text, loud):
         self.log.insert(0, (event.timestamp, text, loud))
@@ -608,9 +603,9 @@ class UavPage:
                 self.table.setItem(index, column, item)
 
     def _open_row(self, index, _column):
-        """双击：在消息追踪里只看这一请求的全部报文和证据链"""
+        """双击：单独开窗口看这一请求的全部报文和证据链"""
         row = self.rows[index]
-        self.app.messages._show_request(summarize(row["events"]))
+        self.app.open_request(row["events"][0], row["events"])
 
 
 def quaternion(yaw_deg):

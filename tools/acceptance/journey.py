@@ -158,7 +158,8 @@ try:
     check(wait(lambda: "相机连接超时" in w.logs.log_detail.text()), "2 点日志表里的 ACK 行，右侧详情显示“相机连接超时”")
     shot(w, "2_logs")
     # 3 消息页按请求，失败置顶
-    click_nav(w, w.MESSAGES)
+    # 消息追踪已不在导航里，页面还在，直接切过去测它的请求视图和诊断包
+    w._go(w.MESSAGES)
     click(w.messages.view_mode.group.button(0))
     wait(lambda: w.messages.request_model.rows)
     rows = w.messages.request_model.rows
@@ -242,7 +243,7 @@ try:
     w2.resize(1480, 940)
     w2.show()
     wait(w2.isVisible)
-    click_nav(w2, w2.MESSAGES)
+    w2._go(w2.MESSAGES)
     wait(lambda: w2.messages.request_model.rows)
     row = next(i for i, r in enumerate(w2.messages.request_model.rows) if r.events[0].tid == "日志tid")
     click_row(w2.messages.request_table, row)

@@ -289,9 +289,8 @@ class ScenePanel:
 
     def _replay_open(self, item):
         event = item.data(Qt.UserRole)
-        if event and event.tid:
-            self.app.messages.filter_text.setText(event.tid)
-            self.app._go(self.app.MESSAGES)
+        if event:
+            self.app.open_request(event)
 
     def _replay_exit(self):
         self.replay_timer.stop()

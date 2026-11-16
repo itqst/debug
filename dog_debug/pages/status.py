@@ -294,7 +294,6 @@ class StatusPage:
         foot = QHBoxLayout()
         self.detail_empty = label("", "caption", True)
         foot.addWidget(self.detail_empty, 1)
-        foot.addWidget(button("这个模块的全部请求 ›", self._detail_all_requests, "link"))
         lv.addLayout(foot)
         self.detail_pages.addWidget(listing)
         trace = QWidget()
@@ -303,7 +302,7 @@ class StatusPage:
         back = QHBoxLayout()
         back.addWidget(button("‹ 返回列表", lambda: self.detail_pages.setCurrentIndex(1), "link"))
         back.addStretch()
-        back.addWidget(button("在消息追踪里看", self._detail_to_messages, "link"))
+        back.addWidget(button("单独窗口打开", lambda: self.detail_trace.selected and self.app.open_request(self.detail_trace.selected), "link"))
         tv.addLayout(back)
         self.detail_trace = TraceView("")
         self.detail_trace.original.connect(self.app._original)
@@ -452,7 +451,7 @@ class StatusPage:
         else:
             # 只列最近的，更早的不是没有，到消息追踪里看
             more = len(fetched) == 600 or len(merged) > len(shown)
-            self.detail_empty.setText(f"只列出最近 {len(rows)} 次请求，更早的点右边看" if more else "")
+            self.detail_empty.setText(f"只列出最近 {len(rows)} 次请求，更早的到日志排障按时间找" if more else "")
         if self.detail_pages.currentIndex() == 2:
             self.detail_trace.refresh()
 
@@ -465,25 +464,6 @@ class StatusPage:
         self.detail_key = self._detail_row_key(e)
         self.detail_trace.show_trace(e, self.app.store.trace(e))
         self.detail_pages.setCurrentIndex(2)
-
-    def _detail_all_requests(self):
-        """到消息追踪的请求视图，只看这个模块；失败在前，搜索 tid 或方法、逐条视图往前翻页都能找到更早的"""
-        module = self.detail_module
-        # 消息页上次留下的类型、方法、只看失败、翻页都清掉，否则会以为这个模块没有历史
-        self.app.messages.pages = []
-        self.app.messages.set_scope(None)
-        self.app.messages.filter_text.clear()
-        self.app.messages.filter_kind.set_index(0)
-        self.app.messages.filter_method.setCurrentIndex(0)
-        self.app.messages.failures_only.setChecked(False)
-        self.app._go(self.app.MESSAGES)
-        self.app.messages.filter_module.set_index(MODULES.index(module) + 1)
-        self.app.messages.view_mode.set_index(0)
-
-    def _detail_to_messages(self):
-        e = self.detail_trace.selected
-        if e and e.tid:
-            self.app.messages._show_request(summarize(self.app.store.trace(e)))
 
     def _status_sn(self):
         """状态页只看当前设备：连着就是连接时的 SN，没连就是左侧填的"""
