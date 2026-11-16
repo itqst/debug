@@ -449,7 +449,7 @@ class StatusPage:
         if not rows:
             self.detail_empty.setText("当前设备还没有这个模块的指令或回复" + ("（按方法筛选后）" if needle else ""))
         else:
-            # 只列最近的，更早的不是没有，到消息追踪里看
+            # 只列最近的，更早的不是没有，到日志排障按时间找
             more = len(fetched) == 600 or len(merged) > len(shown)
             self.detail_empty.setText(f"只列出最近 {len(rows)} 次请求，更早的到日志排障按时间找" if more else "")
         if self.detail_pages.currentIndex() == 2:

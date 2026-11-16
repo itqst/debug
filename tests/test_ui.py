@@ -12,7 +12,7 @@ from PySide6.QtCore import QDateTime, Qt
 from PySide6.QtGui import QKeySequence
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QLabel, QPlainTextEdit, QWidget
-import dog_debug.pages.messages as messages_module
+import dog_debug.pages.diagnostics as diagnostics_module
 import dog_debug.pages.status as status_module
 from dog_debug.app import Studio
 from dog_debug.registry import MODULES
@@ -34,16 +34,6 @@ def select(window, method):
     assert window.control.selected["method"] == method
 
 
-def demo_on_messages(window):
-    """演示一次失败请求，再到消息追踪页（已不在导航里）选中它，测消息页自己的功能"""
-    window.control._demo()
-    window._go(window.MESSAGES)
-    window.messages._refresh()
-    if window.messages.views.currentIndex() == 0:
-        window.messages.request_table.selectRow(0)
-        window.messages._inspect_request(window.messages.request_model.index(0, 0))
-
-
 def test_demo_opens_actionable_trace(window):
     """演示故障定位单独开窗口看整条请求，不再跳到消息追踪"""
     from dog_debug.trace_view import TraceView
@@ -56,9 +46,9 @@ def test_demo_opens_actionable_trace(window):
     assert window.stack.currentIndex() == before
 
 
-def test_messages_page_not_in_sidebar(window):
+def test_messages_page_removed(window):
     rows = [window.nav.item(i).text() for i in range(window.nav.count())]
-    assert "消息追踪" not in rows and "日志排障" in rows
+    assert "消息追踪" not in rows and "日志排障" in rows and not hasattr(window, "messages")
 
 
 def test_all_control_modules_have_templates(window):
@@ -94,13 +84,6 @@ def test_builtin_suite(window):
     result = window.suite.suite_info.toPlainText()
     assert "FAIL" not in result
     assert result.count("PASS") == 9
-
-
-def test_failure_filter(window):
-    demo_on_messages(window)
-    window.messages.failures_only.setChecked(True)
-    assert window.messages.model.rows
-    assert all(row[1].kind == "ACK" for row in window.messages.model.rows)
 
 
 def test_case_without_assertion_is_not_pass(window, tmp_path, monkeypatch):
@@ -325,35 +308,6 @@ def test_edit_payload_opens_control_page(window):
     assert '"task_name"' in window.control.editor.toPlainText()
 
 
-def test_request_view_puts_failure_first_and_opens_messages(window):
-    window.suite._run_suite()
-    demo_on_messages(window)
-    rows = window.messages.request_model.rows
-    assert rows[0].status == "失败"
-    assert "MEDIA 返回失败" in window.messages.details.text()
-    window.messages._open_request(window.messages.request_model.index(0, 0))
-    assert window.messages.views.currentIndex() == 1 and window.messages.scope == rows[0].key
-    assert all(e.tid == rows[0].events[0].tid for _, e, _ in window.messages.model.rows)
-
-
-def test_open_request_keeps_device_and_session(window):
-    from dog_debug.transport import simulate
-    for sn, session, scenario in (("A", "s1", "success"), ("B", "s2", "failure")):
-        payload = make_command(find("take_photo"))
-        payload["tid"] = "REUSED_TID"
-        for e in simulate(payload, sn, session, scenario):
-            window.store.add(e)
-    window.store.flush()
-    window._go(window.MESSAGES)
-    rows = window.messages.request_model.rows
-    failed = next(i for i, r in enumerate(rows) if r.key == ("B", "s2", "REUSED_TID"))
-    window.messages._open_request(window.messages.request_model.index(failed, 0))
-    assert window.messages.model.rows and {(e.sn, e.session) for _, e, _ in window.messages.model.rows} == {("B", "s2")}
-    assert window.messages.scope_chip.isVisibleTo(window)
-    window.messages.scope_chip.click()
-    assert window.messages.scope is None and {(e.sn, e.session) for _, e, _ in window.messages.model.rows} >= {("A", "s1"), ("B", "s2")}
-
-
 def test_map_origin_yaw_rotates_projection(window, tmp_path):
     m = window.mission.missions
     m.open_map(make_map(tmp_path, "image: map_a.pgm\nresolution: 0.1\norigin: [-2.0, -3.0, 1.5707963267948966]\n"))
@@ -425,29 +379,13 @@ def test_large_import_streams_batches_and_cancel_allows_restart(window, tmp_path
     assert window.store.count() == before + 12000
 
 
-def test_message_paging(window):
-    for i in range(2500):
-        window.store.add(Event("local/robotdog/media/state", {"type": "stream_status", "info": {"result": 1}, "n": i}, sn="A", session="s"))
-    window.store.flush()
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(1)
-    first = [e.payload["n"] for _, e, _ in window.messages.model.rows]
-    assert len(first) == 1000 and first[0] == 2499 and window.messages.older_btn.isEnabled()
-    window.messages._older_page()
-    assert window.messages.model.rows[0][1].payload["n"] == 1499 and window.messages.newer_btn.isEnabled()
-    window.messages._older_page()
-    assert len(window.messages.model.rows) == 500 and not window.messages.older_btn.isEnabled()
-    window.messages._newer_page(); window.messages._newer_page()
-    assert window.messages.model.rows[0][1].payload["n"] == 2499
-
-
 def test_export_preview_counts(window, tmp_path):
     from dog_debug.core import export_preview
     window.control._demo()
     window.store.add(Event("tta/robotdog/A/request_reply", {"method": "oss_config_get", "data": {"password": "x"}}, sn="A", session="z"))
     info = export_preview(window.store)
     assert info["events"] == window.store.count() and info["requests"] >= 1 and info["redacted"] == 1
-    result = window.messages.export_bundle(str(tmp_path / "b.zip"))
+    result = window.diagnostics.export_bundle(str(tmp_path / "b.zip"))
     assert result["events"] == info["events"] and result["listed"] == result["requests"]
 
 
@@ -459,28 +397,7 @@ def test_clear_store_after_one_confirm(window, monkeypatch):
     assert window.store.count() > 0
     monkeypatch.setattr("PySide6.QtWidgets.QMessageBox.question", lambda *a, **k: QMessageBox.Yes)
     window.logs._clear_store()
-    assert window.store.count() == 0 and not window.messages.request_model.rows and "本地 0 条" in window.logs.store_size.text()
-
-
-def test_text_search_runs_in_background_on_disk_db(tmp_path):
-    import time as _time
-    window = Studio(str(tmp_path / "s.sqlite3"))
-    for i in range(300):
-        window.store.add(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": f"t{i}", "data": {"result": 0, "msg": f"needle{i % 3}"}}, sn="A", session="s"))
-    window.store.flush()
-    window._go(window.MESSAGES)
-    window.messages.filter_text.setText("needle1")
-    window.messages._first_page()
-    assert window.messages.search is not None and window.messages.search_hint.isVisibleTo(window)
-    deadline = _time.monotonic() + 5
-    while window.messages.search and _time.monotonic() < deadline:
-        window._drain()
-    assert window.messages.search is None and len(window.messages.request_model.rows) == 100
-    window.messages.view_mode.set_index(1)
-    while window.messages.search and _time.monotonic() < deadline + 5:
-        window._drain()
-    assert len(window.messages.model.rows) == 100 and all("needle1" in e.payload["data"]["msg"] for _, e, _ in window.messages.model.rows)
-    window.close()
+    assert window.store.count() == 0 and "本地 0 条" in window.logs.store_size.text()
 
 
 def disk_window(tmp_path, texts=("ALPHA", "BETA")):
@@ -488,34 +405,7 @@ def disk_window(tmp_path, texts=("ALPHA", "BETA")):
     for i, text in enumerate(texts):
         window.store.add(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": f"t{i}", "data": {"result": 0, "msg": text}}, sn="A", session="s"))
     window.store.flush()
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(1)
     return window
-
-
-def test_late_search_result_dropped_after_conditions_change(tmp_path):
-    window = disk_window(tmp_path)
-    alpha = [(1, e) for _, e in window.store.query(text="ALPHA")]
-    window.messages.filter_text.setText("ALPHA")
-    window.messages._first_page()
-    old = window.messages.search["token"]
-    window.messages.filter_text.setText("")
-    window.messages._first_page()
-    assert window.messages.search is None and len(window.messages.model.rows) == 2
-    window.messages._search_done(old, alpha, None)
-    assert len(window.messages.model.rows) == 2 and not window.messages.search_hint.isVisibleTo(window)
-    for change in (lambda: window.messages.set_scope(("A", "s", "t0")), lambda: window.messages.view_mode.set_index(0),
-                   lambda: (window.messages.pages.append(10**9), window.messages._refresh())):
-        window.messages.set_scope(None)
-        window.messages.filter_text.setText("ALPHA")
-        window.messages._first_page()
-        old = window.messages.search["token"]
-        change()
-        before = [e.event_id for _, e, _ in window.messages.model.rows]
-        window.messages._search_done(old, alpha, None)
-        assert [e.event_id for _, e, _ in window.messages.model.rows] == before
-        window.messages.pages.clear()
-    window.close()
 
 
 def test_export_preview_runs_off_gui_thread(tmp_path, monkeypatch):
@@ -524,14 +414,14 @@ def test_export_preview_runs_off_gui_thread(tmp_path, monkeypatch):
     from PySide6.QtCore import QTimer
     import dog_debug.app as app_module
     window = disk_window(tmp_path)
-    real, seen = messages_module.export_preview, {}
+    real, seen = diagnostics_module.export_preview, {}
 
     def probe(store):
         seen["main"] = threading.current_thread() is threading.main_thread()
         _time.sleep(0.6)
         return real(store)
 
-    monkeypatch.setattr(messages_module, "export_preview", probe)
+    monkeypatch.setattr(diagnostics_module, "export_preview", probe)
     beat = {"last": _time.monotonic(), "gap": 0.0}
 
     def tick():
@@ -544,7 +434,7 @@ def test_export_preview_runs_off_gui_thread(tmp_path, monkeypatch):
     state = {}
 
     def check():
-        dialog = window.messages.export_dialog
+        dialog = window.diagnostics.export_dialog
         state["loading_first"] = state.get("loading_first", not dialog.confirm.isEnabled())
         if dialog.confirm.isEnabled():
             state["filled"] = True
@@ -553,7 +443,7 @@ def test_export_preview_runs_off_gui_thread(tmp_path, monkeypatch):
             QTimer.singleShot(100, check)
 
     QTimer.singleShot(50, check)
-    window.messages._export()
+    window.diagnostics.export()
     heart.stop()
     assert seen["main"] is False and state["loading_first"] and state["filled"]
     assert beat["gap"] < 0.3
@@ -611,49 +501,6 @@ def test_status_card_ages_without_new_messages(window, monkeypatch):
     window.status.status_aged -= 2
     window._drain()
     assert "已过期 13 秒" in window.status.module_cards["vfc"][1].text()
-
-
-def test_request_note_saved_shown_and_exported(window, tmp_path, monkeypatch):
-    import zipfile
-    from PySide6.QtCore import QTimer
-    demo_on_messages(window)
-    key = window.messages.current_request
-    assert window.messages.note_btn.isEnabled()
-
-    def fill():
-        d = window.messages.note_dialog
-        edits = d.findChildren(QPlainTextEdit)
-        edits[0].setPlainText("拍照成功")
-        edits[1].setPlainText("相机超时 password=NOTE_SECRET")
-        edits[2].setPlainText("升级相机固件后复现")
-        d.findChildren(type(window.messages.failures_only))[0].setChecked(True)
-        d.accept()
-
-    QTimer.singleShot(50, fill)
-    window.messages._edit_note()
-    note = window.store.note(key)
-    assert note["expected"] == "拍照成功" and note["reproduced"] and "NOTE_SECRET" not in note["actual"]
-    assert "问题备注" in window.messages.details.text() and "升级相机固件后复现" in window.messages.details.text()
-    assert window.messages.request_model.data(window.messages.request_model.index(0, 5)).startswith("【备注】")
-    other = ("OTHER", key[1], key[2])
-    assert window.store.note(other) is None
-    window.messages.export_bundle(str(tmp_path / "n.zip"))
-    with zipfile.ZipFile(tmp_path / "n.zip") as archive:
-        notes = archive.read("notes.json").decode("utf-8")
-        assert "升级相机固件后复现" in notes and "NOTE_SECRET" not in notes
-        assert "【有备注】" in archive.read("summary.md").decode("utf-8")
-
-
-def test_detection_view_lists_failed_chain_first(window):
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(2)
-    assert window.messages.chain_demo.isVisibleTo(window)
-    window.messages._demo_detection()
-    rows = window.messages.chain_model.rows
-    assert len(rows) == 3 and rows[0]["failed"]
-    window.messages._inspect_chain(window.messages.chain_model.index(0, 0))
-    text = window.messages.details.text()
-    assert "失败在 上传终态" in text and "未观测" in text
 
 
 def test_status_card_shows_reported_version(window):
@@ -779,11 +626,12 @@ def test_yaml_case_with_bom_and_chinese_path(window, tmp_path):
 
 def test_diagnostic_zip_to_chinese_path_reopens(window, tmp_path):
     import zipfile
-    demo_on_messages(window)
-    window.store.set_note(window.messages.current_request, {"expected": "拍照成功", "actual": "相机超时", "remark": "中文备注"})
+    window.control._demo()
+    command = next(e for _, e in window.store.query(method="take_photo", kind="指令"))
+    window.store.set_note((command.sn, command.session, command.tid), {"expected": "拍照成功", "actual": "相机超时", "remark": "中文备注"})
     path = tmp_path / "诊断 包" / "狗一号 诊断.zip"
     path.parent.mkdir()
-    window.messages.export_bundle(str(path))
+    window.diagnostics.export_bundle(str(path))
     with zipfile.ZipFile(path) as archive:
         session = archive.read("session.jsonl").decode("utf-8")
         notes = archive.read("notes.json").decode("utf-8")
@@ -834,17 +682,6 @@ def test_wheel_over_unfocused_slider_scrolls_page(window):
     assert slider.value() == before
 
 
-def test_copy_selected_rows(window):
-    demo_on_messages(window)
-    window.messages.request_table.selectRow(0)
-    window.messages._copy_selection()
-    assert "失败" in QApplication.clipboard().text() and "tid=" in QApplication.clipboard().text()
-    window.messages.view_mode.set_index(1)
-    window.messages.table.selectRow(0)
-    window.messages._copy_selection()
-    assert QApplication.clipboard().text().startswith("{") and '"topic"' in QApplication.clipboard().text()
-
-
 def test_command_list_groups_each_module_once(window):
     headers = [window.control.commands.item(i).text() for i in range(window.control.commands.count()) if not window.control.commands.item(i).data(0x0100)]
     assert len(headers) == len(set(headers)) == 7
@@ -853,12 +690,14 @@ def test_command_list_groups_each_module_once(window):
 def test_clicking_trace_step_with_real_mouse_does_not_crash(window):
     from PySide6.QtTest import QTest
     from dog_debug.trace_view import Step
-    demo_on_messages(window)
+    from dog_debug.trace_view import TraceView
     window.show()
-    steps = [s for s in window.messages.details.findChildren(Step) if s.isVisible()]
+    window.control._demo()
+    view = [v for v in window.findChildren(TraceView) if v.window() is not window and v.window().isVisible()][-1]
+    steps = [s for s in view.findChildren(Step) if s.isVisible()]
     QTest.mouseClick(steps[0], Qt.LeftButton)
     QApplication.processEvents()
-    assert window.messages.details.selected is not None and "证据链" in window.messages.details.text()
+    assert view.selected is not None and "证据链" in view.text()
     window.hide()
 
 
@@ -1406,7 +1245,7 @@ def test_logs_page_shows_imported_batch_in_place(window, tmp_path):
     window._drain()
     assert len(window.logs.log_model.rows) == 4
     # 离开再回来，批次和筛选都还在
-    window._go(window.MESSAGES)
+    window._go(window.STATUS)
     window._go(window.LOGS)
     window._drain()
     assert window.logs.log_batch.currentIndex() == 2 and len(window.logs.log_model.rows) == 4
@@ -1440,20 +1279,10 @@ def test_detail_tabs_switch_without_redrawing_unchanged_content(window):
     assert window.status.detail_box.itemAt(0).widget() is not first
 
 
-def test_live_status_does_not_recompute_requests_or_status_page(window):
-    """只来状态时请求列表不重算；来了 ACK 才重算。状态总览没有新状态时不重读，详情里的指令与回复照样更新"""
+def test_live_status_does_not_reread_status_page(window):
+    """状态总览没有新状态时不重读，详情里的指令与回复照样更新"""
     window.sn.setText("A")
     window._ingest(Event("local/robotdog/media/command", {"method": "take_photo", "tid": "t1", "data": {}}, sn="A", session="s"))
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(0)
-    rows = window.messages.request_model.rows
-    window._ingest(Event("local/robotdog/vfc/osd", {"x": 1}, sn="A", session="s"))
-    window.messages._refresh()
-    assert window.messages.request_model.rows is rows
-    window._ingest(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": "t1", "data": {"result": 1, "msg": "离线"}},
-                         sn="A", session="s"))
-    window.messages._refresh()
-    assert window.messages.request_model.rows is not rows and window.messages.request_model.rows[0].status == "失败"
 
     window._go(window.STATUS)
     window.status._open_module("media")
@@ -1461,13 +1290,13 @@ def test_live_status_does_not_recompute_requests_or_status_page(window):
     reads = []
     original = window.store.query
     window.store.query = lambda *a, **k: reads.append(k.get("kind")) or original(*a, **k)
-    window.messages._refresh()
+    window._refresh()
     assert "状态" not in reads
     window._ingest(Event("local/robotdog/media/command", {"method": "camera_recording", "tid": "t2", "data": {}}, sn="A", session="s"))
-    window.messages._refresh()
+    window._refresh()
     assert "状态" not in reads and window.status.detail_model.rows[0][0].tid == "t2"
     window._ingest(Event("local/robotdog/media/state", {"type": "stream_status", "info": {"index": 1, "result": 1}}, sn="A", session="s"))
-    window.messages._refresh()
+    window._refresh()
     assert "状态" in reads
 
 
@@ -1563,29 +1392,9 @@ def test_logs_filter_by_time_written_in_the_log(window, tmp_path):
     assert len(window.logs.log_model.rows) == 5 and "没有日期" not in window.logs.log_count.text()
 
 
-@pytest.mark.parametrize("state, result, status", [("0", 0, "完成"), ("2", 1, "失败")])
-def test_upload_final_state_updates_request_list(window, state, result, status):
-    """上传终态是状态消息，但会改变请求结论；请求列表要跟着变，普通状态仍不触发重算"""
-    from dog_debug.core import summarize
-    window.sn.setText("A")
-    window._ingest(Event("local/robotdog/fsvr/command", {"method": "sync_media_file", "tid": "u1", "data": {}}, sn="A", session="s"))
-    window._ingest(Event("local/robotdog/fsvr/ack", {"method": "sync_media_file", "tid": "u1", "data": {"result": 0}}, sn="A", session="s"))
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(0)
-    before = window.messages.request_model.rows[0].status
-    window._ingest(Event("local/robotdog/fsvr/state", {"method": "media_file_upload_status", "tid": "u1",
-                                                      "data": {"result": result, "state": state, "percent": 100}}, sn="A", session="s"))
-    window.messages._refresh()
-    expected = summarize(window.store.trace(window.messages.request_model.rows[0].events[0])).status
-    assert window.messages.request_model.rows[0].status == expected != before and status in expected
-
-
 def test_log_table_copy_copies_selected_log_line(window, tmp_path):
-    """日志表里按 Ctrl+C 复制的是选中的日志原文，不是消息页里之前选的那条"""
+    """日志表里按 Ctrl+C 复制的是选中的日志原文"""
     window._ingest(Event("local/robotdog/media/command", {"method": "take_photo", "tid": "UNRELATED", "data": {}}, sn="TEST_DOG_001", session="s"))
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(0)
-    window.messages.request_table.selectRow(0)
     path = tmp_path / "x.log"
     path.write_text("2026-11-02 12:00:00 [E] media EXPECTED_LOG_COPY\n", encoding="utf-8")
     _import_and_wait(window, path)
@@ -1616,7 +1425,7 @@ def _press(view, text):
 
 
 def test_trace_lists_same_tid_from_other_sources(window, tmp_path):
-    """同设备同 tid 的其他会话分组列出、点了原地切换不拼链、能回到原组，备注跟着当前那组；别的设备同 tid 不列"""
+    """同设备同 tid 的其他会话分组列出、点了原地切换不拼链、能回到原组；别的设备同 tid 不列"""
     window.sn.setText("D")
     log = tmp_path / "GW_1.log"
     log.write_text("2026-11-02 15:43:08 tta/robotdog/D/services {\"method\":\"camera_livestream\",\"tid\":\"L1\",\"data\":{}}\n"
@@ -1626,21 +1435,18 @@ def test_trace_lists_same_tid_from_other_sources(window, tmp_path):
     window._ingest(Event("local/robotdog/media/command", {"method": "camera_livestream", "tid": "L1", "data": {}}, sn="D", session="live"))
     window._ingest(Event("local/robotdog/media/ack", {"method": "camera_livestream", "tid": "L1", "data": {"result": 0}}, sn="D", session="live"))
     window._ingest(Event("local/robotdog/media/ack", {"method": "camera_livestream", "tid": "L1", "data": {"result": 0}}, sn="X", session="x"))
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(0)
-    row = next(i for i, r in enumerate(window.messages.request_model.rows) if r.key == ("D", "live", "L1"))
-    window.messages._inspect_request(window.messages.request_model.index(row, 0))
-    text = window.messages.details.text()
+    from dog_debug.trace_view import TraceView
+    command = next(e for _, e in window.store.query(sn="D", session="live") if e.tid == "L1" and e.kind == "指令")
+    view = window.open_request(command).findChild(TraceView)
+    text = view.text()
     assert "证据链 · 2 条" in text and "其他来源中相同 tid 的记录" in text
     assert "设备日志 · GW_1.log · 2 条 · 11-02 15:43:08 – 15:43:09" in text and "实时 MQTT" not in text
-    _press(window.messages.details, "查看")
-    text = window.messages.details.text()
+    _press(view, "查看")
+    text = view.text()
     assert "证据链 · 2 条" in text and "推流失败" in text and "实时 MQTT · 2 条" in text
-    assert all(e.session.startswith("import-") for e in window.messages.details.events)
-    assert window.messages.current_request[:2] == ("D", window.messages.details.selected.session) and window.messages.current_request[1].startswith("import-")
-    _press(window.messages.details, "‹ 回到原来那组")
-    assert window.messages.current_request == ("D", "live", "L1") and window.messages.details.origin is None
-    assert {e.session for e in window.messages.details.events} == {"live"}
+    assert all(e.session.startswith("import-") for e in view.events) and view.selected.session.startswith("import-")
+    _press(view, "‹ 回到原来那组")
+    assert view.origin is None and {e.session for e in view.events} == {"live"}
 
 
 def test_nearby_logs_uses_time_written_in_log(window, tmp_path):
@@ -1652,23 +1458,23 @@ def test_nearby_logs_uses_time_written_in_log(window, tmp_path):
                    "2026-11-02 15:43:31 [I] ptz 别的模块\n"
                    "2026-11-02 15:50:00 [E] media 很久以后\n", encoding="utf-8")
     _import_and_wait(window, log)
-    window._go(window.MESSAGES)
-    window.messages.view_mode.set_index(0)
-    window.messages._inspect_request(window.messages.request_model.index(0, 0))
-    _press(window.messages.details, "这段时间的设备日志")
+    from dog_debug.trace_view import TraceView
+    window._go(window.STATUS)
+    ack = next(e for _, e in window.store.query(method="camera_livestream") if e.tid == "N1")
+    view = window.open_request(ack).findChild(TraceView)
+    _press(view, "这段时间的设备日志")
     for _ in range(20):
         window._drain()
     assert window.stack.currentIndex() == window.LOGS and not window.logs.nearby_bar.isHidden()
     assert "不一定和这次请求有关" in window.logs.nearby_text.text()
     assert [e.source_time[11:19] for _, e, _ in window.logs.log_model.rows] == ["15:43:09", "15:43:30"]
     window.logs._nearby_back()
-    assert window.stack.currentIndex() == window.MESSAGES and "推流失败" in window.messages.details.text()
+    assert window.stack.currentIndex() == window.STATUS and "推流失败" in view.text()
     # 实时收到的请求按收到时刻圈；这台设备没有日志时不拿别的设备凑
     window._ingest(Event("local/robotdog/media/ack", {"method": "take_photo", "tid": "N2", "data": {"result": 0}}, sn="E", session="live"))
-    window.messages._refresh()
-    row = next(i for i, r in enumerate(window.messages.request_model.rows) if r.key == ("E", "live", "N2"))
-    window.messages._inspect_request(window.messages.request_model.index(row, 0))
-    _press(window.messages.details, "这段时间的设备日志")
+    live = next(e for _, e in window.store.query(sn="E", session="live") if e.tid == "N2")
+    view = window.open_request(live).findChild(TraceView)
+    _press(view, "这段时间的设备日志")
     for _ in range(20):
         window._drain()
     assert window.logs.log_model.rows == [] and "还没有这台设备的日志" in window.logs.log_count.text()

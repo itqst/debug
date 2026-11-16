@@ -335,34 +335,6 @@ def test_method_mismatch_keeps_explicit_failure():
     assert summarize(events).status == "失败"
 
 
-def test_detection_chain_full_and_gaps():
-    from dog_debug.core import detection_chains
-    from dog_debug.transport import simulate_detection
-    full = detection_chains(simulate_detection("a", "s"))
-    assert len(full) == 1 and full[0]["verdict"] == "全链路已观测"
-    assert all(v[0] == "通过" for v in full[0]["stages"].values())
-    stopped = detection_chains(simulate_detection("a", "s", "FSVR 登记"))[0]
-    assert stopped["verdict"] == "停在 FSVR 登记，后续未观测" and stopped["stages"]["上传终态"][0] == "未观测"
-    failed = detection_chains(simulate_detection("a", "s", "云端事件", "上传终态"))[0]
-    assert failed["failed"] and failed["verdict"].startswith("失败在 上传终态")
-    jpeg = detection_chains(simulate_detection("a", "s", "云端事件", "JPEG 生成"))[0]
-    assert jpeg["verdict"] == "失败在 JPEG 生成：hold expired"
-
-
-def test_detection_chain_links_only_by_real_keys():
-    from dog_debug.core import detection_chains
-    from dog_debug.transport import simulate_detection
-    events = simulate_detection("a", "s")
-    # 去掉中间的登记和上传：剩下的抓拍与事件只靠 file_path/file_name 相连，仍是一条链，中间阶段为未观测
-    kept = [e for e in events if e.method not in ("register_file", "upload_detection_image", "detection_upload_status", "confirm_result")]
-    chain = detection_chains(kept)
-    assert len(chain) == 1 and "FSVR 登记、上传受理、上传终态、终态确认 未观测" in chain[0]["verdict"]
-    two = detection_chains(simulate_detection("a", "s") + simulate_detection("a", "s"))
-    assert len(two) == 2
-    other_session = detection_chains(simulate_detection("a", "s1")[:2] + [e for e in simulate_detection("a", "s2")])
-    assert len(other_session) == 2
-
-
 def test_detect_ack_without_method_belongs_to_capture():
     assert Event("local/robotdog/detect/ack", {"tid": "x", "result": 0, "data": {"phase": "completed"}}).method == "capture_detection"
 
@@ -412,17 +384,6 @@ def test_jsonl_roundtrip_keeps_chinese_device_and_session(tmp_path):
     store.close()
 
 
-def test_local_event_without_uploaded_flag_is_flagged():
-    from dog_debug.core import detection_chains
-    from dog_debug.transport import simulate_detection
-    events = simulate_detection("a", "s")
-    for e in events:
-        if e.method == "detect_result_event" and e.topic.startswith("local/"):
-            e.payload["data"].pop("uploaded")
-    chain = detection_chains(events)[0]
-    assert chain["stages"]["本地事件"][0] == "待核" and chain["verdict"].startswith("本地事件 待核")
-
-
 @pytest.mark.parametrize("item", [e for e in entries() if e["category"] == "command"], ids=lambda e: e["method"])
 def test_every_command_sandbox_roundtrip(item):
     """遍历全部控制指令：沙盒成功链路不判失败、失败链路判失败，请求只按自己的 tid 聚合"""
@@ -431,73 +392,6 @@ def test_every_command_sandbox_roundtrip(item):
     bad = summarize(simulate(make_command(item), "dog", "s-bad", "failure"))
     assert ok.status != "失败" and ok.method == item["method"]
     assert bad.status == "失败" and len({e.tid for e in bad.events}) == 1
-
-
-def test_not_found_retry_then_accepted_recovers():
-    import copy
-    from dog_debug.core import detection_chains
-    from dog_debug.transport import simulate_detection
-    events = simulate_detection("a", "s")
-    ack = next(e for e in events if e.method == "upload_detection_image" and e.kind == "ACK")
-    assert detection_chains(events)[0]["stages"]["上传受理"][0] == "通过"
-    retry = copy.deepcopy(ack)
-    retry.timestamp -= 0.001
-    retry.payload["data"] = {"result": 1, "phase": "rejected", "reason": "not_found"}
-    chain = detection_chains([retry] + events)[0]
-    assert chain["verdict"] == "全链路已观测" and not chain["failed"]
-    assert chain["stages"]["上传受理"][0] == "通过" and "not_found" in chain["stages"]["上传受理"][1]
-    # 只有拒绝、没有后续受理：仍是失败
-    alone = [e for e in events if not (e.method == "upload_detection_image" and e.kind == "ACK")] + [retry]
-    assert detection_chains(alone)[0]["stages"]["上传受理"][0] == "失败"
-
-
-def test_running_stage_is_not_green():
-    from dog_debug.core import detection_chains
-    from dog_debug.transport import simulate_detection
-    events = simulate_detection("a", "s")
-    for e in events:
-        if e.method == "detection_upload_status":
-            e.payload["data"]["state"] = "1"
-    chain = detection_chains(events)[0]
-    assert chain["verdict"].startswith("上传终态 进行中")
-
-
-def _reg(n, directory, kind="detection"):
-    return Event("local/robotdog/fsvr/command", {"method": "register_file", "tid": f"r{n}", "data": {
-        "kind": kind, "event_id": f"e{n}", "delivery_id": f"d{n}", "file_path": f"events/{directory}/same.jpg"}}, sn="a", session="s")
-
-
-def test_cloud_event_joins_detection_by_file_name():
-    from dog_debug.core import detection_chains
-    cloud = Event("tta/robotdog/a/events", {"method": "detect_result_event", "data": {"file_name": "x.jpg"}}, sn="a", session="s")
-    reg = _reg(1, "a")
-    reg.payload["data"]["file_path"] = "events/a/x.jpg"
-    chains = detection_chains([reg, cloud])
-    assert len(chains) == 1 and chains[0]["stages"]["云端事件"][2] == [cloud]
-
-
-def test_ordinary_photo_register_not_in_detection_chain():
-    from dog_debug.core import detection_chains
-    assert detection_chains([_reg(3, "photo", "photo")]) == []
-
-
-def test_duplicate_cloud_observations_attach_to_single_detection():
-    import copy
-    from dog_debug.core import detection_chains
-    cloud = Event("tta/robotdog/a/events", {"method": "detect_result_event", "data": {"file_name": "same.jpg"}}, sn="a", session="s")
-    chains = detection_chains([_reg(1, "a"), cloud, copy.deepcopy(cloud)])
-    assert len(chains) == 1 and len(chains[0]["stages"]["云端事件"][2]) == 2
-
-
-def test_photo_register_reply_and_lone_confirm_are_not_detections():
-    from dog_debug.core import detection_chains
-    photo = Event("local/robotdog/fsvr/command", {"method": "register_file", "tid": "p1", "requester": "media",
-                                                   "data": {"kind": "photo", "file_path": "photos/one.jpg"}}, sn="a", session="s")
-    ack = Event("local/robotdog/fsvr/ack", {"method": "register_file", "tid": "p1", "requester": "media",
-                                             "data": {"result": 0, "phase": "completed"}}, sn="a", session="s")
-    confirm = Event("local/robotdog/fsvr/command", {"method": "confirm_result", "tid": "c1", "data": {"request_tid": "x", "result_seq": 1}},
-                    sn="a", session="s")
-    assert detection_chains([photo, ack, confirm]) == []
 
 
 def test_payload_diff_and_previous_same_topic():

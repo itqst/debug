@@ -43,7 +43,7 @@ class LogsPage:
         self.live_follow.toggled.connect(self._toggle_follow)
         self.fetch_logs = button("从设备取日志…", self._ask_device_logs)
         self.app._page_header(layout, "日志排障", "导入后在这里直接看：搜索、筛模块或只看错误，点一行看全文、原文附近和对应请求",
-                          self.live_follow, self.fetch_logs, button("导出诊断包…", self.app.messages._export),
+                          self.live_follow, self.fetch_logs, button("导出诊断包…", self.app.diagnostics.export),
                           button("选择文件…", self._import, "primary"))
         tools = QHBoxLayout()
         tools.setSpacing(8)
@@ -518,8 +518,8 @@ class LogsPage:
         if answer != QMessageBox.Yes:
             return
         self.app.store.clear()
-        self.app.messages.current_event, self.app.messages.current_request, self.app.messages.scope, self.app.control.watch, self.app.quick = None, None, None, None, None
-        self.app.messages._first_page()
+        self.app.control.watch, self.app.quick = None, None
+        self.app._refresh()
         self._show_store_size()
         self._log_batches()
         self.app.notify("本地数据已清空")

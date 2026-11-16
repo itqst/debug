@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 
-from .core import DETECTION_STAGES, diagnose
 from .registry import find
 
 
@@ -39,11 +38,6 @@ FAILED = {"失败", "错误线索", "重复请求未执行"}
 WARNING = {"契约待核", "未活跃", "待核", "无 ACK", "保留消息", "结果不确定"}
 PROGRESS = {"已受理/上传中", "阶段待判", "受理中"}
 SUCCESS = {"操作成功", "完成", "活跃", "JPEG 已生成", "已开始", "请求已处理", "导航已受理"}
-STAGES_ROLE = Qt.UserRole + 1
-# 逐条视图每页条数；日志导入每批交给主线程写库的条数
-PAGE_SIZE = 1000
-# 请求视图只按指令和 ACK 找请求；不限类型取最近的消息时，高频状态会把旧请求挤出窗口
-REQUEST_KINDS = ("指令", "ACK")
 # 两路相机固定：机体相机 index 0 / sn 001 / ZLM 流 video0，云台相机 index 1 / sn 002 / video1（用户确认）
 CAMERAS = {"001": "机体相机", "002": "云台相机"}
 STREAM_CAMERAS = {"video0": "机体相机", "video1": "云台相机"}
@@ -131,9 +125,8 @@ def stream_presets(cfg, streams, host, ports, sn):
             kind = stream_kind(name.split("/")[-1], info.get("origin", ""))
             zlm(f"ZLM {name}" + (f" · {kind}" if kind else ""), name, info.get("schemas") or [])
     return out
-# 消息页三张表和日志表的初始列宽（最后一列自动撑满）
-COLUMN_WIDTHS = {"EventModel": (84, 90, 70, 210, 100, 130), "RequestModel": (84, 90, 210, 100, 70, 300),
-                 "ChainModel": (84, 230, 190), "LogModel": (96, 48, 76, 68),
+# 日志表和状态详情“指令与回复”表的初始列宽（最后一列自动撑满）
+COLUMN_WIDTHS = {"LogModel": (96, 48, 76, 68),
                  "ModuleMessageModel": (72, 136, 78)}
 # 日志排障页一次最多列出的行数，再多用搜索缩小
 LOG_ROWS = 5000
@@ -660,11 +653,6 @@ def nav_icon(painter, name, x, y, color):
         line((3, 6), (9, 3), (15, 6), (21, 3), (21, 18), (15, 21), (9, 18), (3, 21), (3, 6))
         line((9, 3), (9, 18))
         line((15, 6), (15, 21))
-    elif name == "消息追踪":
-        p.drawRoundedRect(QRectF(3, 3, 18, 15), 4, 4)
-        line((6, 18), (6, 22), (11, 18))
-        line((7, 8), (17, 8))
-        line((7, 12), (14, 12))
     elif name == "状态总览":
         line((2, 12), (6, 12), (9, 5), (13, 20), (16, 9), (19, 12), (22, 12))
     elif name == "日志排障":
@@ -759,45 +747,6 @@ class CommandDelegate(QStyledItemDelegate):
         painter.restore()
 
 
-class EventModel(QAbstractTableModel):
-    headers = ["时间", "模块", "类型", "方法", "结果", "来源", "tid · Topic"]
-
-    def __init__(self):
-        super().__init__()
-        self.rows = []
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self.rows)
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self.headers)
-
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            return self.headers[section]
-
-    def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
-            return None
-        _, e, d = self.rows[index.row()]
-        column = index.column()
-        if role == Qt.DisplayRole:
-            return [time.strftime("%H:%M:%S", time.localtime(e.timestamp)), e.module.upper(), e.kind,
-                    method_label(e.method), d.status, e.source.split(":")[0] + " · " + e.direction, e.tid or e.topic][column]
-        if role == Qt.UserRole:
-            return MODULE_COLORS.get(e.module, GRAY) if column == 1 else tone(d.status) if column == 4 else None
-        if role == Qt.ForegroundRole and column in (0, 5, 6):
-            return QColor(GRAY)
-        if role == Qt.ToolTipRole:
-            return e.topic + ("\n" + d.summary if d.summary else "")
-
-    def replace(self, rows):
-        """rows 为 (行号, 事件)，诊断在此一次算好，避免绘制时反复计算"""
-        self.beginResetModel()
-        self.rows = [(row_id, e, diagnose(e)) for row_id, e in rows]
-        self.endResetModel()
-
-
 class LogModel(QAbstractTableModel):
     """日志排障页的逐条日志：原文时间和原文内容为主，没解析出协议字段的普通文本行也能看懂"""
 
@@ -886,114 +835,6 @@ class ModuleMessageModel(QAbstractTableModel):
         self.beginResetModel()
         self.rows = rows
         self.endResetModel()
-
-
-class RequestModel(QAbstractTableModel):
-    """按请求聚合的列表，一行一个 (设备, 会话, tid)"""
-
-    # 链路很长放最后一列，宽度不够时省略，不挤掉结论
-    headers = ["时间", "模块", "方法", "结果", "耗时", "结论", "链路"]
-
-    def __init__(self):
-        super().__init__()
-        self.rows, self.noted = [], set()
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self.rows)
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self.headers)
-
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            return self.headers[section]
-
-    def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
-            return None
-        r, column = self.rows[index.row()], index.column()
-        if role == Qt.DisplayRole:
-            latency = "—" if r.latency_ms is None else f"{r.latency_ms:.0f} ms"
-            mark = "【备注】" if r.key in self.noted else ""
-            return [time.strftime("%H:%M:%S", time.localtime(r.events[0].timestamp)), r.module.upper(), method_label(r.method),
-                    r.status, latency, mark + r.summary, r.chain][column]
-        if role == Qt.UserRole:
-            return MODULE_COLORS.get(r.module, GRAY) if column == 1 else tone(r.status) if column == 3 else None
-        if role == Qt.ForegroundRole and column in (0, 4, 6):
-            return QColor(GRAY)
-        if role == Qt.ToolTipRole:
-            return "\n".join(filter(None, [f"{r.events[0].sn} · tid {r.events[0].tid}", r.summary, r.chain, r.note,
-                                            f"{len(r.events)} 条消息，双击看逐条"]))
-
-    def replace(self, rows):
-        self.beginResetModel()
-        self.rows = rows
-        self.endResetModel()
-
-
-class ChainModel(QAbstractTableModel):
-    """检测链路列表：一行一条按关联键并好的链"""
-
-    headers = ["时间", "文件", "阶段", "结论"]
-    COLORS = {"通过": GREEN, "失败": RED, "进行中": BLUE, "待核": ORANGE, "未观测": "#D1D1D6"}
-
-    def __init__(self):
-        super().__init__()
-        self.rows = []
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self.rows)
-
-    def columnCount(self, parent=QModelIndex()):
-        return len(self.headers)
-
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            return self.headers[section]
-
-    def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
-            return None
-        chain, column = self.rows[index.row()], index.column()
-        if role == Qt.DisplayRole:
-            return [time.strftime("%H:%M:%S", time.localtime(chain["events"][0].timestamp)), chain["file"] or "—",
-                    "", chain["verdict"]][column]
-        if role == STAGES_ROLE and column == 2:
-            return [self.COLORS[chain["stages"][s][0]] for s in DETECTION_STAGES]
-        if role == Qt.ForegroundRole and column == 3 and chain["failed"]:
-            return QColor(RED)
-        if role == Qt.ToolTipRole and column == 2:
-            return "\n".join(f"{s}：{chain['stages'][s][0]}" + (f"（{chain['stages'][s][1]}）" if chain["stages"][s][1] else "")
-                             for s in DETECTION_STAGES)
-
-    def replace(self, rows):
-        self.beginResetModel()
-        self.rows = rows
-        self.endResetModel()
-
-
-class StageDelegate(PillDelegate):
-    """阶段列画成一排圆点，颜色对应通过/失败/进行中/未观测"""
-
-    def paint(self, painter, option, index):
-        colors = index.data(STAGES_ROLE)
-        if not colors:
-            return super().paint(painter, option, index)
-        opt = QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        opt.widget.style().drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
-        painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.NoPen)
-        y = option.rect.center().y()
-        for i, color in enumerate(colors):
-            painter.setBrush(QColor(color))
-            painter.drawEllipse(QRectF(option.rect.x() + 10 + i * 18, y - 5, 10, 10))
-        painter.restore()
-
-    def sizeHint(self, option, index):
-        return QSize(10 + 18 * len(DETECTION_STAGES) + 10, 36)
-
 
 
 class Toast(QLabel):

@@ -32,7 +32,7 @@ QUICK = (("pause_nav", "暂停"), ("continue_nav", "继续"), ("stop_nav", "结�
 
 
 class UavPage:
-    """一个活动连接一份：换连接（新会话）时卡片和告警重来，历史仍在消息追踪里"""
+    """一个活动连接一份：换连接（新会话）时卡片和告警重来，历史仍在库里，可导出诊断包"""
 
     def __init__(self, app):
         self.app = app
@@ -576,7 +576,7 @@ class UavPage:
         self.banner.show()
 
     def _render_timeline(self):
-        # 只看当前这次无人机连接的；之前的连接到消息追踪里查
+        # 只看当前这次无人机连接的
         events = []
         if self.session:
             for module in ("vfc", "bridge"):

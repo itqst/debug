@@ -18,8 +18,8 @@ def literals(source):
 
 def main():
     panels = literals(inspect.getsource(app.RemotePanel)) | literals(inspect.getsource(app.MissionPanel))
-    rules = literals(inspect.getsource(core.diagnose)) | core.UPLOAD_STATES | core.DETECTION_METHODS
-    mocks = (set(transport.MOCK_DATA) | literals(inspect.getsource(transport.simulate)) | literals(inspect.getsource(transport.simulate_detection))
+    rules = literals(inspect.getsource(core.diagnose)) | core.UPLOAD_STATES
+    mocks = (set(transport.MOCK_DATA) | literals(inspect.getsource(transport.simulate))
              | literals(inspect.getsource(transport.simulate_pcd_switch)) | literals(inspect.getsource(transport.simulate_clouds)))
     tests = "".join(p.read_text(encoding="utf-8") for p in (ROOT / "tests").glob("test_*.py"))
     rows, counts = [], {m: [0, 0, 0] for m in MODULES}

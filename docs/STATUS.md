@@ -862,3 +862,11 @@ GPT 冻结 daf8079 独立测：save 闸门（null、{}、0、1、"true" 都拦�
 - 只有消息追踪有、这次没搬的：全部实时消息的全文搜索和翻页、请求备注、检测链路视图
 - 测试：演示改成查弹出窗口，消息页自己的测试经 demo_on_messages 直接切过去；加“侧栏没有消息追踪”1 项，338 项全过；旅程里切消息页改成 _go
 - 打包（2eaf478，11-16），build.log 无 Build FAILED，打包自检通过
+
+### 消息追踪删干净（老大 11-16：搜索、备注、检测链路都用不上）
+- 删 pages/messages.py；诊断包导出搬到 pages/diagnostics.py（Diagnostics，入口日志排障“导出诊断包…”，不再带“所选请求”）
+- 删 ui 的 EventModel / RequestModel / ChainModel / StageDelegate、PAGE_SIZE、REQUEST_KINDS、STAGES_ROLE、“消息追踪”图标；core 的检测链路（DETECTION_STAGES / METHODS、detection_chains 及其辅助）；transport.simulate_detection；coverage_matrix 里对它们的引用
+- app：页面序号去掉 MESSAGES；原来调 messages._refresh() 的地方改成 app._refresh()（只刷新控制结果、顶部最近指令和状态页）；inbox 去掉 search
+- 测试：删消息页自身功能的 10 项和检测链路 9 项；同 tid 其他来源、附近日志、点证据链步骤改从 open_request 的窗口测，诊断包测试改用 window.diagnostics，状态页不重读那项只留状态页部分。318 项全过
+- 旅程改成：发指令 → 导入 GBK 日志 → 日志详情证据链结论 → 原文附近 → 日志排障导出诊断包 → 重开库批次还在，两次都过
+- 请求备注的数据表（notes）和诊断包里的 notes.json 还在，只是界面上没有写备注的入口了

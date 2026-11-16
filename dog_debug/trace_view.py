@@ -110,7 +110,7 @@ class TraceView(QScrollArea):
             title, color = "等待 ACK", ORANGE
             summary, suggestion = "指令已发出，还没收到回复", "一直没有 ACK 就查 GW 转发和目标模块日志"
         elif any(e.kind == "ACK" for e in events):
-            # 有回复时结论是整个请求的，和消息页按请求聚合同一套判定；不看当前选中的是哪一条（选中指令本身只会是“待判”）
+            # 有回复时结论是整个请求的，和按请求汇总（summarize）同一套判定；不看当前选中的是哪一条（选中指令本身只会是“待判”）
             r = summarize(events)
             title, color, summary, suggestion = r.status, tone(r.status), "；".join(filter(None, (r.summary, r.note))), ""
         else:

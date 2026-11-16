@@ -448,7 +448,7 @@ class ControlPage:
         self.watch, self.watch_size = sent, 0
         self.result_title.setText(f"本次结果 · {self.selected['title']}")
         self._remember(self.selected)
-        self.app.messages._refresh()
+        self.app._refresh()
         if not record:
             self.app.notify("不是 JSON 对象，无法按对象模拟，已记录原文" if self.app.mode == "sandbox" else "已按原文发送")
         else:

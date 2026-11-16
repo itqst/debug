@@ -38,8 +38,8 @@ from .pages.connection import ConnectionPanel
 from .pages.control import ControlPage
 from .pages.coverage import CoveragePage
 from .pages.device_config import DeviceConfigPage
+from .pages.diagnostics import Diagnostics
 from .pages.logs import LogsPage
-from .pages.messages import MessagesPage
 from .pages.mission import MissionPage
 from .pages.scene3d import ScenePanel
 from .pages.status import StatusPage
@@ -50,8 +50,8 @@ from .pages.uav import UavPage
 
 class Studio(QMainWindow):
     # 页面栈里的序号；左侧导航按连接卡里选的设备只列这种设备用得上的页面，名字和顺序各设备自己定
-    REMOTE, CONTROL, MISSION, MESSAGES, STATUS, UAV, LOGS, SUITE, COVERAGE, UAV_MISSION, DEVICE_CONFIG = range(11)
-    # 消息追踪页不进导航：要看整条请求的地方就地展开或单独开窗口（open_request）；页面还留着给诊断包导出用
+    REMOTE, CONTROL, MISSION, STATUS, UAV, LOGS, SUITE, COVERAGE, UAV_MISSION, DEVICE_CONFIG = range(10)
+    # 要看整条请求的地方就地展开或单独开窗口（open_request）
     NAV = {"dog": [("遥控", REMOTE), ("控制调试", CONTROL), ("导航与文件", MISSION), ("状态总览", STATUS),
                    ("日志排障", LOGS), ("设备配置", DEVICE_CONFIG), ("回归测试", SUITE), ("协议覆盖", COVERAGE)],
            "uav": [("控制调试", CONTROL), ("航线任务", UAV_MISSION), ("状态总览", UAV), ("日志排障", LOGS)]}
@@ -66,7 +66,7 @@ class Studio(QMainWindow):
         self.teleop = TeleopPage(self)
         self.scene3d = ScenePanel(self)
         self.mission = MissionPage(self)
-        self.messages = MessagesPage(self)
+        self.diagnostics = Diagnostics(self)
         self.status = StatusPage(self)
         self.logs = LogsPage(self)
         self.device_config = DeviceConfigPage(self)
@@ -114,7 +114,7 @@ class Studio(QMainWindow):
         self.status._room_follow()
         self.sn.textChanged.connect(self.status._room_follow)
         self.teleop.remote.camera_sn.textChanged.connect(self.status._room_follow)
-        self.messages._refresh()
+        self._refresh()
 
     # ---- 布局 ----
 
@@ -131,7 +131,7 @@ class Studio(QMainWindow):
         observer = self.scene3d._observer()
         self.stack = QStackedWidget()
         for page in (self.teleop._remote_page(), self.control._control_page(), self.mission._mission_page(),
-                     self.messages._message_page(), self.status._status_page(), self.uav._uav_page(),
+                     self.status._status_page(), self.uav._uav_page(),
                      self.logs._logs_page(), self.suite._suite_page(), self.coverage._coverage_page(), self.uav._mission_page(),
                      self.device_config._config_page()):
             self.stack.addWidget(page)
@@ -411,7 +411,7 @@ class Studio(QMainWindow):
         return not match or self.mqtt.sn in (match[1], event.payload.get("sn"))
 
     def _quick_view(self):
-        """遥控类页面顶部的“最近一条指令结果”卡片，颜色随结果变，点一下到消息页看证据链；各页共用同一份状态"""
+        """遥控类页面顶部的“最近一条指令结果”卡片，颜色随结果变，点一下单独开窗口看证据链；各页共用同一份状态"""
         chip = Step()
         chip.setObjectName("quickChip")
         chip.setCursor(Qt.PointingHandCursor)
@@ -458,7 +458,7 @@ class Studio(QMainWindow):
 
     def _page(self, index):
         self._slide_to(index)
-        page = {self.STATUS: self.status, self.MESSAGES: self.messages, self.LOGS: self.logs, self.REMOTE: self.teleop,
+        page = {self.STATUS: self.status, self.LOGS: self.logs, self.REMOTE: self.teleop,
                 self.UAV: self.uav, self.UAV_MISSION: self.uav}.get(index)
         if page:
             page.shown()
@@ -605,7 +605,7 @@ class Studio(QMainWindow):
         sent = self._emit(payload, json.dumps(payload, ensure_ascii=False), self.control._topic_for(item), item["module"])
         if sent:
             self.quick = sent
-            self.messages._refresh()
+            self._refresh()
             if self.demo_note:
                 self.notify(self.demo_note)
         return sent is not None
@@ -627,13 +627,18 @@ class Studio(QMainWindow):
                 + (f"　{html.escape(shown)}" if shown else "") + f"　<span style='color:{GRAY}'>{when}</span>")
         for chip, marker, caption in self.quick_views:
             chip.setStyleSheet(f"QFrame#quickChip{{background:{tint(color, 30)};border-radius:12px}}")
-            chip.setToolTip(f"{self.quick.method} · {status}" + (f"\n{detail}" if detail else "") + "\n点一下到消息页看证据链")
+            chip.setToolTip(f"{self.quick.method} · {status}" + (f"\n{detail}" if detail else "") + "\n点一下单独开窗口看证据链")
             marker.setStyleSheet(f"background:{color};border-radius:5px")
             caption.setText(text)
 
 
     # ---- 刷新 ----
 
+
+    def _refresh(self):
+        """有新消息时刷新控制结果、顶部最近指令和状态页；实时消息再多也由 _drain 限到最多每 0.4 s 一次"""
+        self.refresh_due, self.refreshed = False, time.monotonic()
+        self._refresh_tail()
 
     def _refresh_tail(self):
         self.control.refresh_result()
@@ -712,14 +717,12 @@ class Studio(QMainWindow):
                 self.store.add_rows(value)
                 self.logs._import_progress(*extra[0])
                 changed = True
-            elif kind == "search":
-                self.messages._search_done(value, *extra)
             elif kind == "model":
                 self.scene3d._import_done(value, extra[0])
             elif kind == "model_error":
                 self.scene3d._import_failed(value, extra[0])
             elif kind == "preview":
-                self.messages._preview_done(value, extra[0])
+                self.diagnostics.preview_done(value, extra[0])
             elif kind == "replay_sessions":
                 self.scene3d._replay_menu(value)
             elif kind == "replay_frames":
@@ -735,7 +738,7 @@ class Studio(QMainWindow):
             elif kind == "notice":
                 self.notify(value)
             elif kind == "export_done":
-                self.messages._export_done(value)
+                self.diagnostics.export_done(value)
             elif kind == "import_done":
                 self.logs._import_finished()
             elif kind == "log_batches":
@@ -768,7 +771,7 @@ class Studio(QMainWindow):
             self.refresh_due = True
         # 刷新会查库重建表格，实时消息再多也最多每 0.4 s 一次
         if self.refresh_due and time.monotonic() - self.refreshed >= 0.4:
-            self.messages._refresh()
+            self._refresh()
         if self.mqtt.dropped != self.dropped_shown:
             self.dropped_shown = self.mqtt.dropped
             self.notify(f"接收跟不上，已丢 {self.mqtt.dropped} 条")

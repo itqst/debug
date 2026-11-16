@@ -3,7 +3,6 @@
 只替换 Windows 原生文件对话框（无法自动操作）为固定的中文路径，其余入口都走界面控件。任一检查失败时以退出码 1 结束
 """
 
-import json
 import os
 import shutil
 import sys
@@ -15,7 +14,6 @@ os.environ["QT_QPA_PLATFORM"] = "windows"
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, sys.argv[1])
 from PySide6.QtCore import QTimer, Qt  # noqa: E402
-from PySide6.QtGui import QInputMethodEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QPlainTextEdit, QPushButton  # noqa: E402
 
@@ -98,14 +96,6 @@ def click_nav(w, index):
     app.processEvents()
 
 
-def ime_type(widget, text):
-    """中文按输入法提交的方式送进控件（QTest.keyClicks 遇到中文会让进程直接退出）"""
-    event = QInputMethodEvent()
-    event.setCommitString(text)
-    QApplication.sendEvent(widget, event)
-    app.processEvents()
-
-
 def shot(w, name):
     app.processEvents()
     w.grab().save(os.path.join(out, f"journey_{name}.png"))
@@ -157,18 +147,9 @@ try:
     click_row(w.logs.log_table, 1)
     check(wait(lambda: "相机连接超时" in w.logs.log_detail.text()), "2 点日志表里的 ACK 行，右侧详情显示“相机连接超时”")
     shot(w, "2_logs")
-    # 3 消息页按请求，失败置顶
-    # 消息追踪已不在导航里，页面还在，直接切过去测它的请求视图和诊断包
-    w._go(w.MESSAGES)
-    click(w.messages.view_mode.group.button(0))
-    wait(lambda: w.messages.request_model.rows)
-    rows = w.messages.request_model.rows
-    check(len(rows) >= 2 and all(r.status == "失败" for r in rows[:2]), f"3 按请求视图：{len(rows)} 个请求，失败排在前面")
-    log_row = next(i for i, r in enumerate(rows) if r.events[0].tid == "日志tid")
-    click_row(w.messages.request_table, log_row)
-    check(wait(lambda: "MEDIA 返回失败" in w.messages.details.text()), "4 单击失败请求，证据链结论卡为“MEDIA 返回失败”")
-    shot(w, "2_request")
-    # 5 点证据链里的 ACK 步骤，再点“原文附近”
+    # 3 日志详情就是这次请求的证据链：结论卡为 MEDIA 返回失败
+    check(wait(lambda: "MEDIA 返回失败" in w.logs.log_detail.text()), "3 日志详情的证据链结论卡为“MEDIA 返回失败”")
+    # 4 点证据链里的 ACK 步骤，再点“原文附近”
     dialog_text = {}
 
     def grab_original(d):
@@ -176,41 +157,14 @@ try:
         d.grab().save(os.path.join(out, "journey_3_original.png"))
         d.reject()
 
-    ack_step = [s for s in w.messages.details.findChildren(A.Step) if s.isVisible()][-1]
+    ack_step = [s for s in w.logs.log_detail.findChildren(A.Step) if s.isVisible()][-1]
     QTest.mouseClick(ack_step, Qt.LeftButton)
     app.processEvents()
     on_dialog(lambda d: "原文附近" in d.windowTitle(), grab_original)
-    click(button(w.messages.details, "原文附近"))
+    click(button(w.logs.log_detail, "原文附近"))
     check("第 2 行" in dialog_text.get("title", "") and "西4楼宇" in dialog_text.get("text", ""),
-          "5 点“原文附近”：定位第 2 行，GBK 中文原文可读")
-    # 6 双击请求进逐条，点筛选条回全部
-    click_row(w.messages.request_table, log_row, double=True)
-    scoped = wait(lambda: w.messages.views.currentIndex() == 1) and {(e.sn, e.session, e.tid) for _, e, _ in w.messages.model.rows}
-    check(scoped and len(scoped) == 1 and w.messages.scope_chip.isVisible(), "6 双击请求：逐条视图只剩这次请求，出现“仅此请求”筛选条")
-    shot(w, "4_scoped")
-    click(w.messages.scope_chip)
-    check(w.messages.scope is None and len(w.messages.model.rows) > 2, f"7 点“仅此请求 ✕”回到全部：{len(w.messages.model.rows)} 条")
-    # 8 点“备注这次请求”，在对话框里逐字输入，点“保存”
-    click(w.messages.view_mode.group.button(0))
-    wait(lambda: w.messages.request_model.rows)
-    log_row = next(i for i, r in enumerate(w.messages.request_model.rows) if r.events[0].tid == "日志tid")
-    click_row(w.messages.request_table, log_row)
-
-    def fill_note(d):
-        edits = d.findChildren(QPlainTextEdit)
-        for edit, text in zip(edits, ("拍照成功", "相机连接超时", "复现于西4楼宇，换网线后正常")):
-            edit.setFocus()
-            ime_type(edit, text)
-        d.grab().save(os.path.join(out, "journey_5_note.png"))
-        click(button(d, "保存"))
-
-    on_dialog(lambda d: d.windowTitle() == "问题备注", fill_note)
-    click(w.messages.note_btn)
-    check(wait(lambda: "复现于西4楼宇" in w.messages.details.text())
-          and w.messages.request_model.data(w.messages.request_model.index(log_row, 5)).startswith("【备注】"),
-          "8 点“备注这次请求”，按输入法提交中文并点“保存”：证据链顶部出现备注卡，列表标【备注】")
-    shot(w, "6_noted")
-    # 9 点“导出诊断包”：等后台概览统计完，点“选择位置并导出”
+          "4 点“原文附近”：定位第 2 行，GBK 中文原文可读")
+    # 5 日志排障页点“导出诊断包…”：等后台概览统计完，点“选择位置并导出”
     def accept_preview(d):
         if not d.confirm.isEnabled():
             QTimer.singleShot(100, lambda: accept_preview(d))
@@ -219,35 +173,24 @@ try:
         click(d.confirm)
 
     on_dialog(lambda d: d.windowTitle() == "导出诊断包", accept_preview)
-    click(button(w.stack.currentWidget(), "导出诊断包"))
-    exported = wait(lambda: not w.messages.export_running and os.path.exists(target), 60)
-    notes, summary = [], ""
+    click(button(w.stack.currentWidget(), "导出诊断包…"))
+    exported = wait(lambda: not w.diagnostics.export_running and os.path.exists(target), 60)
+    session = ""
     if exported:
         with zipfile.ZipFile(target) as archive:
-            notes = json.loads(archive.read("notes.json").decode("utf-8"))
-            summary = archive.read("summary.md").decode("utf-8")
-    check(exported and len(notes) == 1 and "【有备注】" in summary,
-          f"9 点“导出诊断包”→ 概览 → “选择位置并导出”：{os.path.basename(target)} 含备注 {len(notes)} 条")
-    # 10 点“检测链路”分段和“沙盒演示检测链路”，点第一行
-    click(w.messages.view_mode.group.button(2))
-    click(button(w.stack.currentWidget(), "沙盒演示检测链路"))
-    wait(lambda: w.messages.chain_model.rows)
-    click_row(w.messages.chain_table, 0)
-    check(wait(lambda: "失败在 上传终态" in w.messages.details.text()), f"10 检测链路：{len(w.messages.chain_model.rows)} 条，失败链排第一并指出“上传终态”")
-    shot(w, "8_chain")
+            session = archive.read("session.jsonl").decode("utf-8")
+    check(exported and "相机连接超时" in session and "日志tid" in session,
+          f"5 点“导出诊断包…”→ 概览 → “选择位置并导出”：{os.path.basename(target)} 含导入的日志和发出的指令")
     check(beat["gap"] < 2.0, f"界面事件循环最长停顿 {beat['gap'] * 1000:.0f} ms，发生在“{beat['where'][:30]}”之后（含导入、导出、模态对话框）")
     w.close()
     app.processEvents()
-    # 11 重开同一个库，点消息页和那条请求
+    # 6 重开同一个库，日志排障页那一批还在
     w2 = A.Studio(db)
     w2.resize(1480, 940)
     w2.show()
     wait(w2.isVisible)
-    w2._go(w2.MESSAGES)
-    wait(lambda: w2.messages.request_model.rows)
-    row = next(i for i, r in enumerate(w2.messages.request_model.rows) if r.events[0].tid == "日志tid")
-    click_row(w2.messages.request_table, row)
-    check(wait(lambda: "复现于西4楼宇" in w2.messages.details.text()), "11 关窗后重开同一库：请求和备注都在")
+    click_nav(w2, w2.LOGS)
+    check(wait(lambda: len(w2.logs.log_model.rows) == 2), "6 关窗后重开同一库：日志排障页那一批 2 行还在")
     shot(w2, "9_reopen")
     w2.close()
 except Exception as error:

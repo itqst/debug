@@ -90,7 +90,7 @@ class Event:
         # 内部抓拍回复的契约不要求带 method，按所在 Topic 归到它回复的请求
         if not value and self.topic.endswith("/detect/ack"):
             return "capture_detection"
-        # OSD 和心跳报文本身不带 method，按 Topic 认出来，消息页不显示“未解析”
+        # OSD 和心跳报文本身不带 method，按 Topic 认出来，不显示成“未解析”
         if not value and self.topic.endswith("/osd"):
             return "osd"
         if not value and self.topic.endswith("/heartbeat"):
@@ -179,7 +179,7 @@ class Store:
         self.db = sqlite3.connect(self.path)
         # 写入次数：状态行和其他行（指令、ACK、事件、日志）分开计，界面据此判断请求列表、状态总览要不要重算
         self.status_version, self.request_version = 0, 0
-        # 请求结论按 (sn, session, tid) 缓存，这个 tid 进了新消息才重算；消息页换筛选时不用把几千个请求重新配一遍
+        # 请求结论按 (sn, session, tid) 缓存，这个 tid 进了新消息才重算；无人机详情等反复列请求时不用每次重新配对
         self.request_cache = {}
         # WAL + NORMAL：崩溃最多丢最后一批未提交的消息，换来批量写入快很多
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -189,13 +189,13 @@ class Store:
         self.db.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, stamp REAL, sn TEXT, session TEXT, module TEXT, method TEXT, tid TEXT, kind TEXT, body TEXT)")
         self.db.execute("CREATE INDEX IF NOT EXISTS scope ON events(sn,session,tid)")
         self.db.execute("CREATE INDEX IF NOT EXISTS by_tid ON events(tid)")
-        # 方法筛选和检测链路按 method 取最新消息；已有的大库首次打开会建一次索引
+        # 状态详情按方法筛选、按 method 取最新消息；已有的大库首次打开会建一次索引
         self.db.execute("CREATE INDEX IF NOT EXISTS by_method ON events(method, id)")
         # previous() 找同设备同方法时间上的前一条（状态详情的字段对比），没有它要按 stamp 临时排序，一次几毫秒到几十毫秒
         self.db.execute("CREATE INDEX IF NOT EXISTS by_device_method ON events(sn, method, stamp)")
         # 状态详情的“指令与回复”按模块取指令和 ACK；不走索引时状态多、指令少的模块要扫全表
         self.db.execute("CREATE INDEX IF NOT EXISTS by_module_kind ON events(module, kind, id)")
-        # 消息页不筛模块时按类型取最新的指令和 ACK 列请求；没有它要倒着扫全表，状态多的库一次两三百毫秒
+        # 不筛模块、只按类型取最新消息时用；没有它要倒着扫全表，状态多的库一次两三百毫秒
         self.db.execute("CREATE INDEX IF NOT EXISTS by_kind ON events(kind, id)")
         self.db.execute("CREATE TABLE IF NOT EXISTS notes (sn TEXT, session TEXT, tid TEXT, body TEXT, updated REAL, "
                         "PRIMARY KEY (sn, session, tid))")
@@ -845,152 +845,3 @@ def export_preview(store):
             "redacted": db.execute("SELECT COUNT(*) FROM events WHERE instr(body,'[REDACTED]')>0").fetchone()[0],
             "redacted_topics": samples,
             "notes": db.execute("SELECT COUNT(*) FROM notes").fetchone()[0]}
-
-
-# 检测抓拍到上云的各阶段，顺序即链路顺序；终态确认是 FSVR 检测上传契约 v0.3 里 Vision 收到终态后的 confirm_result
-DETECTION_STAGES = ("抓拍请求", "JPEG 生成", "FSVR 登记", "上传受理", "上传终态", "终态确认", "本地事件", "云端事件")
-DETECTION_METHODS = {"capture_detection", "register_file", "upload_detection_image", "detection_upload_status",
-                     "confirm_result", "detect_result_event"}
-
-
-def _data(event):
-    return event.payload.get("data") if isinstance(event.payload.get("data"), dict) else {}
-
-
-def detection_stage(event):
-    """检测链路消息所属阶段，不属于返回空串；register_file 只认检测图（kind=detection，或没写 kind 但带 event_id）"""
-    if event.topic.endswith("/detect/ack"):
-        return "JPEG 生成"
-    method = event.method
-    if method == "capture_detection":
-        return "抓拍请求"
-    if method == "register_file":
-        data = _data(event)
-        kind = data.get("kind")
-        # 回复里不带 kind，靠 tid 跟请求并链后再一起判断
-        if kind == "detection" or (kind is None and (data.get("event_id") or event.kind == "ACK")):
-            return "FSVR 登记"
-        return ""
-    if method == "upload_detection_image":
-        return "上传受理"
-    if method == "detection_upload_status":
-        return "上传终态"
-    if method == "confirm_result":
-        return "终态确认"
-    if method == "detect_result_event":
-        return "云端事件" if event.topic.startswith("tta/") else "本地事件"
-    return ""
-
-
-def _detection_keys(event):
-    """关联键：tid（请求与回复；confirm_result 另以 data.request_tid 指向上传请求）、event_id、delivery_id 和文件名"""
-    p, data = event.payload, _data(event)
-    keys = {("tid", event.tid)} if event.tid else set()
-    request_tid = data.get("request_tid")
-    if event.method == "confirm_result" and isinstance(request_tid, str) and request_tid:
-        keys.add(("tid", request_tid))
-    for name in ("event_id", "delivery_id"):
-        value = p.get(name) or data.get(name)
-        if isinstance(value, str) and value:
-            keys.add((name, value))
-    for value in (data.get("file_path"), data.get("file_name")):
-        if isinstance(value, str) and value:
-            keys.add(("name", value.replace("\\", "/").rsplit("/", 1)[-1]))
-    return keys
-
-
-def _tentative(event):
-    data = _data(event)
-    return event.method == "confirm_result" or (event.method == "register_file" and not data.get("event_id")
-                                                 and data.get("kind") != "detection")
-
-
-def _stage_result(event):
-    """单条消息对本阶段的判定：通过 / 失败 / 进行中 / 待核"""
-    data = _data(event)
-    phase = data.get("phase")
-    if phase in ("rejected", "failed"):
-        return "失败", str(data.get("reason") or phase)
-    status = diagnose(event).status
-    if status in ("失败", "错误线索"):
-        return "失败", diagnose(event).summary
-    if event.kind == "指令":
-        # 抓拍请求、终态确认这两段本身就是发请求；其他阶段只有请求没有回复算进行中
-        if event.method in ("capture_detection", "confirm_result"):
-            return "通过", "已发出"
-        return "进行中", "已发出请求，未见回复"
-    # completed（JPEG、登记）和 accepted（上传受理）都是该段的成功结论
-    if phase and phase not in ("completed", "accepted"):
-        return "进行中", f"phase={phase}"
-    if event.method == "detection_upload_status" and status != "完成":
-        return "进行中", diagnose(event).summary
-    # FSVR 检测上传契约 v0.3：Vision 的本地检测事件一律带 uploaded=true，GW 据此只转发不再自己上传
-    if event.method == "detect_result_event" and event.topic.startswith("local/") and data.get("uploaded") is not True:
-        return "待核", "事件没带 uploaded=true（契约 v0.3 要求），GW 可能走旧的自行上传分支"
-    return "通过", ""
-
-
-def _stage_verdict(found):
-    """一段的结论按时间取最后一次回复/状态：not_found 这类拒绝后同 tid 重试受理的，记为通过并保留历史说明"""
-    results = [(e, _stage_result(e)) for e in sorted(found, key=lambda e: e.timestamp)]
-    replies = [r for e, r in results if e.kind != "指令"] or [r for _, r in results]
-    final = replies[-1]
-    earlier = [r[1] for r in replies[:-1] if r[0] == "失败"]
-    if final[0] != "失败" and earlier:
-        final = (final[0], f"先被拒绝（{'、'.join(earlier)}），重试后{final[1] or '通过'}")
-    return final
-
-
-def detection_chains(events):
-    """把检测相关消息按关联键并成链（同设备、同会话内），返回 [{stages, events, verdict, failed, file}]
-
-    阶段没有消息时为“未观测”，不等于没发生
-    """
-    items = [e for e in events if detection_stage(e)]
-    parent = list(range(len(items)))
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    owner = {}
-    for i, e in enumerate(items):
-        for key in _detection_keys(e):
-            j = owner.setdefault((e.sn, e.session, key), i)
-            parent[find(i)] = find(j)
-    groups = {}
-    for i, e in enumerate(items):
-        groups.setdefault(find(i), []).append(i)
-    chains = []
-    for members in groups.values():
-        # 只有“待定”消息的组不是检测：不带 kind/event_id 的登记回复、单独的终态确认（普通文件业务也会有）
-        if all(_tentative(items[i]) for i in members):
-            continue
-        events_in = sorted((items[i] for i in members), key=lambda e: e.timestamp)
-        stages = {}
-        for stage in DETECTION_STAGES:
-            found = [e for e in events_in if detection_stage(e) == stage]
-            stages[stage] = _stage_verdict(found) + (found,) if found else ("未观测", "", [])
-        failed = next(((s, v) for s, v in stages.items() if v[0] == "失败"), None)
-        last = max((i for i, s in enumerate(DETECTION_STAGES) if stages[s][0] != "未观测"), default=-1)
-        missing = [s for s in DETECTION_STAGES[:last] if stages[s][0] == "未观测"]
-        doubt = next(((st, v) for st, v in stages.items() if v[0] == "待核"), None)
-        running = next((st for st, v in stages.items() if v[0] == "进行中"), None)
-        if failed:
-            verdict = f"失败在 {failed[0]}：{failed[1][1]}"
-        elif doubt:
-            verdict = f"{doubt[0]} 待核：{doubt[1][1]}"
-        elif running:
-            verdict = f"{running} 进行中：{stages[running][1]}"
-        elif last == len(DETECTION_STAGES) - 1 and not missing:
-            verdict = "全链路已观测"
-        elif missing:
-            verdict = f"已到 {DETECTION_STAGES[last]}，中间 {'、'.join(missing)} 未观测"
-        else:
-            verdict = f"停在 {DETECTION_STAGES[last]}，后续未观测"
-        chains.append({"stages": stages, "events": events_in, "verdict": verdict, "failed": bool(failed),
-                       "file": next((k[1] for e in events_in for k in _detection_keys(e) if k[0] == "name"), "")})
-    chains.sort(key=lambda c: (not c["failed"], -c["events"][-1].timestamp))
-    return chains

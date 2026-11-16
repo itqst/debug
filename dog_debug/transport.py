@@ -204,56 +204,6 @@ def simulate(payload, sn, session, scenario="success"):
     return events
 
 
-def simulate_detection(sn, session, stop_after="云端事件", fail_at=""):
-    """沙盒里生成一条检测抓拍到上云的消息链，按真实契约的关联字段（tid、event_id、delivery_id、file_path）
-
-    stop_after 之后的阶段不产生消息；fail_at 阶段返回失败。只用于演示和测试，不接触设备
-    """
-    from .core import DETECTION_STAGES
-    event_id, tid, delivery = "evt-" + uuid.uuid4().hex[:8], "cap-" + uuid.uuid4().hex[:8], "md-" + uuid.uuid4().hex[:12]
-    path = time.strftime("events/%Y-%m-%d/TTA_") + uuid.uuid4().hex[:10] + ".jpg"
-    reg, upl = "reg-" + delivery, "upl-" + uuid.uuid4().hex[:8]
-    fail = lambda stage: fail_at == stage
-    steps = [
-        ("抓拍请求", [("local/robotdog/media/detect/command", {"method": "capture_detection", "tid": tid, "requester": "vision",
-                                                             "event_id": event_id, "data": {"stream_id": "video1"}}, "vision")]),
-        ("JPEG 生成", [("local/robotdog/detect/ack", {"method": "capture_detection", "tid": tid, "result": 1 if fail("JPEG 生成") else 0,
-                                                    "msg": "", "data": {"phase": "failed", "reason": "hold expired"} if fail("JPEG 生成") else
-                                                    {"phase": "completed", "delivery_id": delivery, "file_path": path, "file_size": 57483}}, "media")]),
-        ("FSVR 登记", [("local/robotdog/fsvr/command", {"method": "register_file", "tid": reg, "requester": "media", "target": "fsvr",
-                                                      "data": {"delivery_id": delivery, "file_path": path, "event_id": event_id, "kind": "detection"}}, "fsvr"),
-                      ("local/robotdog/fsvr/ack", {"method": "register_file", "tid": reg,
-                                                   "data": {"result": 1 if fail("FSVR 登记") else 0, "msg": "file not found" if fail("FSVR 登记") else "",
-                                                            "phase": "completed", "delivery_id": delivery}}, "fsvr")]),
-        ("上传受理", [("local/robotdog/fsvr/command", {"method": "upload_detection_image", "tid": upl, "requester": "vision",
-                                                     "event_id": event_id, "data": {"file_path": path}}, "fsvr"),
-                     ("local/robotdog/fsvr/ack", {"method": "upload_detection_image", "tid": upl, "requester": "vision",
-                                                  "event_id": event_id, "data": {"result": 0, "msg": "upload tasks accepted",
-                                                                                 "phase": "accepted", "file_path": path}}, "fsvr")]),
-        ("上传终态", [("local/robotdog/fsvr/state", {"method": "detection_upload_status", "tid": upl, "requester": "vision",
-                                                   "event_id": event_id,
-                                                   "data": {"result": 1 if fail("上传终态") else 0, "state": "0",
-                                                            "msg": "PUT 403" if fail("上传终态") else ""}}, "fsvr")]),
-        ("终态确认", [("local/robotdog/fsvr/command", {"method": "confirm_result", "tid": "upc-" + uuid.uuid4().hex[:8],
-                                                     "requester": "vision", "data": {"request_tid": upl, "result_seq": 1}}, "fsvr")]),
-        ("本地事件", [("local/robotdog/vision/events", {"method": "detect_result_event",
-                                                      "data": {"stream_id": "video1", "type": 1, "msg": "", "bbox": [], "file_path": path,
-                                                               "uploaded": True}}, "vision")]),
-        ("云端事件", [(f"tta/robotdog/{sn}/events", {"method": "detect_result_event",
-                                                   "data": {"file_name": path.rsplit("/", 1)[-1], "type": 1, "msg": "", "bbox": []}}, "gw")]),
-    ]
-    events, now = [], time.time()
-    for index, (stage, messages) in enumerate(steps):
-        if DETECTION_STAGES.index(stage) > DETECTION_STAGES.index(stop_after):
-            break
-        for topic, payload, module in messages:
-            events.append(Event(topic, payload, source="sandbox", sn=sn, session=session, module=module,
-                                timestamp=now + len(events) * 0.05))
-        if fail(stage):
-            break
-    return events
-
-
 def simulate_pcd_switch(payload, sn, session, scenario="success"):
     """pcd_switch 是本地指令（GW 建图时自己发），沙盒里没有云端那一段：本地指令 → ros2bridge 回执，成功时再给心跳，开启时再给几帧演示点云
 

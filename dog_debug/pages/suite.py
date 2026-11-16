@@ -78,7 +78,7 @@ class SuitePage:
                 self.app.store.add(e)
         self.app.store.flush()
         self._suite_html(rows)
-        self.app.messages._refresh()
+        self.app._refresh()
 
     def _load_case(self):
         paths, _ = QFileDialog.getOpenFileNames(self.app, "读取沙盒用例（可多选，按文件名顺序执行）", "", "YAML (*.yaml *.yml)")
@@ -115,4 +115,4 @@ class SuitePage:
         counts = {"PASS": sum(r[0] is True for r in rows), "FAIL": sum(r[0] is False for r in rows),
                   "仅执行": sum(r[0] is None for r in rows)}
         self._suite_html(rows, f"{len(rows)} 条用例：" + "，".join(f"{k} {v}" for k, v in counts.items() if v))
-        self.app.messages._refresh()
+        self.app._refresh()
