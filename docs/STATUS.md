@@ -852,3 +852,4 @@ GPT 冻结 daf8079 独立测：save 闸门（null、{}、0、1、"true" 都拦�
 - remote.Remote 加 _run / _privileged / read_bytes / list_files：普通权限 → sudo -n → sudo -S（用登录密码经 stdin，不进命令行）；read_file 改用同一套，状态总览“从设备读取”也受益
 - 测试加 3 项（假 SSH：列表、JSON 格式化、二进制、非 JSON、筛选、没填账号、出错提示、sudo 回退），337 项全过
 - 未做：修改配置（要先定改哪些文件对应哪个服务、怎么停起）；消息追踪页去不去掉待老大定
+- 打包（ed54daa，含 7e4fd11 切镜头/房间号，11-16 10:43），build.log 无 Build FAILED，打包自检通过
