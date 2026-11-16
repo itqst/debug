@@ -844,3 +844,11 @@ GPT 冻结 daf8079 独立测：save 闸门（null、{}、0、1、"true" 都拦�
 - room_state 现在三项（001/index0/userId 001、002/index1/visible、002/index2/infrared），红外 stream_status 的 index 是 "2"（只在状态里，开关仍用 index 1）。直播表格改成三行高；沙盒的 room_state 按新格式（房间 SN_001 / SN_002、三个成员）
 - 测温：老大 11-11 定测温完全由 ptz 处理、温度在 ptz ACK 里回；文档里 ptz 3.2.0 的 ir_metering 数据流、media 叠加、ir_temp_alarm 不采用。测温命令要不要调整待问老大
 - 测试：切镜头测试换成“遥控页没有镜头按钮、变焦可用、目录标明不应下发”，加房间号跟上报 1 项；334 项全过，旅程通过
+
+### 设备配置页（老大 11-16 提）
+老大要能看设备 /oem/ttaviation/gateway/db 下的配置文件（原来要 sudo cat /oem/ttaviation/gateway/db/media.cfg），以后还想改（停服务 → 改参数 → 起服务），这次先做只读查看。
+- 新页 pages/device_config.py，机器狗侧栏“日志排障”后面：路径框（默认 CONFIG_ROOT）、按名字筛选、左侧文件列表（find -type f，含子目录）、右侧内容（只读、可格式化 JSON、复制、另存到本机）；二进制文件（前 8 KB 有 NUL）不显示内容；超过 2 MB 只显示前 2 MB
+- SSH 复用日志排障的 _ssh_for_logs（远程连着用那条，否则按填写临时连、用完关）；结果经 inbox 的 config_list / config_file 回界面
+- remote.Remote 加 _run / _privileged / read_bytes / list_files：普通权限 → sudo -n → sudo -S（用登录密码经 stdin，不进命令行）；read_file 改用同一套，状态总览“从设备读取”也受益
+- 测试加 3 项（假 SSH：列表、JSON 格式化、二进制、非 JSON、筛选、没填账号、出错提示、sudo 回退），337 项全过
+- 未做：修改配置（要先定改哪些文件对应哪个服务、怎么停起）；消息追踪页去不去掉待老大定

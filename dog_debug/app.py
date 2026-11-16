@@ -37,6 +37,7 @@ from .ui import (
 from .pages.connection import ConnectionPanel
 from .pages.control import ControlPage
 from .pages.coverage import CoveragePage
+from .pages.device_config import DeviceConfigPage
 from .pages.logs import LogsPage
 from .pages.messages import MessagesPage
 from .pages.mission import MissionPage
@@ -49,9 +50,9 @@ from .pages.uav import UavPage
 
 class Studio(QMainWindow):
     # 页面栈里的序号；左侧导航按连接卡里选的设备只列这种设备用得上的页面，名字和顺序各设备自己定
-    REMOTE, CONTROL, MISSION, MESSAGES, STATUS, UAV, LOGS, SUITE, COVERAGE, UAV_MISSION = range(10)
+    REMOTE, CONTROL, MISSION, MESSAGES, STATUS, UAV, LOGS, SUITE, COVERAGE, UAV_MISSION, DEVICE_CONFIG = range(11)
     NAV = {"dog": [("遥控", REMOTE), ("控制调试", CONTROL), ("导航与文件", MISSION), ("消息追踪", MESSAGES), ("状态总览", STATUS),
-                   ("日志排障", LOGS), ("回归测试", SUITE), ("协议覆盖", COVERAGE)],
+                   ("日志排障", LOGS), ("设备配置", DEVICE_CONFIG), ("回归测试", SUITE), ("协议覆盖", COVERAGE)],
            "uav": [("控制调试", CONTROL), ("航线任务", UAV_MISSION), ("消息追踪", MESSAGES), ("状态总览", UAV), ("日志排障", LOGS)]}
     PAGES = [title for title, _ in NAV["dog"]]
     # 这些页旁边显示 3D 观察区；其余是分析页，整宽显示
@@ -67,6 +68,7 @@ class Studio(QMainWindow):
         self.messages = MessagesPage(self)
         self.status = StatusPage(self)
         self.logs = LogsPage(self)
+        self.device_config = DeviceConfigPage(self)
         self.suite = SuitePage(self)
         self.coverage = CoveragePage(self)
         self.uav = UavPage(self)
@@ -129,7 +131,8 @@ class Studio(QMainWindow):
         self.stack = QStackedWidget()
         for page in (self.teleop._remote_page(), self.control._control_page(), self.mission._mission_page(),
                      self.messages._message_page(), self.status._status_page(), self.uav._uav_page(),
-                     self.logs._logs_page(), self.suite._suite_page(), self.coverage._coverage_page(), self.uav._mission_page()):
+                     self.logs._logs_page(), self.suite._suite_page(), self.coverage._coverage_page(), self.uav._mission_page(),
+                     self.device_config._config_page()):
             self.stack.addWidget(page)
         # 观察区放在页面栈外，切页时模型、镜头和轨迹都不动；比例可拖
         self.workspace = QSplitter()
@@ -704,6 +707,10 @@ class Studio(QMainWindow):
                 self.scene3d._replay_start(value, *extra)
             elif kind == "zlm":
                 self.status._zlm_done(value)
+            elif kind == "config_list":
+                self.device_config.list_done(value, *extra)
+            elif kind == "config_file":
+                self.device_config.file_done(value, *extra)
             elif kind == "media_cfg":
                 self.status._media_cfg_done(value, *extra)
             elif kind == "notice":

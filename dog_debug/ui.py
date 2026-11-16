@@ -678,6 +678,11 @@ def nav_icon(painter, name, x, y, color):
         line((7.5, 7.5), (16.5, 16.5))
         line((16.5, 7.5), (7.5, 16.5))
         p.drawRoundedRect(QRectF(9.5, 9.5, 5, 5), 1.5, 1.5)
+    elif name == "设备配置":
+        # 三根调节杆
+        for y, knob in ((6, 8), (12, 16), (18, 10)):
+            line((3, y), (21, y))
+            p.drawEllipse(QPointF(knob, y), 2.4, 2.4)
     elif name == "回归测试":
         line((8, 2), (16, 2))
         line((10, 2), (10, 9), (4, 19), (5, 21), (19, 21), (20, 19), (14, 9), (14, 2))

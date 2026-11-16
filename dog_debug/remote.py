@@ -1,7 +1,7 @@
 """经 SSH 连到狗：远程走 FRP 的 HTTP CONNECT 代理，局域网直接连 22 端口
 
-连上后可以把狗上的端口转到本机（MQTT 1883、ZLM 80），读 /userdata/gw_logs 下的日志文件，或实时跟随当前日志。
-只做读：列目录、SFTP 读文件、tail；不在狗上写、不重启服务
+连上后可以把狗上的端口转到本机（MQTT 1883、ZLM 80），读 /userdata/gw_logs 下的日志文件、实时跟随当前日志，
+列出和读取 /oem/ttaviation/gateway/db 下的配置文件。只做读：列目录、读文件、tail；不在狗上写、不重启服务
 """
 
 import re
@@ -13,6 +13,8 @@ from datetime import datetime
 # FRP 接入（用户 2026-11-02 截图）：整机 SN 拼域名，经这个 HTTP 代理 CONNECT 到 SSH
 FRP_PROXY = ("124.126.230.115", 22222)
 LOG_ROOT = "/userdata/gw_logs"
+# 各模块的配置文件（media.cfg、mqttBroker.cfg 等），普通账号读不了，要 sudo
+CONFIG_ROOT = "/oem/ttaviation/gateway/db"
 # 日志目录名 → 上位机里的模块名
 LOG_DIRS = {"gateway": "gw", "vfc": "vfc", "ptz": "ptz", "media": "media", "vision": "vision", "fsvr": "fsvr"}
 # 当前文件，和最新的编号文件是硬链接，列文件时跳过以免取两遍
@@ -85,6 +87,8 @@ class Remote:
             self.transport.close()
             raise OSError(f"{self.host} 的主机密钥和上次不一样，已停止登录；确认设备确实换过系统后，清掉记下的密钥再连")
         self.transport.auth_password(user, password)
+        # sudo 要密码时用同一个账号的密码（经 stdin 交给 sudo -S，不出现在命令行里）
+        self.password = password
         self.transport.set_keepalive(15)
         self.servers, self.follows = [], []
 
@@ -116,15 +120,38 @@ class Remote:
         threading.Thread(target=accept, daemon=True).start()
         return server.getsockname()[1]
 
-    def read_file(self, path):
-        """读设备上一个文本文件；普通权限读不了时试 sudo -n（不会停下来等密码），都不行抛 OSError 带设备给的原因"""
+    def _run(self, command):
+        """在设备上执行一条只读命令，返回 (退出码, 标准输出字节, 标准错误文字)"""
         channel = self.transport.open_session()
-        quoted = shlex.quote(path)
-        channel.exec_command(f"cat {quoted} 2>/dev/null || sudo -n cat {quoted}")
+        channel.exec_command(command)
+        if command.startswith("sudo -S"):
+            channel.sendall((self.password + "\n").encode())
         out, err = channel.makefile("rb").read(), channel.makefile_stderr("rb").read()
-        if channel.recv_exit_status() != 0:
-            raise OSError(err.decode("utf-8", "replace").strip() or f"读不了 {path}")
-        return out.decode("utf-8", "replace")
+        return channel.recv_exit_status(), out, err.decode("utf-8", "replace").strip()
+
+    def _privileged(self, command, what):
+        """先用普通权限，不行再 sudo -n（免密的设备）、sudo -S（要密码的设备，用登录密码）；都不行抛 OSError 带设备给的原因"""
+        errors = []
+        for prefix in ("", "sudo -n ", "sudo -S -p '' "):
+            code, out, err = self._run(prefix + command)
+            if code == 0:
+                return out
+            errors.append(err)
+        raise OSError(next((e for e in reversed(errors) if e), "") or f"读不了 {what}")
+
+    def read_bytes(self, path):
+        """读设备上一个文件的原始内容"""
+        return self._privileged(f"cat {shlex.quote(path)}", path)
+
+    def read_file(self, path):
+        """读设备上一个文本文件"""
+        return self.read_bytes(path).decode("utf-8", "replace")
+
+    def list_files(self, root):
+        """列 root 下（含子目录）的全部文件，返回相对 root 的路径，按名字排"""
+        out = self._privileged(f"find {shlex.quote(root)} -type f", root).decode("utf-8", "replace")
+        prefix = root.rstrip("/") + "/"
+        return sorted(line[len(prefix):] if line.startswith(prefix) else line for line in out.splitlines() if line.strip())
 
     def list_logs(self, folder):
         """列 /userdata/gw_logs/<folder>/ 下的文件：[(名字, 大小, 修改时间)]"""
