@@ -871,3 +871,14 @@ GPT 冻结 daf8079 独立测：save 闸门（null、{}、0、1、"true" 都拦�
 - 旅程改成：发指令 → 导入 GBK 日志 → 日志详情证据链结论 → 原文附近 → 日志排障导出诊断包 → 重开库批次还在，两次都过
 - 请求备注的数据表（notes）和诊断包里的 notes.json 还在，只是界面上没有写备注的入口了
 - 打包（1e76303，11-16），build.log 无 Build FAILED，打包自检通过
+
+### 无人机对齐 VFC 1.0.0、状态总览按模块（老大 11-17：nav 的 VFC 基本写完，和狗对齐；Bridge 环境相关的归一张）
+依据 nav/tta_vfc（994c1ae，11-17 第五轮修复）的 README、TTA_VFC_MqttProtocol.cpp、CommandService，和 nav 11-16 板上 A 段验收抓包（mosquitto_sub -F %j 格式）。
+- 侧栏去掉“协议覆盖”（pages/coverage.py 删掉）
+- 状态总览改成一个模块一张卡片：Bridge 机载服务（8 个领域各一行）、VFC 任务、GW、Vision 一直占位，FSVR、PTZ、Media 收到才出现（A 段抓包里有 local/uav/fsvr/state）；其他模块按狗的写法 local/uav/<模块>/state、type 或 method 通用解读，在线那行放最前。点卡片右侧是模块详情（各类状态完整字段和变化、这个模块的指令）
+- uav.py：DOMAINS 加 nav_action_progress、loc_status、map_status；module_of / title_of；mapping_status 按 1.0.0 的协议词和码（data MappingRunning 等、raw 原词、result 是协议码，质量按词判）；loc_status 显示 Bridge 定位 / 重定位原词；map_status 显示地图、会话、自动建资产、地图忙、原因；航点动作 skipped 标橙不标红；告警 alarm_of（local/uav/vfc/events type=alarm，raise / clear）
+- 告警卡：进行中在前、已解除灰，告警码、级别、标题、建议、坐标；VFC 卡片写进行中几条；关键变化醒目一条
+- 目录加 get_map_list、loc_load_map、build_map、rename_map_name、remove_map_by_id、loc_reset、start_self_check（后两个 VFC 回“机载暂不支持”）；开始航线模板顶层带 profile；stop_mapping 说明更新为 VFC 缺省保存、上位机仍要人选
+- 航线任务页整页可滚动；新“地图”卡：刷新列表（表格按最近一次 get_map_list 回执）、选用为定位地图、生成资产、改名、删除（问一次）、航线用这张图；上面显示 map_status 和 loc_status。航线编辑加环境选择（known_navigation / online_navigation，顶层 profile），map_id 默认空（用当前选用的图），未知环境不带 map_id；航点动作说明改成照飞、到点报 skipped
+- 日志导入认 mosquitto_sub -F %j 格式（tst、topic、qos、retain、payload 跨行），nav 的板上抓包能直接拖进来
+- 测试：卡片相关 7 项按模块重写，加新状态、告警、其他模块卡片、地图卡与航线环境、抓包导入 6 项，323 项全过

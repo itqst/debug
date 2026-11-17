@@ -103,6 +103,15 @@ def log_event(text, value, path, source_name, sn, session, line, offset):
         event.source_time = str(value.get("wall") or "")
         event.module = infer_module(event.topic, event.payload)
         return event
+    # mosquitto_sub -F %j 的抓包（nav 板上验收常用）：{tst, topic, qos, retain, payload}，payload 可能跨多行
+    if "tst" in value and "topic" in value and "payload" in value:
+        body = value["payload"]
+        event = Event(topic=value["topic"], payload=body if isinstance(body, dict) else {}, source=source_name, sn=sn, session=session,
+                      file=str(path), line=line, offset=offset, raw=text[:MAX_RECORD], retained=bool(value.get("retain")),
+                      qos=value["qos"] if isinstance(value.get("qos"), int) else 0)
+        event.source_time = str(value["tst"]).replace("T", " ")[:19]
+        event.module = infer_module(event.topic, event.payload)
+        return event
     if isinstance(value.get("payload"), dict) and "topic" in value:
         allowed = Event.__dataclass_fields__
         record = {k: v for k, v in value.items() if k in allowed}

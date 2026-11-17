@@ -31,12 +31,13 @@
        "actions": []
       }
      ]
-    }
+    },
+    "profile": "known_navigation"
    },
    "title": "开始航线",
    "summary": "模拟 GW 下发航线：VFC 写航点文件、启动任务环境（Bridge system.start）；ack 只表示受理，进度看 nav_status。按航向角编辑航点用“航线任务”页",
    "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；orientation 是四元数，只绕 z 轴转时 z=sin(yaw/2)、w=cos(yaw/2)，不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；VFC 现在不支持航点动作，带了会整条拒绝；VFC 不校验 map_id"
+   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；顶层 profile 选环境：known_navigation 已知地图（默认，map_id 要是当前选用的地图，可以不填）或 online_navigation 未知环境边建图边飞（落地停环境时自动保存）；orientation 是四元数，只绕 z 轴转时 z=sin(yaw/2)、w=cos(yaw/2)，不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；带航点动作照飞，到点报 nav_action_progress（本期全部 skipped）"
   },
   {
    "id": "uav.vfc.pause_nav",
@@ -171,7 +172,149 @@
    "title": "停止建图",
    "summary": "停止 VFC 起的建图并关闭任务环境；save 选是否保存地图，保没保存成功看 mapping_status（SAVING → SAVED / SAVE_FAILED）",
    "source": "nav 指挥家 11-10 给的最终格式（VFC 本机黑盒验收 53/53）；本地外壳和航线一样",
-   "unverified": "save 必填，取值 true 或 false，要先选“保存地图”或“不保存”才发得出去；bid 带当前任务的；飞机没落地时 Bridge 会回 STOP_REFUSED"
+   "unverified": "save 取值 true 或 false；VFC 1.0.0 起不带 save 时默认保存，上位机仍要先选“保存地图”或“不保存”才发；bid 带当前任务的；飞机没落地时 Bridge 会回 STOP_REFUSED；也能停 VFC 起的 online_navigation 环境"
+  },
+  {
+   "id": "uav.vfc.get_map_list",
+   "method": "get_map_list",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · get_map_list",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "get_map_list",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "查地图列表",
+   "summary": "VFC 转 Bridge map.list；ack 的 data 是地图数组：map_id、name、size（MB），另有 selected、has_assets、has_raw、incomplete、error，顶层带 quota、selection_error；建图或保存中的不列",
+   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "unverified": ""
+  },
+  {
+   "id": "uav.vfc.loc_load_map",
+   "method": "loc_load_map",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · loc_load_map",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "loc_load_map",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "map_id": ""
+    }
+   },
+   "title": "选用定位地图",
+   "summary": "转 Bridge map.select：已知地图航线要用当前选中的图；环境运行、地图忙时 Bridge 会拒（ENV_RUNNING、JOB_ACTIVE）",
+   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "unverified": "map_id 必填"
+  },
+  {
+   "id": "uav.vfc.build_map",
+   "method": "build_map",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · build_map",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "build_map",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "session_id": ""
+    }
+   },
+   "title": "生成地图资产",
+   "summary": "转 Bridge map.build，受理就回 ack，结果看 map_status（BUILDING → MAP_ASSETS_READY 或 MAP_BUILD_FAILED 等）",
+   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "unverified": "session_id 必填，是建图会话号（地图列表里的 map_id）"
+  },
+  {
+   "id": "uav.vfc.rename_map_name",
+   "method": "rename_map_name",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · rename_map_name",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "rename_map_name",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "map_id": "",
+     "new_name": ""
+    }
+   },
+   "title": "地图改名",
+   "summary": "转 Bridge map.rename，改的是显示名",
+   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "unverified": "map_id、new_name 必填"
+  },
+  {
+   "id": "uav.vfc.remove_map_by_id",
+   "method": "remove_map_by_id",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · remove_map_by_id",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "remove_map_by_id",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "map_ids": []
+    }
+   },
+   "title": "删除地图",
+   "summary": "逐个转 Bridge map.delete，ack 的 data.results 是每个地图的结果；删了不能恢复",
+   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "unverified": "map_ids 是字符串数组"
+  },
+  {
+   "id": "uav.vfc.loc_reset",
+   "method": "loc_reset",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · loc_reset",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "loc_reset",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "定位重置",
+   "summary": "机载暂不支持，VFC 直接回失败",
+   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "unverified": ""
+  },
+  {
+   "id": "uav.vfc.start_self_check",
+   "method": "start_self_check",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · start_self_check",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "start_self_check",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "开始自检",
+   "summary": "机载暂不支持，VFC 直接回失败",
+   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "unverified": ""
   },
   {
    "id": "uav.bridge.system.status",

@@ -10,24 +10,27 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QFileDialog, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
-    QApplication, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QInputDialog, QLabel, QMessageBox, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..core import BRIDGE, payload_diff, requests
 from ..trace_view import Step, TraceView
 from ..registry import make_command
-from ..uav import changes, domain, DOMAINS, freshness, link, LINK_SECONDS, outcome, quality, reading, retained_command, WAITING_NEXT
-from ..ui import BLUE, button, card, FlowGrid, GRAY, GREEN, label, ModuleMessageModel, ORANGE, PillDelegate, RED, scroller, Segmented, tint
+from ..uav import (
+    alarm_of, ALWAYS, BRIDGE_KEYS, changes, domain, freshness, link, LINK_SECONDS, module_of, MODULE_TITLES, MODULES,
+    outcome, quality, reading, retained_command, title_of, VFC_KEYS, WAITING_NEXT,
+)
+from ..ui import (
+    BLUE, button, card, dot, FlowGrid, glyph_icon, GRAY, GREEN, label, MODULE_COLORS, ModuleMessageModel, ORANGE, PillDelegate,
+    RED, scroller, Segmented, tint,
+)
 
 QUALITY_COLORS = {"正常": GREEN, "失败": RED, "未知": ORANGE, "不适用": GRAY}
 RESULT_COLORS = {0: GREEN, 1: RED, 2: ORANGE}
+# Bridge 不在狗的模块颜色表里
+COLORS = {**MODULE_COLORS, "bridge": "#30B0C7"}
+LEVEL_COLORS = {"critical": RED, "error": RED, "warning": ORANGE, "info": BLUE}
 # 页面上直接点的 VFC 指令（data 为空，带当前任务的 bid）
-# 卡片详情“相关指令”列哪些：(模块, Bridge 动作前缀)；前缀为空就是这个模块的全部指令
-RELATED = {"system": ("bridge", ("system.", "job.")), "localization": ("bridge", ("relocalization.",)),
-           "relocalization": ("bridge", ("relocalization.",)), "navigation": ("bridge", ("navigation.",)),
-           "mapping": ("bridge", ("mapping.",)), "flight": ("bridge", ("flight.",)), "online": ("bridge", ()), "pose": ("bridge", ()),
-           "subsystem_status": ("vfc", ()), "nav_status": ("vfc", ()), "nav_status_progress": ("vfc", ()),
-           "mapping_status": ("vfc", ("start_mapping", "stop_mapping")), "vfc_osd": ("vfc", ())}
 QUICK = (("pause_nav", "暂停"), ("continue_nav", "继续"), ("stop_nav", "结束航线"), ("start_nav_return_home", "返航"), ("land", "降落"))
 
 
@@ -39,6 +42,8 @@ class UavPage:
         self.session, self.latest, self.alerts, self.log, self.since = "", {}, {}, [], 0.0
         # 这次连接里各领域收到的消息（新的在后），卡片详情里比对字段、列变化用
         self.history, self.detail_key, self.detail_drawn, self.detail_row = {}, None, None, None
+        # VFC 告警（码 → (最新一条, 是否还在)）、最近一次 get_map_list 的回执（(事件, 地图列表)）
+        self.alarms, self.maps = {}, None
         self.drawn_touch, self.drawn_at = None, 0.0
 
     def _uav_page(self):
@@ -46,7 +51,7 @@ class UavPage:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "状态总览", "VFC 和 Bridge 的状态、指令和回执；时效按本机收到的时间算，板上时钟不准",
+        self.app._page_header(layout, "状态总览", "各模块的状态、VFC 告警、指令和回执，点模块卡片看详情；时效按本机收到的时间算，板上时钟不准",
                               button("导出本次报文", self._export, "link"))
         self.banner = label("", wrap=True)
         self.banner.setTextFormat(Qt.RichText)
@@ -55,38 +60,58 @@ class UavPage:
         layout.addWidget(self.banner)
         self.link_note = label("", "caption", True)
         layout.addWidget(self.link_note)
-        self.cards = {}
-        frames = []
-        self.frames = {}
-        for key, (title, _) in DOMAINS.items():
-            # 整张卡片可点，右侧展开这个领域的详情，和狗的状态总览一样
+        # 一个模块一张卡片（和狗的状态总览一样），卡片里一行一类状态；点卡片右侧展开这个模块的详情
+        self.cards, self.frames = {}, {}
+        for module in MODULES:
             frame = Step()
             frame.setObjectName("card")
             frame.setCursor(Qt.PointingHandCursor)
-            frame.clicked.connect(lambda k=key: self._open_detail(k))
-            self.frames[key] = frame
+            frame.clicked.connect(lambda m=module: self._open_detail(m))
             box = QVBoxLayout(frame)
-            box.setContentsMargins(14, 12, 14, 12)
-            box.setSpacing(4)
-            head = label(title, "groupHeader")
-            word = label("未观测")
-            word.setStyleSheet(f"font-size:17px;font-weight:600;color:{GRAY}")
-            msg, extra, age = label("", "caption", True), label("", "caption", True), label("", "caption", True)
-            for widget in (head, word, msg, extra, age):
-                box.addWidget(widget)
+            box.setContentsMargins(16, 14, 16, 14)
+            box.setSpacing(6)
+            head = QHBoxLayout()
+            icon = QLabel()
+            icon.setPixmap(glyph_icon(module[0].upper(), COLORS.get(module, GRAY)).pixmap(22, 22))
+            head.addWidget(icon)
+            head.addWidget(label(MODULE_TITLES[module], "sectionTitle"))
+            head.addStretch()
+            state, when = dot("#C7C7CC"), label("未观测", "caption")
+            head.addWidget(state)
+            head.addWidget(when)
+            box.addLayout(head)
+            body = label("", wrap=True)
+            body.setTextFormat(Qt.RichText)
+            body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+            hint = label("", "caption", True)
+            box.addWidget(body)
+            box.addWidget(hint)
             box.addStretch()
-            self.cards[key] = (word, msg, extra, age)
-            frames.append(frame)
+            self.cards[module], self.frames[module] = (state, when, body, hint), frame
+        frames = list(self.frames.values())
         # 卡片和时间线放进可滚动的区域：窗口矮时卡片保持原来的高度，不被时间线挤扁
         body = QWidget()
         inner = QVBoxLayout(body)
         inner.setContentsMargins(0, 0, 6, 0)
-        self.grid = FlowGrid(frames, 4, 230)
+        self.grid = FlowGrid(frames, 2, 380)
         inner.addWidget(self.grid)
+        inner.addSpacing(8)
+        alarm_card, av = card(6, 12)
+        head = QHBoxLayout()
+        head.addWidget(label("告警", "sectionTitle"))
+        self.alarm_count = label("", "caption")
+        head.addWidget(self.alarm_count, 1)
+        av.addLayout(head)
+        self.alarm_text = label("", "caption", True)
+        self.alarm_text.setTextFormat(Qt.RichText)
+        self.alarm_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        av.addWidget(self.alarm_text)
+        inner.addWidget(alarm_card)
         inner.addSpacing(8)
         changes_card, cv = card(6, 12)
         cv.addWidget(label("关键变化", "sectionTitle"))
-        cv.addWidget(label("状态词、航点进度、飞控解锁/落地/模式/起飞、VFC 任务说明和建图状态的变化，新的在上；到点放行、地图保存结果标蓝加粗", "caption", True))
+        cv.addWidget(label("状态词、航点进度、飞控解锁/落地/模式/起飞、VFC 任务/建图/定位/地图和告警的变化，新的在上；到点放行、"
+                           "地图保存结果、定位丢失、告警标蓝加粗", "caption", True))
         self.changes = QListWidget()
         self.changes.setMinimumHeight(200)
         cv.addWidget(self.changes)
@@ -130,7 +155,7 @@ class UavPage:
             return
         if event.session != self.session:
             self.session, self.latest, self.alerts, self.log = event.session, {}, {}, []
-            self.since, self.history = event.timestamp, {}
+            self.since, self.history, self.alarms, self.maps = event.timestamp, {}, {}, None
         if retained_command(event):
             self.alerts[event.topic] = event
         key = domain(event)
@@ -143,6 +168,14 @@ class UavPage:
             kept = self.history.setdefault(key, [])
             kept.append(event)
             del kept[:-200]
+        elif alarm_of(event):
+            alarm = alarm_of(event)
+            raised = alarm.get("state") != "clear"
+            # 同一个码按最新一次算：raise 的留着，clear 的标成已解除，按时间新的在前
+            self.alarms[alarm["code"]] = (event, raised)
+            self._note(event, f"告警{'' if raised else '解除'} {alarm['code']} {alarm.get('title', '')}", True)
+        elif event.topic == "local/uav/vfc/ack" and event.payload.get("method") == "get_map_list" and isinstance(event.payload.get("data"), list):
+            self.maps = (event, event.payload["data"])
         elif event.topic == BRIDGE + "events" and event.payload.get("type") == "waypoint_complete":
             info = event.payload.get("info") if isinstance(event.payload.get("info"), dict) else {}
             self._note(event, f"Bridge 到点事件：{info.get('data', '')}", True)
@@ -222,7 +255,7 @@ class UavPage:
         if key and sizes[1] < 460:
             self.split.setSizes([max(sum(sizes) - 460, 300), 460])
         if key:
-            self.detail_title.setText(DOMAINS[key][0] + " 详情")
+            self.detail_title.setText(MODULE_TITLES[key] + " 详情")
             self.detail_pages.setCurrentIndex(min(self.detail_view.index(), 1))
             self._render_detail()
 
@@ -231,72 +264,83 @@ class UavPage:
         self.detail_drawn = None
         self._render_detail()
 
+    def _keys(self, module):
+        """这个模块收到过的状态类型，按卡片里的行序"""
+        fixed = BRIDGE_KEYS if module == "bridge" else VFC_KEYS if module == "vfc" else ()
+        # 其他模块在线那一行放最前
+        others = sorted((k for k in self.history if ":" in k and module_of(k) == module), key=lambda k: (title_of(k) != "在线", k))
+        return [k for k in fixed if k in self.history] + others
+
     def _render_detail(self):
-        """这个领域有新消息、相关指令有变化或换了分段才重画"""
-        key = self.detail_key
-        if not key:
+        """这个模块有新消息、相关指令有变化或换了分段才重画"""
+        module = self.detail_key
+        if not module:
             return
-        module = RELATED[key][0]
-        kept = self.history.get(key, [])
-        stamp = (self.session, self.detail_view.index(), len(kept), kept[-1].event_id if kept else None,
+        keys = self._keys(module)
+        stamp = (self.session, self.detail_view.index(), tuple((k, self.history[k][-1].event_id) for k in keys),
                  self.app.module_touched.get(module, 0) if self.detail_view.index() else 0)
         if stamp == self.detail_drawn:
             return
         self.detail_drawn = stamp
-        self.detail_topic.setText("Topic " + (kept[-1].topic if kept else "—"))
+        topics = sorted({self.history[k][-1].topic for k in keys})
+        self.detail_topic.setText("Topic " + ("、".join(topics) if topics else "—"))
         if self.detail_view.index():
-            self._render_related(key)
+            self._render_related(module)
         else:
-            self._render_reports(kept)
+            self._render_reports(module, keys)
 
-    def _render_reports(self, kept):
+    def _render_reports(self, module, keys):
+        """各类状态最新一条的完整字段（和上一条比变了的标橙），下面是这次连接里这个模块变过哪些字段"""
         while self.detail_box.count():
             item = self.detail_box.takeAt(0)
             if item.widget():
                 item.widget().hide()
                 item.widget().deleteLater()
-        if not kept:
-            self.detail_box.addWidget(label("这次连接还没收到这个领域的消息", "caption", True))
+        if not keys:
+            self.detail_box.addWidget(label("这次连接还没收到这个模块的状态", "caption", True))
             self.detail_box.addStretch()
             return
-        e = kept[-1]
-        before = kept[-2] if len(kept) > 1 else None
-        changed = {path: old for path, old, _ in payload_diff(before.payload, e.payload)} if before else {}
-        lines = []
-        for path, _, value in payload_diff({}, e.payload):
-            text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-            if path in changed:
-                lines.append(f"{html.escape(path)}　<b style='color:{ORANGE}'>{html.escape(text)}</b>"
-                             f"<span style='color:{GRAY}'>　（原 {html.escape(json.dumps(changed[path], ensure_ascii=False))}）</span>")
-            else:
-                lines.append(f"{html.escape(path)}　{html.escape(text)}")
-        source = "保留消息（订阅时 Broker 给的）" if e.retained else "实时"
-        block = label(f"<b>最新一条</b><span style='color:{GRAY}'>　{time.strftime('%H:%M:%S', time.localtime(e.timestamp))} 收到 · {source}"
-                      f"{' · 和上一条比，变了的标橙' if before else ''}</span><br>"
-                      f"<span style='font-family:Consolas,monospace;font-size:12px'>{'<br>'.join(lines) or '（没有字段）'}</span>", wrap=True)
-        block.setTextFormat(Qt.RichText)
-        block.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        block.setObjectName("detailBlock")
-        self.detail_box.addWidget(block)
-        # 状态词等关键变化之外，每次报文里变了的字段都列出来，新的在上
-        steps = []
-        for old, new in zip(kept, kept[1:]):
-            diff = [(path, a, b) for path, a, b in payload_diff(old.payload, new.payload) if path != "ts"]
-            if diff:
-                text = "；".join(f"{path} {json.dumps(a, ensure_ascii=False)} → {json.dumps(b, ensure_ascii=False)}" for path, a, b in diff[:6])
-                steps.append(f"{time.strftime('%H:%M:%S', time.localtime(new.timestamp))}　{html.escape(text)}")
-        self.detail_box.addWidget(label(f"这次连接里的变化 · 看最近收到的 {len(kept)} 条", "groupHeader"))
-        changes_text = label("<br>".join(reversed(steps[-50:])) or "收到的这几条内容都一样（ts 除外）", "caption", True)
+        now, steps = time.time(), []
+        for key in keys:
+            kept = self.history[key]
+            e, before = kept[-1], (kept[-2] if len(kept) > 1 else None)
+            changed = {path: old for path, old, _ in payload_diff(before.payload, e.payload)} if before else {}
+            lines = []
+            for path, _, value in payload_diff({}, e.payload):
+                text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+                if path in changed:
+                    lines.append(f"{html.escape(path)}　<b style='color:{ORANGE}'>{html.escape(text)}</b>"
+                                 f"<span style='color:{GRAY}'>　（原 {html.escape(json.dumps(changed[path], ensure_ascii=False))}）</span>")
+                else:
+                    lines.append(f"{html.escape(path)}　{html.escape(text)}")
+            word = reading(e)[0]
+            color = QUALITY_COLORS[quality(e)]
+            fresh = freshness(e, now)
+            block = label(f"<b>{html.escape(title_of(key))}</b>　<b style='color:{color}'>{html.escape(word or '—')}</b>"
+                          f"<span style='color:{GRAY}'>　{time.strftime('%H:%M:%S', time.localtime(e.timestamp))} 收到 · {fresh}"
+                          f" · 共 {len(kept)} 条</span><br>"
+                          f"<span style='font-family:Consolas,monospace;font-size:12px'>{'<br>'.join(lines) or '（没有字段）'}</span>", wrap=True)
+            block.setTextFormat(Qt.RichText)
+            block.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            block.setObjectName("detailBlock")
+            self.detail_box.addWidget(block)
+            for old, new in zip(kept, kept[1:]):
+                diff = [(path, x, y) for path, x, y in payload_diff(old.payload, new.payload) if not path.endswith("ts")]
+                if diff:
+                    text = "；".join(f"{path} {json.dumps(x, ensure_ascii=False)} → {json.dumps(y, ensure_ascii=False)}" for path, x, y in diff[:6])
+                    steps.append((new.timestamp, f"{title_of(key)}　{text}"))
+        steps.sort()
+        self.detail_box.addWidget(label("这次连接里的变化（ts 除外）", "groupHeader"))
+        changes_text = label("<br>".join(f"{time.strftime('%H:%M:%S', time.localtime(at))}　{html.escape(text)}"
+                                         for at, text in reversed(steps[-60:])) or "收到的各条内容都一样", "caption", True)
         changes_text.setTextFormat(Qt.RichText)
         changes_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.detail_box.addWidget(changes_text)
         self.detail_box.addStretch()
 
-    def _render_related(self, key):
-        """这个领域相关的指令和回执，一次请求一行，新的在前；只看这次连接"""
-        module, prefixes = RELATED[key]
-        # 领域在 SQL 里筛完再取条数，别的领域的命令再多也挤不掉这个领域的
-        fetched = self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, session=self.session, prefixes=prefixes) if self.session else []
+    def _render_related(self, module):
+        """这个模块的指令和回执，一次请求一行，新的在前；只看这次连接"""
+        fetched = self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, session=self.session) if self.session else []
         found = sorted(requests(self.app.store, fetched), key=lambda r: -r.events[-1].timestamp)[:150]
         rows = []
         for r in found:
@@ -307,8 +351,7 @@ class UavPage:
         for row, (e, *_) in enumerate(rows):
             if (e.sn, e.session, e.tid) == self.detail_row:
                 self.detail_table.selectRow(row)
-        what = "VFC 的指令" if module == "vfc" else "Bridge 命令" + (f"（{'、'.join(p.rstrip('.') + '.*' for p in prefixes)}）" if prefixes else "")
-        self.detail_empty.setText(f"这次连接里列 {what}" + ("，还没有" if not rows else f"，{len(rows)} 次请求") + "；点一行看整条请求")
+        self.detail_empty.setText(f"这次连接里 {MODULE_TITLES[module]} 的指令和回执" + ("，还没有" if not rows else f"，{len(rows)} 次请求") + "；点一行看整条请求")
         if self.detail_pages.currentIndex() == 2:
             self.detail_trace.refresh()
 
@@ -350,37 +393,12 @@ class UavPage:
         else:
             self.link_note.setText("还没连无人机：左侧连接卡里设备选“无人机”、方式选“直连模块”，填板上 Broker 地址")
         self._render_alerts()
+        self._render_alarms()
         self._render_changes()
         if hasattr(self, "task_line"):
             self._render_task()
-        for key, (word, msg, extra, age) in self.cards.items():
-            event = self.latest.get(key) if live else None
-            if event is None:
-                word.setText("未观测" if live or not self.latest.get(key) else "已断开")
-                word.setStyleSheet(f"font-size:17px;font-weight:600;color:{GRAY}")
-                msg.setText(self._missing(key, now) if live else "")
-                extra.setText("")
-                age.setText("")
-                continue
-            text, note, _, more = reading(event)
-            state = quality(event)
-            fresh = freshness(event, now)
-            waiting = key == "navigation" and text == WAITING_NEXT
-            word.setText("5 · 到点，等待放行" if waiting else text or "—")
-            word.setStyleSheet(f"font-size:17px;font-weight:600;color:{BLUE if waiting else QUALITY_COLORS[state]}")
-            msg.setText(note)
-            extra.setText(more)
-            seconds = now - event.timestamp
-            stamp = f"{seconds:.0f} 秒前收到" if seconds < 120 else time.strftime("%H:%M:%S 收到", time.localtime(event.timestamp))
-            if key == "vfc_osd":
-                # OSD 空闲时整条不发，要看得出最近一次是什么时候、隔了多久
-                stamp = time.strftime("%H:%M:%S", time.localtime(event.timestamp)) + f" 收到 · {seconds:.0f} 秒前"
-            # Bridge 在线只在上线时发一条保留消息，不定时重发；掉线时 Broker 按遗嘱改成 OFFLINE，所以保留的这条就是现在的状态
-            online = key == "online" and fresh == "保留快照"
-            age.setText("上线时发的保留消息，Bridge 掉线时 Broker 会改成 OFFLINE" if online else
-                        {"保留快照": "保留快照（订阅时 Broker 给的缓存），等实时上报", "超时没收到": f"超时没收到新上报 · {stamp}"}.get(fresh, stamp)
-                        + ("" if state == "正常" else f" · 数据{state}"))
-            age.setStyleSheet(f"color:{ORANGE if fresh != '实时' and not online else GRAY}")
+            self._render_maps()
+        self._render_cards(live, now)
         touch = (self.app.module_touched.get("vfc", 0), self.app.module_touched.get("bridge", 0))
         if touch != self.drawn_touch:
             self.drawn_touch = touch
@@ -388,22 +406,86 @@ class UavPage:
         if hasattr(self, "detail_card"):
             self._render_detail()
 
-    def _missing(self, key, now):
-        """连上后一直没收到的卡片写可能的原因，免得只看到“未观测”"""
-        vfc = ("subsystem_status", "nav_status", "nav_status_progress", "mapping_status", "vfc_osd")
-        if key in vfc and not any(k in self.latest for k in vfc):
+    def _render_cards(self, live, now):
+        """每张模块卡片一行一类状态：名称、状态词（颜色看数据本身）、说明，过期或保留快照时写明；没收到的模块只在前四个里占位"""
+        shown = []
+        for module in MODULES:
+            state, when, body, hint = self.cards[module]
+            keys = self._keys(module) if live else []
+            if module in ALWAYS or keys:
+                shown.append(self.frames[module])
+            lines, newest = [], 0.0
+            for key in keys:
+                e = self.latest[key]
+                newest = max(newest, e.timestamp)
+                word, note, _, extra = reading(e)
+                waiting = key == "navigation" and word == WAITING_NEXT
+                color = BLUE if waiting else QUALITY_COLORS[quality(e)]
+                fresh = freshness(e, now)
+                # Bridge 在线只在上线时发一条保留消息，不定时重发；掉线时 Broker 按遗嘱改成 OFFLINE，保留的这条就是现在的状态
+                late = "" if fresh == "实时" or key == "online" else f"　<span style='color:{ORANGE}'>{fresh}</span>"
+                if key == "vfc_osd":
+                    # OSD 空闲时整条不发，要看得出最近一次是什么时候、隔了多久
+                    late = f"　<span style='color:{ORANGE if fresh != '实时' else GRAY}'>{time.strftime('%H:%M:%S', time.localtime(e.timestamp))} 收到 · {now - e.timestamp:.0f} 秒前</span>"
+                shown_word = "5 · 到点，等待放行" if waiting else word
+                text = f"<b>{html.escape(title_of(key))}</b>" + (f"　<b style='color:{color}'>{html.escape(shown_word)}</b>" if shown_word != "" else "")
+                more = "　".join(html.escape(part) for part in (note, extra) if part)
+                lines.append(text + (f"　<span style='color:{GRAY}'>{more}</span>" if more else "") + late)
+            if module == "vfc":
+                active = [code for code, (_, raised) in self.alarms.items() if raised]
+                if active:
+                    lines.append(f"<b>告警</b>　<b style='color:{RED}'>{len(active)} 条进行中</b>　<span style='color:{GRAY}'>{html.escape('、'.join(active[:4]))}</span>")
+            body.setText("<br>".join(lines))
+            body.setVisible(bool(lines))
+            missing = [self._missing(key, now) for key in (BRIDGE_KEYS if module == "bridge" else VFC_KEYS if module == "vfc" else ())
+                       if live and key not in self.latest]
+            hint.setText(self._module_hint(module, keys, live, now) or "；".join(dict.fromkeys(m for m in missing if m)))
+            seconds = now - newest
+            when.setText(("已断开" if self.latest and not live else "未观测") if not newest else
+                         f"{seconds:.0f} 秒前" if seconds < 120 else time.strftime("%H:%M:%S", time.localtime(newest)))
+            state.setStyleSheet(f"background:{GREEN if newest and seconds < 5 else '#C7C7CC'};border-radius:4px")
+        self.grid.show_only(shown)
+
+    def _module_hint(self, module, keys, live, now):
+        """整个模块都没收到时写可能的原因"""
+        if not live or keys:
+            return ""
+        if module == "vfc":
             return "连上后没收到 VFC 的任何消息，VFC 服务可能没在跑" if now - self.since > LINK_SECONDS else ""
-        if key == "nav_status_progress":
-            return "只在执行航线时上报"
-        if key == "mapping_status":
-            return "VFC 在报别的状态但没有建图状态，板上可能还是没有建图功能的旧版 VFC"
-        if key == "vfc_osd":
-            return "VFC 空闲（没有位姿和电量）时不发 OSD，收不到是正常的；旧版 VFC 也没有 OSD"
+        if module == "bridge":
+            return "连上后没收到 Bridge 的消息" if now - self.since > LINK_SECONDS else ""
+        return f"无人机的 {module.upper()} 还没接入或没在跑，接入后它的状态会出现在这里"
+
+    def _missing(self, key, now):
+        """模块在报但某一类一直没收到时写可能的原因"""
+        vfc = any(k in self.latest for k in VFC_KEYS)
+        if key == "mapping_status" and vfc:
+            return "VFC 在报别的状态但没有建图状态，板上可能还是旧版 VFC"
+        if key == "vfc_osd" and vfc:
+            return "VFC 空闲（没有位姿和电量）时不发 OSD，收不到是正常的"
         system = self.latest.get("system")
         detail = (system.payload.get("info") or {}).get("detail") if system else None
         if key == "pose" and isinstance(detail, dict) and detail.get("ros") == "DOWN":
             return "Bridge 报 ros DOWN，没有位姿可发"
         return ""
+
+    def _render_alarms(self):
+        """进行中的告警在前，已解除的在后，各自新的在前；告警码、级别、标题、建议，带坐标时写上"""
+        if not hasattr(self, "alarm_text"):
+            return
+        items = sorted(self.alarms.values(), key=lambda pair: (not pair[1], -pair[0].timestamp))
+        active = sum(1 for _, raised in items if raised)
+        self.alarm_count.setText(f"{active} 条进行中 · 已解除 {len(items) - active} 条" if items else "")
+        lines = []
+        for e, raised in items[:20]:
+            info = alarm_of(e)
+            color = LEVEL_COLORS.get(info.get("level"), ORANGE) if raised else GRAY
+            where = f"　位置 x {info['x']} y {info['y']} z {info['z']}" if "x" in info else ""
+            lines.append(f"<b style='color:{color}'>{html.escape(str(info['code']))}　{html.escape(str(info.get('title', '')))}</b>"
+                         f"<span style='color:{GRAY}'>　{info.get('level', '')} · {'进行中' if raised else '已解除'} · "
+                         f"{time.strftime('%H:%M:%S', time.localtime(e.timestamp))}{where}</span>"
+                         + (f"<br>　　{html.escape(str(info['advice']))}" if info.get("advice") else ""))
+        self.alarm_text.setText("<br>".join(lines) or "这次连接里 VFC 没报过告警（local/uav/vfc/events）")
 
     def _render_changes(self):
         self.changes.clear()
@@ -428,21 +510,29 @@ class UavPage:
         """当前任务的 bid；还没有任务时新生成一个"""
         return self.current_task() or str(uuid.uuid4())
 
-    def _command(self, method, data=None, bid=None):
+    def _command(self, method, data=None, bid=None, profile=None):
         """按无人机目录生成一条 VFC 指令（新 tid、ts），模拟 GW 发出；开关没开时由 MQTT 出口拒绝并提示"""
         item = next(entry for entry in self.app.control.uav_catalog if entry["method"] == method)
         payload = make_command(item)
         payload["bid"] = bid or self._task_bid()
         if data is not None:
             payload["data"] = data
+        if profile:
+            # 航线的环境放在指令顶层
+            payload["profile"] = profile
         return self.app._emit(payload, json.dumps(payload, ensure_ascii=False), item["topic"], "vfc")
 
     def _mission_page(self):
         """设备选无人机时的“航线任务”：常用 VFC 指令一键发，航线在表格里编，发出后到状态总览看进度"""
         page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "航线任务", "模拟 GW 给 VFC 发指令，暂停、继续带当前任务的 bid；左侧打开“允许向无人机发送”才会真的发")
+        outer = QVBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.app._page_header(outer, "航线任务", "模拟 GW 给 VFC 发指令，暂停、继续带当前任务的 bid；左侧打开“允许向无人机发送”才会真的发")
+        # 四张卡片竖着排，窗口矮时整页滚动
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(0, 0, 6, 0)
+        outer.addWidget(scroller(body), 1)
         quick, qv = card(8, 16)
         qv.addWidget(label("当前任务", "sectionTitle"))
         self.task_line = label("还没有收到 VFC 的任务状态", "caption", True)
@@ -474,6 +564,8 @@ class UavPage:
         mv.addLayout(row)
         layout.addWidget(mapping)
         layout.addSpacing(10)
+        layout.addWidget(self._maps_card())
+        layout.addSpacing(10)
         route, rv = card(8, 16)
         head = QHBoxLayout()
         head.addWidget(label("编辑航线", "sectionTitle"))
@@ -481,9 +573,118 @@ class UavPage:
         head.addWidget(button("发送航线", self._send_route, "primary"))
         rv.addLayout(head)
         self.route = RouteEditor()
+        self.route.setMinimumHeight(360)
         rv.addWidget(self.route, 1)
         layout.addWidget(route, 1)
         return page
+
+    def _maps_card(self):
+        """地图：查列表、选用定位地图、生成资产、改名、删除；VFC 照转 Bridge 的 map.*，能不能做由 Bridge 判"""
+        maps, mv = card(8, 16)
+        head = QHBoxLayout()
+        head.addWidget(label("地图", "sectionTitle"))
+        head.addStretch()
+        head.addWidget(button("刷新地图列表", lambda: self._map_command("get_map_list", {})))
+        mv.addLayout(head)
+        self.map_line = label("", "caption", True)
+        self.map_line.setTextFormat(Qt.RichText)
+        self.map_line.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        mv.addWidget(self.map_line)
+        self.map_table = QTableWidget(0, 6)
+        self.map_table.setHorizontalHeaderLabels(["名称", "map_id", "大小 MB", "选用", "资产", "说明"])
+        self.map_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.map_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.map_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.map_table.setShowGrid(False)
+        self.map_table.verticalHeader().hide()
+        self.map_table.verticalHeader().setDefaultSectionSize(30)
+        self.map_table.horizontalHeader().setStretchLastSection(True)
+        for column, width in enumerate((180, 220, 70, 50, 60)):
+            self.map_table.horizontalHeader().resizeSection(column, width)
+        self.map_table.setMinimumHeight(150)
+        mv.addWidget(self.map_table)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        for text, slot in (("选用为定位地图", self._select_map), ("生成地图资产", self._build_map), ("改名…", self._rename_map),
+                           ("航线用这张图", self._route_map), ("删除…", self._delete_map)):
+            row.addWidget(button(text, slot))
+        row.addStretch()
+        mv.addLayout(row)
+        self.maps_drawn = None
+        return maps
+
+    def _map_command(self, method, data):
+        # 地图指令不属于哪个任务，bid 每次新生成
+        if self._command(method, data, str(uuid.uuid4())):
+            self.app.notify(f"已发出 {method}，结果看指令时间线和地图状态")
+
+    def _chosen_map(self):
+        row = self.map_table.currentRow()
+        maps = self.maps[1] if self.maps else []
+        if row < 0 or row >= len(maps):
+            self.app.notify("先点“刷新地图列表”，再选一张地图")
+            return None
+        return maps[row]
+
+    def _select_map(self):
+        chosen = self._chosen_map()
+        if chosen:
+            self._map_command("loc_load_map", {"map_id": chosen.get("map_id")})
+
+    def _build_map(self):
+        # build_map 按建图会话生成资产，会话号就是地图列表里的 map_id
+        chosen = self._chosen_map()
+        if chosen:
+            self._map_command("build_map", {"session_id": chosen.get("map_id")})
+
+    def _rename_map(self):
+        chosen = self._chosen_map()
+        if not chosen:
+            return
+        name, ok = QInputDialog.getText(self.app, "地图改名", f"{chosen.get('map_id')} 的新名称", text=str(chosen.get("name") or ""))
+        if ok and name.strip():
+            self._map_command("rename_map_name", {"map_id": chosen.get("map_id"), "new_name": name.strip()})
+
+    def _delete_map(self):
+        chosen = self._chosen_map()
+        if not chosen:
+            return
+        # 删设备上的地图不能恢复，问一次
+        answer = QMessageBox.question(self.app, "删除地图", f"删除设备上的地图 {chosen.get('name')}（{chosen.get('map_id')}）？删了不能恢复")
+        if answer == QMessageBox.Yes:
+            self._map_command("remove_map_by_id", {"map_ids": [chosen.get("map_id")]})
+
+    def _route_map(self):
+        chosen = self._chosen_map()
+        if chosen:
+            self.route.map_id.setText(str(chosen.get("map_id") or ""))
+            self.route.profile.set_index(0)
+
+    def _render_maps(self):
+        """地图卡：VFC 的地图和定位状态一行，地图列表按最近一次 get_map_list 的回执"""
+        parts = []
+        for key in ("map_status", "loc_status"):
+            e = self.latest.get(key)
+            if e:
+                word, note, _, extra = reading(e)
+                color = QUALITY_COLORS[quality(e)]
+                parts.append(f"<b>{'地图' if key == 'map_status' else '定位'}</b>　<b style='color:{color}'>{html.escape(word or '—')}</b>"
+                             f"　{html.escape('　'.join(p for p in (note, extra) if p))}")
+        listed = f"列表 {time.strftime('%H:%M:%S', time.localtime(self.maps[0].timestamp))} 查的，共 {len(self.maps[1])} 张" if self.maps else "还没查过地图列表"
+        self.map_line.setText("<br>".join(parts + [f"<span style='color:{GRAY}'>{listed}</span>"]))
+        if self.maps_drawn is self.maps:
+            return
+        self.maps_drawn = self.maps
+        maps = self.maps[1] if self.maps else []
+        self.map_table.setRowCount(len(maps))
+        for index, item in enumerate(maps):
+            item = item if isinstance(item, dict) else {}
+            notes = [n for n in ("不完整" if item.get("incomplete") else "", f"错误 {item['error']}" if item.get("error") else "",
+                                 "有原始数据" if item.get("has_raw") else "") if n]
+            values = (item.get("name"), item.get("map_id"), item.get("size"), "✓" if item.get("selected") else "",
+                      "有" if item.get("has_assets") else "没有", "，".join(notes))
+            for column, value in enumerate(values):
+                self.map_table.setItem(index, column, QTableWidgetItem("" if value is None else str(value)))
 
     def _quick(self, method):
         if self._command(method):
@@ -523,9 +724,9 @@ class UavPage:
             return
         self.route.error.setText("")
         if any(point["actions"] for point in data["points"]):
-            self.app.notify("VFC 现在不支持航点动作，带了动作的航线会整条被拒绝")
-        if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4())):
-            self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 任务卡和关键变化")
+            self.app.notify("VFC 本期不执行航点动作：照飞，到点报 nav_action_progress，动作全部 skipped")
+        if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4()), self.route.profile_name()):
+            self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 卡片和关键变化")
 
     def _render_task(self):
         mapping = self.latest.get("mapping_status")
@@ -644,7 +845,7 @@ class PointsTable(QWidget):
     """航点表格：每个航点填 x、y、z（米，z 相对起飞点）、航向角 yaw（度）和动作；不显示四元数，取值时换算。
     航线任务页和控制调试页的开始航线共用；表格改了发 changed"""
 
-    COLUMNS = ["x", "y", "z", "航向角 yaw（°）", "动作（现在不支持，留空）"]
+    COLUMNS = ["x", "y", "z", "航向角 yaw（°）", "动作（本期不执行）"]
     changed = Signal()
 
     def __init__(self):
@@ -652,7 +853,7 @@ class PointsTable(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；航向角发出时换成四元数（x=0、y=0、z=sin(yaw/2)、w=cos(yaw/2)）。"
-                               "VFC 现在不支持航点动作，填了整条航线会被拒绝；以后支持时写法如“pause 5; take_photo”", "caption", True))
+                               "动作写法如“pause 5; take_photo”；VFC 本期不执行动作，照飞，到点报 nav_action_progress 全部 skipped", "caption", True))
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -726,8 +927,16 @@ class RouteEditor(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        # 环境：已知地图（map_id 要是当前选用的地图，可以不填）或未知环境边建图边飞
+        self.profile = Segmented(["已知地图 known_navigation", "未知环境 online_navigation"])
+        env = QHBoxLayout()
+        env.addWidget(label("环境", "caption"))
+        env.addWidget(self.profile)
+        env.addStretch()
+        layout.addLayout(env)
         top = QHBoxLayout()
-        self.map_id, self.task_name = QLineEdit("20261023_142339"), QLineEdit("test_route")
+        self.map_id, self.task_name = QLineEdit(), QLineEdit("test_route")
+        self.map_id.setPlaceholderText("不填就用当前选用的地图")
         self.bid = QLineEdit(str(uuid.uuid4()))
         for text, field in (("map_id", self.map_id), ("task_name", self.task_name), ("bid（任务 ID）", self.bid)):
             top.addWidget(label(text, "caption"))
@@ -739,6 +948,12 @@ class RouteEditor(QWidget):
         self.table, self.error, self._add = self.points.table, self.points.error, self.points._add
         layout.addWidget(self.points, 1)
 
+    def profile_name(self):
+        return ("known_navigation", "online_navigation")[self.profile.index()]
+
     def route(self):
-        """(data, bid)；填得不对时抛 ValueError，文字说明是哪一行"""
-        return {"map_id": self.map_id.text().strip(), "task_name": self.task_name.text().strip(), "points": self.points.points()}, self.bid.text().strip()
+        """(data, bid)；填得不对时抛 ValueError，文字说明是哪一行；map_id 空着不带，未知环境也不带"""
+        data = {"task_name": self.task_name.text().strip(), "points": self.points.points()}
+        if self.map_id.text().strip() and self.profile_name() == "known_navigation":
+            data = {"map_id": self.map_id.text().strip(), **data}
+        return data, self.bid.text().strip()

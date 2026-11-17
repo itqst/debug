@@ -42,7 +42,7 @@ for page, name in ((w.UAV, "uav"), (w.UAV_MISSION, "uav_mission"), (w.UAV, "uav_
     w._go(page)
     # 后两张是点开卡片的详情：状态上报和相关指令
     if name == "uav_detail":
-        w.uav._open_detail("system")
+        w.uav._open_detail("bridge")
     elif name == "uav_related":
         w.uav.detail_view.set_index(1)
     end = time.monotonic() + 1.5
