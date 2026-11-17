@@ -36,7 +36,6 @@ from .ui import (
 )
 from .pages.connection import ConnectionPanel
 from .pages.control import ControlPage
-from .pages.coverage import CoveragePage
 from .pages.device_config import DeviceConfigPage
 from .pages.diagnostics import Diagnostics
 from .pages.logs import LogsPage
@@ -50,10 +49,10 @@ from .pages.uav import UavPage
 
 class Studio(QMainWindow):
     # 页面栈里的序号；左侧导航按连接卡里选的设备只列这种设备用得上的页面，名字和顺序各设备自己定
-    REMOTE, CONTROL, MISSION, STATUS, UAV, LOGS, SUITE, COVERAGE, UAV_MISSION, DEVICE_CONFIG = range(10)
+    REMOTE, CONTROL, MISSION, STATUS, UAV, LOGS, SUITE, UAV_MISSION, DEVICE_CONFIG = range(9)
     # 要看整条请求的地方就地展开或单独开窗口（open_request）
     NAV = {"dog": [("遥控", REMOTE), ("控制调试", CONTROL), ("导航与文件", MISSION), ("状态总览", STATUS),
-                   ("日志排障", LOGS), ("设备配置", DEVICE_CONFIG), ("回归测试", SUITE), ("协议覆盖", COVERAGE)],
+                   ("日志排障", LOGS), ("设备配置", DEVICE_CONFIG), ("回归测试", SUITE)],
            "uav": [("控制调试", CONTROL), ("航线任务", UAV_MISSION), ("状态总览", UAV), ("日志排障", LOGS)]}
     PAGES = [title for title, _ in NAV["dog"]]
     # 这些页旁边显示 3D 观察区；其余是分析页，整宽显示
@@ -71,7 +70,6 @@ class Studio(QMainWindow):
         self.logs = LogsPage(self)
         self.device_config = DeviceConfigPage(self)
         self.suite = SuitePage(self)
-        self.coverage = CoveragePage(self)
         self.uav = UavPage(self)
         self.setWindowTitle(APP_NAME)
         self.resize(1480, 940)
@@ -132,7 +130,7 @@ class Studio(QMainWindow):
         self.stack = QStackedWidget()
         for page in (self.teleop._remote_page(), self.control._control_page(), self.mission._mission_page(),
                      self.status._status_page(), self.uav._uav_page(),
-                     self.logs._logs_page(), self.suite._suite_page(), self.coverage._coverage_page(), self.uav._mission_page(),
+                     self.logs._logs_page(), self.suite._suite_page(), self.uav._mission_page(),
                      self.device_config._config_page()):
             self.stack.addWidget(page)
         # 观察区放在页面栈外，切页时模型、镜头和轨迹都不动；比例可拖
