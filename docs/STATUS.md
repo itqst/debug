@@ -882,3 +882,4 @@ GPT 冻结 daf8079 独立测：save 闸门（null、{}、0、1、"true" 都拦�
 - 航线任务页整页可滚动；新“地图”卡：刷新列表（表格按最近一次 get_map_list 回执）、选用为定位地图、生成资产、改名、删除（问一次）、航线用这张图；上面显示 map_status 和 loc_status。航线编辑加环境选择（known_navigation / online_navigation，顶层 profile），map_id 默认空（用当前选用的图），未知环境不带 map_id；航点动作说明改成照飞、到点报 skipped
 - 日志导入认 mosquitto_sub -F %j 格式（tst、topic、qos、retain、payload 跨行），nav 的板上抓包能直接拖进来
 - 测试：卡片相关 7 项按模块重写，加新状态、告警、其他模块卡片、地图卡与航线环境、抓包导入 6 项，323 项全过
+- 打包（dd92570，11-17），build.log 无 Build FAILED，打包自检通过
