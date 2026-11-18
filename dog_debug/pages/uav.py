@@ -55,6 +55,11 @@ class UavPage:
         return box
 
     def _clear_retained(self):
+        # 告警是这次连接看到的才清；断开或换了连接后，旧告警对应的可能已不是这个 Broker
+        if not self.app.mqtt.connected or self.session != self.app.mqtt.session:
+            self.app.notify("告警来自之前的连接，重新连上后看到告警再清")
+            self._render_alerts()
+            return
         cleared = []
         for topic in list(self.alerts):
             try:
@@ -566,7 +571,7 @@ class UavPage:
         self.banner.setText("⚠ " + "<br>".join(lines) + "<br>执行方重启或重连时会再收到并执行一遍。"
                             "请往这个主题发一条空的保留消息清掉（右边按钮一键发，要先打开“允许下发”）；没看到告警不代表 Broker 上一定没有残留")
         self.banner.show()
-        self.clear_btn.show()
+        self.clear_btn.setVisible(self.app.mqtt.connected and self.session == self.app.mqtt.session)
 
     def _render_timeline(self):
         # 只看当前这次无人机连接的

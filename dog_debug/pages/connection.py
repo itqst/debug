@@ -85,6 +85,8 @@ class ConnectionPanel:
         self.app.connect_btn.style().polish(self.app.connect_btn)
         self.app.scene3d._device_card()
         self.app._update_pill()
+        # 断开、换连接后保留消息的清除按钮跟着藏起来
+        self.app.uav._render_alerts()
 
     def _connection_hint(self):
         """连接中修改了 Broker/SN 时提示仍按旧连接收发，重连后才切换"""

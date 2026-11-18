@@ -168,6 +168,7 @@ def test_uav_connection_subscribes_local_uav_only():
     transport.device = "uav"
     topics = []
     client = type("Client", (), {"subscribe": lambda self, t: topics.append(t)})()
+    transport.client = client
     transport._connected(client, None, None, 0, None)
     assert topics == [[("local/uav/#", 0)]]
 
@@ -772,7 +773,7 @@ def test_uav_messages_do_not_show_on_dog_status(window, monkeypatch):
     transport = MqttTransport(inbox)
     transport.connect("192.168.1.230", 1883, "TEST_DOG_001", device="uav")
     message = type("M", (), {"topic": "local/uav/vfc/osd", "payload": b'{"data": {"x": 1}}', "qos": 0, "retain": False, "dup": False})()
-    transport._message(None, None, message)
+    transport._message(transport.client, None, message)
     events = [item[1] for item in list(inbox.queue) if item[0] == "event"]
     assert transport.sn == "" and events and events[-1].sn == ""
 
@@ -908,6 +909,7 @@ def test_clear_retained_publishes_empty_retained(window, monkeypatch):
     """保留消息告警旁的按钮：往每个主题发空的保留消息，发成功的从告警里去掉；被只读闸挡住就提示、告警留着"""
     window._ingest(Event("local/uav/vfc/command", {"method": "start_multi_nav_by_points", "tid": "old", "bid": "b"},
                          session=window.mqtt.session, source="mqtt", retained=True))
+    window.mqtt.connected = True
     window.uav.render()
     assert not window.uav.clear_btn.isHidden()
     sent, notes = [], []
@@ -919,3 +921,41 @@ def test_clear_retained_publishes_empty_retained(window, monkeypatch):
     window.uav._clear_retained()
     assert sent == [("local/uav/vfc/command", "", True)] and not window.uav.alerts
     assert window.uav.banner.isHidden() and window.uav.clear_btn.isHidden()
+    # 断开后旧告警不能清，按钮也藏起来
+    window._ingest(Event("local/uav/vfc/command", {"method": "land", "tid": "t2"}, session=window.mqtt.session, source="mqtt", retained=True))
+    window.mqtt.connected = False
+    window.uav.render()
+    assert not window.uav.banner.isHidden() and window.uav.clear_btn.isHidden()
+    window.uav._clear_retained()
+    assert len(sent) == 1 and "之前的连接" in notes[-1]
+
+
+def test_stale_client_callbacks_ignored():
+    """断开后马上重连：旧客户端晚到的断开、消息回调不影响新连接"""
+    import queue
+    from dog_debug.transport import MqttTransport
+    inbox = queue.Queue()
+    t = MqttTransport(inbox)
+    old, new = object(), object()
+    t.client, t.connected = new, True
+    t._disconnected(old, None, None, 0, None)
+    t._message(old, None, type("M", (), {"payload": b"{}", "topic": "x", "qos": 0, "retain": False, "dup": False})())
+    assert t.connected and inbox.empty()
+    t._disconnected(new, None, None, 0, None)
+    assert not t.connected and inbox.get_nowait()[0] == "disconnect"
+
+
+def test_telemetry_not_live_after_disconnect(window):
+    """无人机 OSD 刚到、连接一断就标“已停”，不等 3 秒时效；旧连接的数在新连接收到第一条前不显示"""
+    window.device_box.setCurrentText("无人机")
+    window.mqtt.connected = True
+    window._ingest(Event("local/uav/vfc/osd", {"sn": "", "data": {"z": 2.0}}, sn="", session=window.mqtt.session, source="mqtt"))
+    card = window.status.telemetry
+    card.update("uav")
+    assert card.state.text() == "OSD 实时"
+    window.mqtt.connected = False
+    card.update("uav")
+    assert card.state.text() == "OSD 已停" and card.tiles["z"][1].text() == "2.00 m"
+    window.mqtt.session = "new-session"
+    card.update("uav")
+    assert card.state.text() == "未收到 OSD" and card.tiles["z"][1].text() == "—"

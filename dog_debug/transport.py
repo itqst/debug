@@ -51,12 +51,17 @@ class MqttTransport:
         client.on_message = self._message
         client.on_publish = self._published
         client.on_subscribe = lambda c, u, mid, codes, p: self._offer(("transport", "订阅结果 " + str(codes)))
-        client.on_connect_fail = lambda c, u: self._offer(("disconnect", "无法连接 Broker，请核地址、端口和网络"))
+        client.on_connect_fail = lambda c, u: c is self.client and self._offer(("disconnect", "无法连接 Broker，请核地址、端口和网络"))
         self.client = client
         client.connect_async(host, port, keepalive=20)
         client.loop_start()
 
+    # 回调都在 paho 的网络线程里跑；断开后马上重连时，旧客户端的回调可能晚到，只认当前这个客户端，
+    # 否则旧连接的“已断开”会被当成新连接掉线，把刚连上的新客户端关掉
+
     def _connected(self, client, userdata, flags, reason, properties):
+        if client is not self.client:
+            return
         self.connected = reason == 0
         self._offer(("connection", "已连接，只读" if self.connected else "连接失败 " + str(reason)))
         if self.connected:
@@ -66,10 +71,14 @@ class MqttTransport:
                 client.subscribe([(f"tta/robotdog/{self.sn}/#", 0), ("local/robotdog/#", 0)])
 
     def _disconnected(self, client, userdata, flags, reason, properties):
+        if client is not self.client:
+            return
         self.connected = False
         self._offer(("disconnect", "已断开 " + str(reason)))
 
     def _message(self, client, userdata, message):
+        if client is not self.client:
+            return
         raw = message.payload.decode("utf-8", errors="replace")
         try:
             payload = json.loads(raw)

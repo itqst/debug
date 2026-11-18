@@ -612,7 +612,8 @@ class ScenePanel:
             self.app.device_name.setText(self.app.mqtt.host if live else self.app.host.text().strip() or "未连接")
             self.app.device_meta.setText("VFC / Bridge　·　" + ("已连接" if live else "未连接"))
         else:
-            osd, live = self.app.scene.osd, self.app.scene.live
+            # 和关键遥测卡一致：断开后立刻不算实时
+            osd, live = self.app.scene.osd, self.app.scene.live and self.app.mqtt.connected
             sn = self.app.mqtt.sn if self.app.mqtt.connected else self.app.sn.text().strip()
             self.app.device_name.setText(sn or "未设置 SN")
             parts = []

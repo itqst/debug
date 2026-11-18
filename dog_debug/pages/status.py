@@ -109,20 +109,29 @@ class StatusPage:
         # 卡片和这块之间可以上下拖，时间线要多看几行就往上拖
         layout.insertWidget(layout.count() - 1, self.app.uav.banner_widget())
         self.uav_extras = self.app.uav.extras_widget()
-        rows = QSplitter(Qt.Vertical)
+        # 狗的直播和音视频预览也放在这条分隔条下面（无人机时隐藏）；默认把大半高度留给模块卡片
+        rows = self.status_rows = QSplitter(Qt.Vertical)
         rows.setHandleWidth(10)
         rows.setChildrenCollapsible(False)
         rows.addWidget(scroller(self.status_grid))
         rows.addWidget(self.uav_extras)
+        media = QWidget()
+        media_layout = QVBoxLayout(media)
+        media_layout.setContentsMargins(0, 0, 0, 0)
+        media_layout.setSpacing(10)
+        self.media_box = scroller(media)
+        rows.addWidget(self.media_box)
         rows.setStretchFactor(0, 3)
         rows.setStretchFactor(1, 2)
+        rows.setStretchFactor(2, 2)
+        rows.setSizes([500, 300, 260])
         layout_left.addWidget(rows, 1)
         split.addWidget(left)
         split.addWidget(self._module_detail())
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
         layout.addWidget(split, 1)
-        layout = layout_left
+        layout = media_layout
 
         live, lv = self.live_card = card(6, 16)
         head = QHBoxLayout()
@@ -140,7 +149,6 @@ class StatusPage:
         # 表头加三行：机体、云台可见光、云台红外
         self.stream_table.setFixedHeight(34 * 4 + 8)
         lv.addWidget(self.stream_table)
-        layout.addSpacing(10)
         layout.addWidget(live)
 
         web, wv = self.web_card = card(8, 16)
@@ -174,8 +182,8 @@ class StatusPage:
         wv.addWidget(self.pull_note)
         self.pull_history = json.loads(settings().value("direct_urls", "[]"))
         self._refresh_presets()
-        layout.addSpacing(10)
         layout.addWidget(web)
+        layout.addStretch()
         self.device_changed()
         return page
 
@@ -256,6 +264,7 @@ class StatusPage:
         # 直播和音视频预览只有狗有
         self.live_card[0].setVisible("media" in shown and not self._uav())
         self.web_card[0].setVisible("media" in shown and not self._uav())
+        self.media_box.setVisible("media" in shown and not self._uav())
         if self.detail_module in self.hidden_modules:
             self._open_module(None)
         self._refresh_status()

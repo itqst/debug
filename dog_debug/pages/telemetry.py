@@ -113,17 +113,20 @@ class TelemetryCard:
 
     def _reading(self, device):
         """(数据, 是否实时, 来源说明)"""
+        mqtt = self.app.mqtt
         if device == "uav":
-            event = self.app.uav.latest.get("vfc_osd")
+            # 只看本次连接的；连了新的还没收到第一条时不显示上一次连接的数
+            event = self.app.uav.latest.get("vfc_osd") if self.app.uav.session == mqtt.session else None
             if not event:
                 return {}, False, "local/uav/vfc/osd"
             data = event.payload.get("data") if isinstance(event.payload.get("data"), dict) else {}
-            age = time.time() - event.timestamp
-            return data, age < LIVE_SECONDS, f"VFC OSD · {time.strftime('%H:%M:%S', time.localtime(event.timestamp))} 收到"
+            # 断开后立刻标“已停”，不等时效过期
+            live = mqtt.connected and time.time() - event.timestamp < LIVE_SECONDS
+            return data, live, f"VFC OSD · {time.strftime('%H:%M:%S', time.localtime(event.timestamp))} 收到"
         scene = self.app.scene
         if scene.osd and not scene.osd_time:
             return scene.osd, False, "回放中的历史 OSD"
-        return scene.osd, scene.live, "设备 OSD"
+        return scene.osd, scene.live and mqtt.connected, "设备 OSD"
 
     def update(self, device):
         """每轮事件队列调用；内容没变就不碰控件"""
