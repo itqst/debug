@@ -126,6 +126,7 @@ class StatusPage:
         rows.setStretchFactor(2, 2)
         rows.setSizes([500, 300, 260])
         layout_left.addWidget(rows, 1)
+        self.app.uav.extras_view.changed.connect(self._extras_room)
         split.addWidget(left)
         split.addWidget(self._module_detail())
         split.setStretchFactor(0, 3)
@@ -189,6 +190,16 @@ class StatusPage:
 
     def _uav(self):
         return hasattr(self.app, "device_box") and DEVICES[self.app.device_box.currentText()] == "uav"
+
+    def _extras_room(self, index):
+        """切到关键变化、指令时间线时下面至少给到能看几行的高度；用户已经拖得更高就不动"""
+        if index == 0:
+            return
+        sizes = self.status_rows.sizes()
+        need = 300
+        if sizes[1] < need:
+            moved = min(need - sizes[1], max(sizes[0] - 160, 0))
+            self.status_rows.setSizes([sizes[0] - moved, sizes[1] + moved, sizes[2]])
 
     def modules(self):
         """当前设备的模块，按卡片顺序"""

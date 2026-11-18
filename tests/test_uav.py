@@ -956,6 +956,10 @@ def test_telemetry_not_live_after_disconnect(window):
     window.mqtt.connected = False
     card.update("uav")
     assert card.state.text() == "OSD 已停" and card.tiles["z"][1].text() == "2.00 m"
+    card.sparks["z"].add(1.0, 2.0)
+    card.sparks["z"].add(2.0, 2.5)
     window.mqtt.session = "new-session"
     card.update("uav")
     assert card.state.text() == "未收到 OSD" and card.tiles["z"][1].text() == "—"
+    # 换了连接，走势线也从头画
+    assert card.sparks["z"].points == []

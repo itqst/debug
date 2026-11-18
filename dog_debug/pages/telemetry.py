@@ -132,6 +132,13 @@ class TelemetryCard:
         """每轮事件队列调用；内容没变就不碰控件"""
         if device != self.device:
             self._build(device)
+        # 换了连接，走势线从头画，不接着上次连接的点；断开本身不清，保留最后的样子
+        session = self.app.mqtt.session
+        if session != getattr(self, "session", None):
+            self.session = session
+            for spark in self.sparks.values():
+                spark.points = []
+                spark.update()
         data, live, source = self._reading(device)
         texts = tuple(text_of(data, key) for key in self.tiles)
         state = ("OSD 实时", GREEN) if live else ("OSD 已停", ORANGE) if data else ("未收到 OSD", GRAY)
