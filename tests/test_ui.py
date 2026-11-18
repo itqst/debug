@@ -1610,3 +1610,18 @@ def test_stream_window_plays_and_reports_errors(tmp_path):
     window = StreamWindow("测试", broken)
     assert _wait(lambda: "拉流失败：这路流只有 RTSP" in window.info.text())
     window.close()
+
+
+def test_copy_mosquitto_pub_command(window):
+    """复制终端命令：Broker、端口、QoS、Topic 按当前填写，报文压成一行并转义单引号；密码只留占位"""
+    from PySide6.QtWidgets import QApplication
+    select(window, "take_photo")
+    window.host.setText("10.0.0.5")
+    window.port.setValue(1884)
+    window.user.setText("tta")
+    window.password.setText("secret")
+    window.control.editor.setPlainText('{"method": "take_photo", "data": {"note": "it\'s"}}')
+    window.control._copy_pub_command()
+    text = QApplication.clipboard().text()
+    assert text.startswith("mosquitto_pub -h 10.0.0.5 -p 1884 -q 0 -u 'tta' -P '<密码>' -t ")
+    assert text.endswith("""-m '{"method":"take_photo","data":{"note":"it'\\''s"}}'""") and "secret" not in text

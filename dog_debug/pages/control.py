@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from .uav import PointsTable
 from ..registry import find, local_payload, make_command, MODULES, refresh_ids, route, uav_entries
 from ..trace_view import TraceView
-from ..transport import simulate
+from ..transport import MqttTransport, simulate
 from ..ui import (
     button, card, CommandDelegate, DEVICES, GRAY, label, MODULE_COLORS, pill, RED, SCENARIOS, scroller, Segmented,
     Switch, tint,
@@ -148,6 +148,7 @@ class ControlPage:
         actions.addWidget(button("恢复模板", lambda: self._template()))
         actions.addWidget(button("存为用例", self.app.suite._save_case))
         actions.addWidget(button("复制报文", lambda: QApplication.clipboard().setText(self.editor.toPlainText())))
+        actions.addWidget(button("复制终端命令", self._copy_pub_command))
         actions.addStretch()
         mv.addLayout(actions)
         columns.addWidget(middle)
@@ -490,6 +491,26 @@ class ControlPage:
             if self.selected["module"] == "bridge" and self.app.uav.vfc_online():
                 text += "；VFC 在线，直接发 Bridge 会绕开 VFC"
             self.app.notify(text + ("；" + self.app.demo_note if self.app.demo_note else ""))
+
+    def _copy_pub_command(self):
+        """拼一条 mosquitto_pub，Broker、端口、Topic、QoS 按当前填写，报文压成一行；密码不写进剪贴板，留占位自己填"""
+        text = self.editor.toPlainText()
+        try:
+            text = json.dumps(json.loads(text), ensure_ascii=False, separators=(",", ":"))
+        except ValueError:
+            # 故意发的异常报文按原文
+            pass
+        quote = lambda value: "'" + value.replace("'", "'\\''") + "'"
+        app = self.app
+        parts = ["mosquitto_pub", "-h", app.host.text().strip() or "127.0.0.1", "-p", str(app.port.value()),
+                 "-q", str(MqttTransport.qos_for(self.topic.text().strip()))]
+        if app.user.text().strip():
+            parts += ["-u", quote(app.user.text().strip()), "-P", "'<密码>'"]
+        if app.tls.isChecked():
+            parts += ["--capath", "/etc/ssl/certs"]
+        parts += ["-t", quote(self.topic.text().strip()), "-m", quote(text)]
+        QApplication.clipboard().setText(" ".join(parts))
+        app.notify("已复制 mosquitto_pub 命令" + ("，-P 后面换成密码" if app.user.text().strip() else ""))
 
     def _remember(self, item):
         self.recent = [item] + [r for r in self.recent if r["method"] != item["method"]][:5]

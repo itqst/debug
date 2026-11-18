@@ -902,3 +902,20 @@ def test_key_telemetry_card_shared_by_dog_and_uav(window):
     shown = tiles()
     assert shown["z"] == "1.20 m" and shown["speed"] == "—" and shown["heading"] == "81°" and shown["pitch"] == "3°"
     assert "roll" not in shown and "temperature" not in shown
+
+
+def test_clear_retained_publishes_empty_retained(window, monkeypatch):
+    """保留消息告警旁的按钮：往每个主题发空的保留消息，发成功的从告警里去掉；被只读闸挡住就提示、告警留着"""
+    window._ingest(Event("local/uav/vfc/command", {"method": "start_multi_nav_by_points", "tid": "old", "bid": "b"},
+                         session=window.mqtt.session, source="mqtt", retained=True))
+    window.uav.render()
+    assert not window.uav.clear_btn.isHidden()
+    sent, notes = [], []
+    monkeypatch.setattr(window, "notify", notes.append)
+    monkeypatch.setattr(window.mqtt, "publish", lambda topic, payload, retain=False: (_ for _ in ()).throw(RuntimeError("默认只读")))
+    window.uav._clear_retained()
+    assert "local/uav/vfc/command" in window.uav.alerts and "默认只读" in notes[-1]
+    monkeypatch.setattr(window.mqtt, "publish", lambda topic, payload, retain=False: sent.append((topic, payload, retain)))
+    window.uav._clear_retained()
+    assert sent == [("local/uav/vfc/command", "", True)] and not window.uav.alerts
+    assert window.uav.banner.isHidden() and window.uav.clear_btn.isHidden()

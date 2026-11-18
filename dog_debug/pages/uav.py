@@ -44,7 +44,29 @@ class UavPage:
         self.banner.setTextFormat(Qt.RichText)
         self.banner.setStyleSheet(f"background:{tint(RED, 40)};color:{RED};border-radius:10px;padding:10px 14px")
         self.banner.hide()
-        return self.banner
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.banner, 1)
+        # 一键往这些主题各发一条空的保留消息；受“允许下发”开关和指令主题白名单约束（transport.publish 里挡）
+        self.clear_btn = button("清除这些保留消息", self._clear_retained, "danger")
+        self.clear_btn.hide()
+        row.addWidget(self.clear_btn, 0, Qt.AlignTop)
+        return box
+
+    def _clear_retained(self):
+        cleared = []
+        for topic in list(self.alerts):
+            try:
+                self.app.mqtt.publish(topic, "", retain=True)
+            except Exception as error:
+                self.app.notify(f"{topic} 没清掉：{error}")
+                break
+            cleared.append(topic)
+            del self.alerts[topic]
+        if cleared:
+            self.app.notify("已发空保留消息清除：" + "、".join(cleared) + "；重连后没再出现告警就是清干净了")
+        self._render_alerts()
 
     def extras_widget(self):
         """状态总览卡片下面无人机多出来的：VFC 告警、关键变化、指令时间线三个分段，上面一行写连接和发送开关"""
@@ -533,6 +555,7 @@ class UavPage:
     def _render_alerts(self):
         if not self.alerts:
             self.banner.hide()
+            self.clear_btn.hide()
             return
         lines = []
         for topic, e in self.alerts.items():
@@ -541,8 +564,9 @@ class UavPage:
             lines.append(f"<b>{html.escape(topic)}</b> 上有保留消息：{html.escape(str(what))}　编号 {html.escape(str(key))}"
                          f"　{time.strftime('%H:%M:%S', time.localtime(e.timestamp))} 本次连接看到")
         self.banner.setText("⚠ " + "<br>".join(lines) + "<br>执行方重启或重连时会再收到并执行一遍。"
-                            "请往这个主题发一条空的保留消息清掉（MQTTX 里 Retain 打勾、内容留空）；没看到告警不代表 Broker 上一定没有残留")
+                            "请往这个主题发一条空的保留消息清掉（右边按钮一键发，要先打开“允许下发”）；没看到告警不代表 Broker 上一定没有残留")
         self.banner.show()
+        self.clear_btn.show()
 
     def _render_timeline(self):
         # 只看当前这次无人机连接的

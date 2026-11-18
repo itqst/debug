@@ -86,8 +86,11 @@ class MqttTransport:
         # QoS 0 只表示客户端写出去了；QoS 1 是收到 Broker 的 PUBACK 之后才回调。都不代表对端执行了
         self._offer(("transport", f"客户端发送完成 mid={mid}（QoS 0 只表示已写出，QoS 1 表示 Broker 已收到）"))
 
-    def publish(self, topic, payload):
-        """payload 为 str 时按原文发送，便于发异常报文；其他值序列化为 JSON"""
+    def publish(self, topic, payload, retain=False):
+        """payload 为 str 时按原文发送，便于发异常报文；其他值序列化为 JSON
+
+        retain 只给“清除保留消息”用：往主题发一条空的保留消息，Broker 就删掉那条残留；平时一律不保留
+        """
         if not self.client or not self.connected:
             raise RuntimeError("MQTT 未连接，不排队旧命令")
         # 无人机默认只读：所有发送都从这里出去（遥控、快捷键、切页补发的停止），一处挡住；
@@ -98,7 +101,7 @@ class MqttTransport:
             if topic not in UAV_COMMAND_TOPICS:
                 raise RuntimeError(f"无人机只往 VFC、Bridge 的指令主题发，{topic} 不发")
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
-        result = self.client.publish(topic, text, qos=self.qos_for(topic), retain=False)
+        result = self.client.publish(topic, text, qos=self.qos_for(topic), retain=retain)
         if result.rc != 0:
             raise RuntimeError("MQTT 未接受发布 rc=" + str(result.rc))
 
