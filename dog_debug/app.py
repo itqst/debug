@@ -950,9 +950,9 @@ def self_check(window, folder):
     # 以隐藏方式启动时第一次 show 会沿用隐藏标志，这里再显式显示一次，OpenGL 才会真正出帧
     window.showNormal()
     window.raise_()
-    # 3D 观察区只在设备选狗时显示，上次配置是无人机时先换过来
+    # 3D 观察区只在狗的总览页显示，上次配置是无人机时先换过来
     window.device_box.setCurrentText("机器狗")
-    window._go(window.REMOTE)
+    window._go(window.OVERVIEW)
     deadline = time.monotonic() + 30
     # 窗口刚显示时布局还在调整，此时截图里 3D 区是空白的；视图尺寸和上一次检查相同才算稳定
     last_size = [None]
