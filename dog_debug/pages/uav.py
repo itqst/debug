@@ -9,26 +9,18 @@ import uuid
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QFileDialog, QHBoxLayout, QHeaderView, QLineEdit, QListWidget, QListWidgetItem, QSplitter,
-    QApplication, QInputDialog, QLabel, QMessageBox, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog, QLineEdit,
+    QListWidget, QListWidgetItem, QMessageBox, QPushButton, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QWidget,
 )
 
-from ..core import BRIDGE, payload_diff, requests
-from ..trace_view import Step, TraceView
+from ..core import BRIDGE
 from ..registry import make_command
-from ..uav import (
-    alarm_of, ALWAYS, BRIDGE_KEYS, changes, domain, freshness, link, LINK_SECONDS, module_of, MODULE_TITLES, MODULES,
-    outcome, quality, reading, retained_command, title_of, VFC_KEYS, WAITING_NEXT,
-)
-from ..ui import (
-    BLUE, button, card, dot, FlowGrid, glyph_icon, GRAY, GREEN, label, MODULE_COLORS, ModuleMessageModel, ORANGE, PillDelegate,
-    RED, scroller, Segmented, tint,
-)
+from ..uav import alarm_of, changes, domain, freshness, link, outcome, quality, reading, retained_command
+from ..ui import BLUE, button, card, GRAY, GREEN, label, ORANGE, RED, scroller, Segmented, tint
 
 QUALITY_COLORS = {"正常": GREEN, "失败": RED, "未知": ORANGE, "不适用": GRAY}
 RESULT_COLORS = {0: GREEN, 1: RED, 2: ORANGE}
-# Bridge 不在狗的模块颜色表里
-COLORS = {**MODULE_COLORS, "bridge": "#30B0C7"}
 LEVEL_COLORS = {"critical": RED, "error": RED, "warning": ORANGE, "info": BLUE}
 # 页面上直接点的 VFC 指令（data 为空，带当前任务的 bid）
 QUICK = (("pause_nav", "暂停"), ("continue_nav", "继续"), ("stop_nav", "结束航线"), ("start_nav_return_home", "返航"), ("land", "降落"))
@@ -46,79 +38,45 @@ class UavPage:
         self.alarms, self.maps = {}, None
         self.drawn_touch, self.drawn_at = None, 0.0
 
-    def _uav_page(self):
-        """设备选无人机时的“状态总览”"""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "状态总览", "各模块的状态、VFC 告警、指令和回执，点模块卡片看详情；时效按本机收到的时间算，板上时钟不准",
-                              button("导出本次报文", self._export, "link"))
+    def banner_widget(self):
+        """指令主题上的残留保留消息告警，放在状态总览顶上，只在无人机有残留时出现"""
         self.banner = label("", wrap=True)
         self.banner.setTextFormat(Qt.RichText)
         self.banner.setStyleSheet(f"background:{tint(RED, 40)};color:{RED};border-radius:10px;padding:10px 14px")
         self.banner.hide()
-        layout.addWidget(self.banner)
-        self.link_note = label("", "caption", True)
-        layout.addWidget(self.link_note)
-        # 一个模块一张卡片（和狗的状态总览一样），卡片里一行一类状态；点卡片右侧展开这个模块的详情
-        self.cards, self.frames = {}, {}
-        for module in MODULES:
-            frame = Step()
-            frame.setObjectName("card")
-            frame.setCursor(Qt.PointingHandCursor)
-            frame.clicked.connect(lambda m=module: self._open_detail(m))
-            box = QVBoxLayout(frame)
-            box.setContentsMargins(16, 14, 16, 14)
-            box.setSpacing(6)
-            head = QHBoxLayout()
-            icon = QLabel()
-            icon.setPixmap(glyph_icon(module[0].upper(), COLORS.get(module, GRAY)).pixmap(22, 22))
-            head.addWidget(icon)
-            head.addWidget(label(MODULE_TITLES[module], "sectionTitle"))
-            head.addStretch()
-            state, when = dot("#C7C7CC"), label("未观测", "caption")
-            head.addWidget(state)
-            head.addWidget(when)
-            box.addLayout(head)
-            body = label("", wrap=True)
-            body.setTextFormat(Qt.RichText)
-            body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-            hint = label("", "caption", True)
-            box.addWidget(body)
-            box.addWidget(hint)
-            box.addStretch()
-            self.cards[module], self.frames[module] = (state, when, body, hint), frame
-        frames = list(self.frames.values())
-        # 卡片和时间线放进可滚动的区域：窗口矮时卡片保持原来的高度，不被时间线挤扁
-        body = QWidget()
-        inner = QVBoxLayout(body)
-        inner.setContentsMargins(0, 0, 6, 0)
-        self.grid = FlowGrid(frames, 2, 380)
-        inner.addWidget(self.grid)
-        inner.addSpacing(8)
-        alarm_card, av = card(6, 12)
+        return self.banner
+
+    def extras_widget(self):
+        """状态总览卡片下面无人机多出来的：VFC 告警、关键变化、指令时间线三个分段，上面一行写连接和发送开关"""
+        extras, ev = card(6, 14)
         head = QHBoxLayout()
-        head.addWidget(label("告警", "sectionTitle"))
+        self.extras_view = Segmented(["告警", "关键变化", "指令时间线"])
+        head.addWidget(self.extras_view)
         self.alarm_count = label("", "caption")
-        head.addWidget(self.alarm_count, 1)
-        av.addLayout(head)
+        head.addWidget(self.alarm_count)
+        head.addStretch()
+        head.addWidget(button("导出本次报文", self._export, "link"))
+        ev.addLayout(head)
+        self.link_note = label("", "caption", True)
+        ev.addWidget(self.link_note)
+        pages = QStackedWidget()
+        self.extras_view.changed.connect(pages.setCurrentIndex)
         self.alarm_text = label("", "caption", True)
         self.alarm_text.setTextFormat(Qt.RichText)
         self.alarm_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        av.addWidget(self.alarm_text)
-        inner.addWidget(alarm_card)
-        inner.addSpacing(8)
-        changes_card, cv = card(6, 12)
-        cv.addWidget(label("关键变化", "sectionTitle"))
+        self.alarm_text.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        pages.addWidget(scroller(self.alarm_text))
+        changes = QWidget()
+        cv = QVBoxLayout(changes)
+        cv.setContentsMargins(0, 0, 0, 0)
         cv.addWidget(label("状态词、航点进度、飞控解锁/落地/模式/起飞、VFC 任务/建图/定位/地图和告警的变化，新的在上；到点放行、"
                            "地图保存结果、定位丢失、告警标蓝加粗", "caption", True))
         self.changes = QListWidget()
-        self.changes.setMinimumHeight(200)
-        cv.addWidget(self.changes)
-        inner.addWidget(changes_card)
-        inner.addSpacing(8)
-        table_card, tv = card(6, 12)
-        tv.addWidget(label("指令时间线", "sectionTitle"))
+        cv.addWidget(self.changes, 1)
+        pages.addWidget(changes)
+        timeline = QWidget()
+        tv = QVBoxLayout(timeline)
+        tv.setContentsMargins(0, 0, 0, 0)
         tv.addWidget(label("Bridge 命令不带 VFC 的 tid，按动作对应、时间就近配到 VFC 指令（候选，不代表一定是因果）；"
                            "VFC 的 ACK 里写了这条 Bridge 回执的状态和原因码时标“已对上”。双击一行单独开窗口看全部报文", "caption", True))
         self.table = QTableWidget(0, 6)
@@ -135,19 +93,12 @@ class UavPage:
             header.resizeSection(column, width)
         header.setSectionResizeMode(QHeaderView.Interactive)
         self.table.cellDoubleClicked.connect(self._open_row)
-        self.table.setMinimumHeight(320)
         tv.addWidget(self.table, 1)
-        inner.addWidget(table_card, 1)
-        self.split = QSplitter()
-        self.split.setHandleWidth(14)
-        self.split.addWidget(scroller(body))
-        self.split.addWidget(self._detail())
-        self.split.setStretchFactor(0, 3)
-        self.split.setStretchFactor(1, 2)
-        layout.addWidget(self.split, 1)
+        pages.addWidget(timeline)
+        pages.setFixedHeight(250)
+        ev.addWidget(pages)
         self.rows = []
-        self.render()
-        return page
+        return extras
 
     def observe(self, event):
         """每条入库消息都过一遍：只有当前活动连接的无人机消息进卡片和告警"""
@@ -184,183 +135,6 @@ class UavPage:
         elif event.topic == BRIDGE + "command" and event.payload.get("action") == "navigation.next":
             self._note(event, f"发出 navigation.next（{event.payload.get('client') or '未写 client'}，id {event.payload.get('id')}）", True)
 
-    def _detail(self):
-        """右侧领域详情，点卡片打开：状态上报（最新一条完整字段、和上一条比、这次连接里的变化）和相关指令"""
-        self.detail_card, dv = card(8, 16)
-        self.detail_card.setMinimumWidth(380)
-        head = QHBoxLayout()
-        self.detail_title = label("", "sectionTitle")
-        head.addWidget(self.detail_title)
-        head.addStretch()
-        head.addWidget(button("收起", lambda: self._open_detail(None), "link"))
-        dv.addLayout(head)
-        self.detail_topic = label("", "caption", True)
-        self.detail_topic.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        dv.addWidget(self.detail_topic)
-        self.detail_view = Segmented(["状态上报", "相关指令"])
-        self.detail_view.changed.connect(self._detail_view_changed)
-        dv.addWidget(self.detail_view)
-        self.detail_pages = QStackedWidget()
-        holder = QWidget()
-        self.detail_box = QVBoxLayout(holder)
-        self.detail_box.setContentsMargins(0, 0, 6, 0)
-        self.detail_box.setSpacing(10)
-        self.detail_pages.addWidget(scroller(holder))
-        listing = QWidget()
-        lv = QVBoxLayout(listing)
-        lv.setContentsMargins(0, 0, 0, 0)
-        self.detail_model = ModuleMessageModel()
-        self.detail_table = QTableView()
-        self.detail_table.setModel(self.detail_model)
-        self.detail_table.setItemDelegate(PillDelegate(self.detail_table))
-        self.detail_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.detail_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.detail_table.setShowGrid(False)
-        self.detail_table.verticalHeader().hide()
-        self.detail_table.verticalHeader().setDefaultSectionSize(34)
-        header = self.detail_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        for column, width in enumerate((76, 190, 96)):
-            header.resizeSection(column, width)
-        self.detail_table.clicked.connect(self._detail_open)
-        lv.addWidget(self.detail_table, 1)
-        self.detail_empty = label("", "caption", True)
-        lv.addWidget(self.detail_empty)
-        self.detail_pages.addWidget(listing)
-        trace = QWidget()
-        tv = QVBoxLayout(trace)
-        tv.setContentsMargins(0, 0, 0, 0)
-        back = QHBoxLayout()
-        back.addWidget(button("‹ 返回列表", lambda: self.detail_pages.setCurrentIndex(1), "link"))
-        back.addStretch()
-        back.addWidget(button("单独窗口打开", lambda: self.detail_trace.selected and self.app.open_request(self.detail_trace.selected), "link"))
-        tv.addLayout(back)
-        self.detail_trace = TraceView("")
-        self.detail_trace.original.connect(self.app._original)
-        self.detail_trace.store = self.app.store
-        tv.addWidget(self.detail_trace, 1)
-        self.detail_pages.addWidget(trace)
-        dv.addWidget(self.detail_pages, 1)
-        self.detail_card.hide()
-        return self.detail_card
-
-    def _open_detail(self, key):
-        self.detail_key, self.detail_drawn = key, None
-        for name, frame in self.frames.items():
-            frame.setStyleSheet("QFrame#card{border:1.5px solid %s}" % BLUE if name == key else "")
-        self.detail_card.setVisible(bool(key))
-        # 详情一开始是隐藏的，第一次展开时分栏没给它留宽度
-        sizes = self.split.sizes()
-        if key and sizes[1] < 460:
-            self.split.setSizes([max(sum(sizes) - 460, 300), 460])
-        if key:
-            self.detail_title.setText(MODULE_TITLES[key] + " 详情")
-            self.detail_pages.setCurrentIndex(min(self.detail_view.index(), 1))
-            self._render_detail()
-
-    def _detail_view_changed(self, index):
-        self.detail_pages.setCurrentIndex(min(index, 1))
-        self.detail_drawn = None
-        self._render_detail()
-
-    def _keys(self, module):
-        """这个模块收到过的状态类型，按卡片里的行序"""
-        fixed = BRIDGE_KEYS if module == "bridge" else VFC_KEYS if module == "vfc" else ()
-        # 其他模块在线那一行放最前
-        others = sorted((k for k in self.history if ":" in k and module_of(k) == module), key=lambda k: (title_of(k) != "在线", k))
-        return [k for k in fixed if k in self.history] + others
-
-    def _render_detail(self):
-        """这个模块有新消息、相关指令有变化或换了分段才重画"""
-        module = self.detail_key
-        if not module:
-            return
-        keys = self._keys(module)
-        stamp = (self.session, self.detail_view.index(), tuple((k, self.history[k][-1].event_id) for k in keys),
-                 self.app.module_touched.get(module, 0) if self.detail_view.index() else 0)
-        if stamp == self.detail_drawn:
-            return
-        self.detail_drawn = stamp
-        topics = sorted({self.history[k][-1].topic for k in keys})
-        self.detail_topic.setText("Topic " + ("、".join(topics) if topics else "—"))
-        if self.detail_view.index():
-            self._render_related(module)
-        else:
-            self._render_reports(module, keys)
-
-    def _render_reports(self, module, keys):
-        """各类状态最新一条的完整字段（和上一条比变了的标橙），下面是这次连接里这个模块变过哪些字段"""
-        while self.detail_box.count():
-            item = self.detail_box.takeAt(0)
-            if item.widget():
-                item.widget().hide()
-                item.widget().deleteLater()
-        if not keys:
-            self.detail_box.addWidget(label("这次连接还没收到这个模块的状态", "caption", True))
-            self.detail_box.addStretch()
-            return
-        now, steps = time.time(), []
-        for key in keys:
-            kept = self.history[key]
-            e, before = kept[-1], (kept[-2] if len(kept) > 1 else None)
-            changed = {path: old for path, old, _ in payload_diff(before.payload, e.payload)} if before else {}
-            lines = []
-            for path, _, value in payload_diff({}, e.payload):
-                text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-                if path in changed:
-                    lines.append(f"{html.escape(path)}　<b style='color:{ORANGE}'>{html.escape(text)}</b>"
-                                 f"<span style='color:{GRAY}'>　（原 {html.escape(json.dumps(changed[path], ensure_ascii=False))}）</span>")
-                else:
-                    lines.append(f"{html.escape(path)}　{html.escape(text)}")
-            word = reading(e)[0]
-            color = QUALITY_COLORS[quality(e)]
-            fresh = freshness(e, now)
-            block = label(f"<b>{html.escape(title_of(key))}</b>　<b style='color:{color}'>{html.escape(word or '—')}</b>"
-                          f"<span style='color:{GRAY}'>　{time.strftime('%H:%M:%S', time.localtime(e.timestamp))} 收到 · {fresh}"
-                          f" · 共 {len(kept)} 条</span><br>"
-                          f"<span style='font-family:Consolas,monospace;font-size:12px'>{'<br>'.join(lines) or '（没有字段）'}</span>", wrap=True)
-            block.setTextFormat(Qt.RichText)
-            block.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            block.setObjectName("detailBlock")
-            self.detail_box.addWidget(block)
-            for old, new in zip(kept, kept[1:]):
-                diff = [(path, x, y) for path, x, y in payload_diff(old.payload, new.payload) if not path.endswith("ts")]
-                if diff:
-                    text = "；".join(f"{path} {json.dumps(x, ensure_ascii=False)} → {json.dumps(y, ensure_ascii=False)}" for path, x, y in diff[:6])
-                    steps.append((new.timestamp, f"{title_of(key)}　{text}"))
-        steps.sort()
-        self.detail_box.addWidget(label("这次连接里的变化（ts 除外）", "groupHeader"))
-        changes_text = label("<br>".join(f"{time.strftime('%H:%M:%S', time.localtime(at))}　{html.escape(text)}"
-                                         for at, text in reversed(steps[-60:])) or "收到的各条内容都一样", "caption", True)
-        changes_text.setTextFormat(Qt.RichText)
-        changes_text.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.detail_box.addWidget(changes_text)
-        self.detail_box.addStretch()
-
-    def _render_related(self, module):
-        """这个模块的指令和回执，一次请求一行，新的在前；只看这次连接"""
-        fetched = self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, session=self.session) if self.session else []
-        found = sorted(requests(self.app.store, fetched), key=lambda r: -r.events[-1].timestamp)[:150]
-        rows = []
-        for r in found:
-            first = next((e for e in r.events if e.kind == "指令"), r.events[0])
-            note = "本机发出" if any(e.direction == "发送" for e in r.events) else "观测到" if first.kind == "指令" else "仅观测到回复"
-            rows.append((first, note, r.status, note))
-        self.detail_model.replace(rows)
-        for row, (e, *_) in enumerate(rows):
-            if (e.sn, e.session, e.tid) == self.detail_row:
-                self.detail_table.selectRow(row)
-        self.detail_empty.setText(f"这次连接里 {MODULE_TITLES[module]} 的指令和回执" + ("，还没有" if not rows else f"，{len(rows)} 次请求") + "；点一行看整条请求")
-        if self.detail_pages.currentIndex() == 2:
-            self.detail_trace.refresh()
-
-    def _detail_open(self, index):
-        e = self.detail_model.rows[index.row()][0]
-        self.detail_row = (e.sn, e.session, e.tid)
-        self.detail_trace.show_trace(e, self.app.store.trace(e))
-        self.detail_pages.setCurrentIndex(2)
-
     def _note(self, event, text, loud):
         self.log.insert(0, (event.timestamp, text, loud))
         del self.log[300:]
@@ -375,15 +149,13 @@ class UavPage:
         return bool(event) and freshness(event, time.time()) == "实时" and reading(event)[0] == "在线"
 
     def tick(self, now):
-        """无人机页可见时事件队列每轮调用：卡片时效每秒更新，时间线在 VFC 或 Bridge 有新消息时重画"""
+        """无人机状态总览或航线任务页可见时事件队列每轮调用：每秒更新一次，时间线在 VFC 或 Bridge 有新消息时重画"""
         touch = (self.app.module_touched.get("vfc", 0), self.app.module_touched.get("bridge", 0))
         if now - self.drawn_at >= 1 or touch != self.drawn_touch:
             self.render()
 
     def render(self):
-        now = time.time()
         self.drawn_at = time.monotonic()
-        live = self.app.mqtt.connected and self.app.mqtt.device == "uav" and self.session == self.app.mqtt.session
         if self.app.mqtt.device == "uav" and self.app.mqtt.client:
             sending = "已打开“允许向无人机发送”，控制调试页发的指令会真的发到板上" if self.app.mqtt.uav_send else "只读，不会发送任何消息"
             self.link_note.setText(f"{'已连接' if self.app.mqtt.connected else '连接中或已断开'} {self.app.mqtt.host}，{sending}")
@@ -398,76 +170,10 @@ class UavPage:
         if hasattr(self, "task_line"):
             self._render_task()
             self._render_maps()
-        self._render_cards(live, now)
         touch = (self.app.module_touched.get("vfc", 0), self.app.module_touched.get("bridge", 0))
         if touch != self.drawn_touch:
             self.drawn_touch = touch
             self._render_timeline()
-        if hasattr(self, "detail_card"):
-            self._render_detail()
-
-    def _render_cards(self, live, now):
-        """每张模块卡片一行一类状态：名称、状态词（颜色看数据本身）、说明，过期或保留快照时写明；没收到的模块只在前四个里占位"""
-        shown = []
-        for module in MODULES:
-            state, when, body, hint = self.cards[module]
-            keys = self._keys(module) if live else []
-            if module in ALWAYS or keys:
-                shown.append(self.frames[module])
-            lines, newest = [], 0.0
-            for key in keys:
-                e = self.latest[key]
-                newest = max(newest, e.timestamp)
-                word, note, _, extra = reading(e)
-                waiting = key == "navigation" and word == WAITING_NEXT
-                color = BLUE if waiting else QUALITY_COLORS[quality(e)]
-                fresh = freshness(e, now)
-                # Bridge 在线只在上线时发一条保留消息，不定时重发；掉线时 Broker 按遗嘱改成 OFFLINE，保留的这条就是现在的状态
-                late = "" if fresh == "实时" or key == "online" else f"　<span style='color:{ORANGE}'>{fresh}</span>"
-                if key == "vfc_osd":
-                    # OSD 空闲时整条不发，要看得出最近一次是什么时候、隔了多久
-                    late = f"　<span style='color:{ORANGE if fresh != '实时' else GRAY}'>{time.strftime('%H:%M:%S', time.localtime(e.timestamp))} 收到 · {now - e.timestamp:.0f} 秒前</span>"
-                shown_word = "5 · 到点，等待放行" if waiting else word
-                text = f"<b>{html.escape(title_of(key))}</b>" + (f"　<b style='color:{color}'>{html.escape(shown_word)}</b>" if shown_word != "" else "")
-                more = "　".join(html.escape(part) for part in (note, extra) if part)
-                lines.append(text + (f"　<span style='color:{GRAY}'>{more}</span>" if more else "") + late)
-            if module == "vfc":
-                active = [code for code, (_, raised) in self.alarms.items() if raised]
-                if active:
-                    lines.append(f"<b>告警</b>　<b style='color:{RED}'>{len(active)} 条进行中</b>　<span style='color:{GRAY}'>{html.escape('、'.join(active[:4]))}</span>")
-            body.setText("<br>".join(lines))
-            body.setVisible(bool(lines))
-            missing = [self._missing(key, now) for key in (BRIDGE_KEYS if module == "bridge" else VFC_KEYS if module == "vfc" else ())
-                       if live and key not in self.latest]
-            hint.setText(self._module_hint(module, keys, live, now) or "；".join(dict.fromkeys(m for m in missing if m)))
-            seconds = now - newest
-            when.setText(("已断开" if self.latest and not live else "未观测") if not newest else
-                         f"{seconds:.0f} 秒前" if seconds < 120 else time.strftime("%H:%M:%S", time.localtime(newest)))
-            state.setStyleSheet(f"background:{GREEN if newest and seconds < 5 else '#C7C7CC'};border-radius:4px")
-        self.grid.show_only(shown)
-
-    def _module_hint(self, module, keys, live, now):
-        """整个模块都没收到时写可能的原因"""
-        if not live or keys:
-            return ""
-        if module == "vfc":
-            return "连上后没收到 VFC 的任何消息，VFC 服务可能没在跑" if now - self.since > LINK_SECONDS else ""
-        if module == "bridge":
-            return "连上后没收到 Bridge 的消息" if now - self.since > LINK_SECONDS else ""
-        return f"无人机的 {module.upper()} 还没接入或没在跑，接入后它的状态会出现在这里"
-
-    def _missing(self, key, now):
-        """模块在报但某一类一直没收到时写可能的原因"""
-        vfc = any(k in self.latest for k in VFC_KEYS)
-        if key == "mapping_status" and vfc:
-            return "VFC 在报别的状态但没有建图状态，板上可能还是旧版 VFC"
-        if key == "vfc_osd" and vfc:
-            return "VFC 空闲（没有位姿和电量）时不发 OSD，收不到是正常的"
-        system = self.latest.get("system")
-        detail = (system.payload.get("info") or {}).get("detail") if system else None
-        if key == "pose" and isinstance(detail, dict) and detail.get("ros") == "DOWN":
-            return "Bridge 报 ros DOWN，没有位姿可发"
-        return ""
 
     def _render_alarms(self):
         """进行中的告警在前，已解除的在后，各自新的在前；告警码、级别、标题、建议，带坐标时写上"""
@@ -475,7 +181,7 @@ class UavPage:
             return
         items = sorted(self.alarms.values(), key=lambda pair: (not pair[1], -pair[0].timestamp))
         active = sum(1 for _, raised in items if raised)
-        self.alarm_count.setText(f"{active} 条进行中 · 已解除 {len(items) - active} 条" if items else "")
+        self.alarm_count.setText(f"告警 {active} 条进行中 · 已解除 {len(items) - active} 条" if items else "")
         lines = []
         for e, raised in items[:20]:
             info = alarm_of(e)
@@ -522,12 +228,73 @@ class UavPage:
             payload["profile"] = profile
         return self.app._emit(payload, json.dumps(payload, ensure_ascii=False), item["topic"], "vfc")
 
+    def _teleop_page(self):
+        """设备选无人机时的“遥控与载荷”：VFC 有的指令（暂停、继续、返航、降落、结束航线）照常发；实时摇杆、起飞、云台和拍照
+        现在没有接口，先放着不可用，接口有了再接"""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.app._page_header(layout, "无人机 · 遥控与载荷", "任务指令经 VFC 下发，带当前任务的 bid；实时摇杆、起飞和载荷还没有接口，先显示不执行")
+        row = QHBoxLayout()
+        row.setSpacing(16)
+        flight, fv = card(10, 18)
+        fv.addWidget(label("飞行控制（VFC）", "sectionTitle"))
+        fv.addWidget(label("实时摇杆没有接口，方向键先不可用；飞控状态看总览里的 Bridge 卡片", "caption", True))
+        pad = QGridLayout()
+        pad.setSpacing(10)
+        for index, text in enumerate(("↖", "↑ W", "↗", "← A", "停", "D →", "⟲ Q", "↓ S", "E ⟳")):
+            key = QPushButton(text)
+            key.setObjectName("padStop" if text == "停" else "pad")
+            key.setFixedSize(68, 56)
+            key.setEnabled(False)
+            pad.addWidget(key, index // 3, index % 3)
+        holder = QHBoxLayout()
+        holder.addStretch()
+        holder.addLayout(pad)
+        holder.addStretch()
+        fv.addLayout(holder)
+        fv.addWidget(label("任务快捷指令", "groupHeader"))
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        actions = (("一键起飞（暂无接口）", None), ("降落 land", "land"), ("暂停 pause_nav", "pause_nav"),
+                   ("继续 continue_nav", "continue_nav"), ("返航 return_home", "start_nav_return_home"), ("结束航线 stop_nav", "stop_nav"))
+        for index, (text, method) in enumerate(actions):
+            item = QPushButton(text)
+            item.setObjectName("tile")
+            item.setEnabled(bool(method))
+            if method:
+                item.clicked.connect(lambda _, m=method: self._quick(m))
+            grid.addWidget(item, index // 3, index % 3)
+        fv.addLayout(grid)
+        fv.addStretch()
+        row.addWidget(flight, 1)
+        payload, pv = card(10, 18)
+        pv.addWidget(label("云台与载荷", "sectionTitle"))
+        pv.addWidget(label("无人机的 PTZ、Media 还没接入，下面先不可用；接入后和狗一样走 local/uav/ptz、media", "caption", True))
+        screen = label("还没有视频流", "caption")
+        screen.setAlignment(Qt.AlignCenter)
+        screen.setMinimumHeight(200)
+        screen.setStyleSheet("background:#111114;color:#8E8E93;border-radius:14px")
+        pv.addWidget(screen)
+        tools = QGridLayout()
+        tools.setSpacing(8)
+        for index, text in enumerate(("拍照", "录像", "识别抓拍", "云台回中", "可见光", "红外测温")):
+            item = QPushButton(text)
+            item.setObjectName("tile")
+            item.setEnabled(False)
+            tools.addWidget(item, index // 3, index % 3)
+        pv.addLayout(tools)
+        pv.addStretch()
+        row.addWidget(payload, 1)
+        layout.addLayout(row, 1)
+        return page
+
     def _mission_page(self):
         """设备选无人机时的“航线任务”：常用 VFC 指令一键发，航线在表格里编，发出后到状态总览看进度"""
         page = QWidget()
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(outer, "航线任务", "模拟 GW 给 VFC 发指令，暂停、继续带当前任务的 bid；左侧打开“允许向无人机发送”才会真的发")
+        self.app._page_header(outer, "无人机 · 航线任务与地图", "模拟 GW 给 VFC 发指令，暂停、继续带当前任务的 bid；顶栏打开“允许下发”才会真的发")
         # 四张卡片竖着排，窗口矮时整页滚动
         body = QWidget()
         layout = QVBoxLayout(body)

@@ -113,31 +113,29 @@ def test_card_freshness_and_quality_are_separate():
 
 
 def card_text(window, module):
-    """模块卡片的正文（一行一类状态）、提示和右上角时间"""
-    state, when, body, hint = window.uav.cards[module]
-    return body.text(), hint.text(), when.text()
+    """状态总览（和狗同一页）里这个模块卡片的正文和右上角时间；先按当前设备刷新"""
+    window.store.flush()
+    window.status._refresh_status()
+    state, when, content = window.status.module_cards[module]
+    return content.text(), when.text()
 
 
-def test_uav_page_shows_cards_from_active_connection(window):
-    """状态总览按模块分卡片：Bridge 一张（各领域一行）、VFC 一张；GW、Vision 没接时也占位"""
+def test_uav_overview_reuses_dog_status_page(window):
+    """无人机的总览和狗用同一个状态页：一个模块一张卡片（Bridge、VFC、GW、Vision、PTZ、VTC、FSVR），卡片里是各类状态的方法名、时间和字段摘要"""
+    window.device_box.setCurrentText("无人机")
     for e in capture("idle.jsonl"):
         window._ingest(e)
-    window.uav.render()
-    bridge, _, _ = card_text(window, "bridge")
-    for line in ("任务环境</b>　<b style='color:#34C759'>READY", "定位</b>", "STALE", "建图</b>", "DISABLED", "在线</b>", "ONLINE"):
-        assert line in bridge, line
-    assert "航点共 —" in bridge and "最后完成编号 -1" in bridge
-    vfc, _, _ = card_text(window, "vfc")
-    assert "StandBy" in vfc and "在线" in vfc
-    _, hint, when = card_text(window, "gw")
-    assert "还没接入" in hint and when == "未观测"
-    shown = window.uav.grid.cards
-    assert [f for f in shown] == [window.uav.frames[m] for m in ("bridge", "vfc", "gw", "vision")]
-    # 断开后卡片不再当作实时
-    window.mqtt.connected = False
-    window.uav.render()
-    body, _, when = card_text(window, "bridge")
-    assert body == "" and when == "已断开"
+    bridge, when = card_text(window, "bridge")
+    assert "system" in bridge and "data=READY" in bridge and "localization" in bridge and when != "未观测"
+    vfc, _ = card_text(window, "vfc")
+    assert "nav_status" in vfc and "StandBy" in vfc
+    assert "还没有收到 GW" in card_text(window, "gw")[0]
+    assert window.status.status_grid.cards == [window.status.module_frames[m] for m in ("bridge", "vfc", "gw", "vision", "ptz", "vtc", "fsvr")]
+    assert window.status.heading.text() == "无人机 · 状态总览与遥测"
+    # 狗的直播和音视频预览不显示，换成无人机的告警、关键变化、指令时间线
+    assert window.status.live_card[0].isHidden() and not window.status.uav_extras.isHidden()
+    window.device_box.setCurrentText("机器狗")
+    assert window.status.status_grid.cards[0] is window.status.module_frames["gw"] and window.status.uav_extras.isHidden()
 
 
 def test_retained_command_alert_and_new_connection_resets(window):
@@ -346,8 +344,6 @@ def test_waypoint_release_moments_are_loud(window):
     assert "导航 ACTIVE → WAYPOINT_COMPLETE_WAITING_EXTERNAL_TRIGGER（到点，等待放行）" in loud
     assert "最后完成航点编号 -1 → 0" in loud and "飞控 PRE_YAW → HOLD（转向完成，可以放行）" in loud
     assert "发出 navigation.next（vfc，id vfc-1-9）" in loud and "Bridge 到点事件：waypoint=1 arrival_yaw_complete" in loud
-    window.uav.render()
-    assert "5 · 到点，等待放行" in card_text(window, "bridge")[0]
 
 
 def test_quick_buttons_send_with_current_task_bid_at_qos1(window):
@@ -415,30 +411,28 @@ def test_capture_jsonl_imports_on_logs_page(tmp_path):
     assert events[0].retained and events[0].module == "bridge"
 
 
-def test_sidebar_follows_device_and_locks_while_connected(window, monkeypatch):
-    """选无人机后侧栏只剩无人机能用的页，日志页不给取设备日志；连上后不能换设备，断开才放开"""
+def test_sidebar_stays_and_pages_switch_content_with_device(window, monkeypatch):
+    """狗和无人机共用 5 个页，换设备不换页、只换内容；顶栏出现“允许下发”；连上后不能换设备，断开才放开"""
     rows = lambda: [window.nav.item(i).text() for i in range(window.nav.count())]
-    assert "遥控" in rows() and not window.uav_send.isVisible()
+    assert rows() == ["总览与遥测", "遥控与载荷", "指令与链路", "任务与文件", "日志与配置"] and window.uav_lock.isHidden()
+    window._go(window.TELEOP)
     window.device_box.setCurrentText("无人机")
-    assert rows() == ["控制调试", "航线任务", "状态总览", "日志排障"]
-    assert not window.uav_send.isHidden() and window.logs.fetch_logs.isHidden() and window.logs.live_follow.isHidden()
-    window._go(window.UAV_MISSION)
-    assert window.stack.currentIndex() == window.UAV_MISSION
-    # 切回狗，当前页狗没有，落到狗的第一页
-    window.device_box.setCurrentText("机器狗")
-    assert rows()[0] == "遥控" and window.stack.currentIndex() == window.REMOTE and window.uav_send.isHidden()
-    assert not window.logs.fetch_logs.isHidden()
+    assert rows() == ["总览与遥测", "遥控与载荷", "指令与链路", "任务与文件", "日志与配置"]
+    assert window.stack.currentIndex() == window.TELEOP and window.teleop_stack.stack.currentIndex() == 1
+    assert window.mission_stack.stack.currentIndex() == 1 and window.device_seg.index() == 1
+    assert not window.uav_lock.isHidden() and window.logs.fetch_logs.isHidden() and window.logs.live_follow.isHidden()
+    window.device_seg.set_index(0)
+    assert window.device_box.currentText() == "机器狗" and window.teleop_stack.stack.currentIndex() == 0 and window.uav_lock.isHidden()
     window.device_box.setCurrentText("无人机")
     window.mode_box.setCurrentText("直连模块")
     window.mqtt.client = None
     monkeypatch.setattr(window.mqtt, "connect", lambda *a, **k: None)
     window.connection._connect()
-    assert not window.device_box.isEnabled()
+    assert not window.device_box.isEnabled() and not window.device_seg.isEnabled()
     window.mqtt.client = object()
     monkeypatch.setattr(window.mqtt, "close", lambda: None)
     window.connection._connect()
-    assert window.device_box.isEnabled()
-
+    assert window.device_box.isEnabled() and window.device_seg.isEnabled()
 
 
 def test_bridge_send_warns_when_vfc_online(window, monkeypatch):
@@ -462,47 +456,19 @@ def test_bridge_send_warns_when_vfc_online(window, monkeypatch):
     assert "绕开 VFC" not in notes[-1]
 
 
-def test_board_with_ros_down_and_no_vfc_explains_empty_cards(window):
-    """板上 ROS 没起、VFC 没跑时（11-09 板上实际情况）：在线不标“保留快照”，没收到的写可能原因"""
-    import time
-    now = time.time()
-    window.uav.since = now - 10
-    window._ingest(Event("local/uav/bridge/heartbeat", {"sn": "", "type": "online", "state": 1,
-                         "info": {"result": 0, "msg": "机载服务在线", "data": "ONLINE"}}, sn="", session="s1", retained=True, timestamp=now - 10))
-    window._ingest(Event("local/uav/bridge/state/system", {"sn": "", "type": "system", "state": 1, "info": {"result": 0, "msg": "环境空闲，可以启动",
-                         "data": "READY", "detail": {"ros": "DOWN"}}}, sn="", session="s1", timestamp=now))
-    window.uav.since = now - 10
-    window.uav.render()
-    body, hint, _ = card_text(window, "bridge")
-    assert "ONLINE" in body and "保留快照" not in body.split("<br>")[0]
-    assert "Bridge 报 ros DOWN，没有位姿可发" in hint
-    assert "VFC 服务可能没在跑" in card_text(window, "vfc")[1]
-
-
-def test_card_click_opens_detail_with_fields_changes_and_related_commands(window):
-    """和狗的状态总览一样点模块卡片看详情：各类状态最新一条完整字段、变了的标橙、这次连接里的变化、相关指令点开看整条请求"""
+def test_uav_module_detail_like_dog(window):
+    """点无人机的模块卡片，和狗一样右侧展开详情：模块上报的各类状态和指令与回复"""
+    window.device_box.setCurrentText("无人机")
     for e in capture("commands.jsonl"):
         window._ingest(e)
-    window.store.flush()
-    window.uav.render()
-    window.uav.frames["bridge"].clicked.emit()
-    assert not window.uav.detail_card.isHidden() and window.uav.detail_title.text() == "Bridge 机载服务 详情"
-    texts = [window.uav.detail_box.itemAt(i).widget().text() for i in range(window.uav.detail_box.count())
-             if window.uav.detail_box.itemAt(i).widget()]
-    assert any(t.startswith("<b>任务环境</b>") and "info.data" in t for t in texts)
-    assert "local/uav/bridge/state/system" in window.uav.detail_topic.text()
-    assert any(t.startswith("这次连接里的变化") for t in texts)
-    window.uav.detail_view.set_index(1)
-    rows = window.uav.detail_model.rows
+    card_text(window, "bridge")
+    window.status.module_frames["bridge"].clicked.emit()
+    assert not window.status.detail_card.isHidden() and window.status.detail_title.text() == "BRIDGE 详情"
+    window.status.detail_view.set_index(1)
+    rows = window.status.detail_model.rows
     assert rows and all(e.module == "bridge" for e, *_ in rows)
-    window.uav._detail_open(window.uav.detail_model.index(0, 0))
-    assert window.uav.detail_pages.currentIndex() == 2 and window.uav.detail_trace.selected is rows[0][0]
-    # VFC 卡片列的是 VFC 指令
-    window.uav.frames["vfc"].clicked.emit()
-    assert window.uav.detail_model.rows and all(e.module == "vfc" for e, *_ in window.uav.detail_model.rows)
-    window.uav.detail_view.set_index(0)
-    window.uav._open_detail(None)
-    assert window.uav.detail_card.isHidden()
+    window.status.module_frames["vfc"].clicked.emit()
+    assert window.status.detail_model.rows and all(e.module == "vfc" for e, *_ in window.status.detail_model.rows)
 
 
 def test_saved_dog_profile_cannot_switch_device_while_uav_connected(window, monkeypatch):
@@ -519,22 +485,23 @@ def test_saved_dog_profile_cannot_switch_device_while_uav_connected(window, monk
     window.profile_box.setCurrentIndex(index)
     window.connection._profile_chosen(index)
     assert window.device_box.currentText() == "无人机" and window.profile_box.currentIndex() == 0
-    assert window.nav.item(0).text() == "控制调试"
+    assert window.nav.item(0).text() == "总览与遥测" and window.device_seg.index() == 1
     window.mqtt.client = None
     window.connection._profile_chosen(index)
     assert window.device_box.currentText() == "机器狗" and window.host.text() == "10.0.0.2"
 
 
 def test_related_commands_not_pushed_out_by_other_modules(window):
-    """VFC 详情的相关指令在 SQL 里按模块筛：之后来 610 条 Bridge 命令也挤不掉那条 VFC 指令"""
+    """VFC 详情的指令与回复在 SQL 里按模块筛：之后来 610 条 Bridge 命令也挤不掉那条 VFC 指令"""
+    window.device_box.setCurrentText("无人机")
     window._ingest(Event("local/uav/vfc/command", {"method": "pause_nav", "tid": "p1", "bid": "b", "data": {}}, sn="", session="s1"))
     for i in range(610):
         window._ingest(Event("local/uav/bridge/command", {"sn": "", "id": f"s{i}", "type": "system", "action": "system.status", "client": "vfc"},
                              sn="", session="s1"))
-    window.store.flush()
-    window.uav._open_detail("vfc")
-    window.uav.detail_view.set_index(1)
-    assert [e.method for e, *_ in window.uav.detail_model.rows] == ["pause_nav"]
+    card_text(window, "vfc")
+    window.status._open_module("vfc")
+    window.status.detail_view.set_index(1)
+    assert [e.method for e, *_ in window.status.detail_model.rows] == ["pause_nav"]
 
 
 def test_every_uav_send_gets_new_id_and_current_ts(window):
@@ -734,42 +701,34 @@ def test_mapping_commands_follow_vfc_format(window):
 
 
 def test_mapping_status_card_shows_data_msg_session(window):
-    """mapping_status（VFC 1.0.0）：data 是协议词、raw 是 Bridge 原词、result 是协议码；卡片显示词、说明、原词和 session_id；
-    保存结果醒目记一条；VFC 自报 Unknown 的原因看说明；session 能复制"""
+    """mapping_status（VFC 1.0.0）：data 是协议词、raw 是 Bridge 原词、result 是协议码；VFC 卡片里看得到词、原词和 session_id；
+    保存结果醒目记一条；session 能复制"""
+    window.device_box.setCurrentText("无人机")
     window._ingest(mapping_state("Passive", "当前不在建图", raw="DISABLED", result=2))
     window._ingest(mapping_state("MappingRunning", "正在建图", "20261109_140005", raw="MAPPING", result=5))
     window._ingest(mapping_state("MappingSaveBegin", "正在保存地图", "20261109_140005", raw="SAVING", result=7))
     window._ingest(mapping_state("MappingSaveEnd", "地图已保存", "20261109_140005", raw="SAVED", result=8))
     window.uav.render()
     body = card_text(window, "vfc")[0]
-    assert "MappingSaveEnd" in body and "地图已保存" in body and "Bridge SAVED" in body and "session 20261109_140005" in body
+    assert "data=MappingSaveEnd" in body and "raw=SAVED" in body and "session_id=20261109_140005" in body
     assert any(loud and text == "VFC 建图 MappingSaveEnd：地图已保存" for _, text, loud in window.uav.log)
     assert window.uav.mapping_session() == "20261109_140005" and "MappingSaveEnd" in window.uav.mapping_line.text()
     from dog_debug.uav import quality
     assert quality(mapping_state("MappError", "保存失败", raw="SAVE_FAILED", result=6)) == "失败"
     assert quality(mapping_state("MappingRunning", "正在建图", result=5)) == "正常"
-    window._ingest(mapping_state("Unknown", "Bridge 建图状态过期", result=1))
-    window.uav.render()
-    assert "Bridge 建图状态过期" in card_text(window, "vfc")[0]
 
 
-def test_vfc_osd_card_shows_raw_values_and_age(window):
-    """VFC OSD（local/uav/vfc/osd）：缺的键显示“—”不当 0，原值显示；写明最近一次收到的时间和距今秒数；不驱动狗的 3D"""
-    import time
-    window.uav.render()
-    window._ingest(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "msg": "", "data": "StandBy"}},
-                         sn="", session="s1"))
-    window.uav.render()
-    assert "收不到是正常的" in card_text(window, "vfc")[1]
-    at = time.time() - 4
-    window._ingest(Event("local/uav/vfc/osd", {"sn": "", "ts": 1793760000000, "data": {"sn": "", "x": 0.42, "y": 3.1, "z": 1.2, "speed": 0.98,
-                                                                                  "heading": 81, "ts": 1793760000000}},
-                         sn="", session="s1", timestamp=at))
-    window.uav.render()
+def test_vfc_osd_shown_raw_and_not_driving_dog_scene(window):
+    """VFC OSD（local/uav/vfc/osd）：卡片里原值显示；解读里缺的键是“—”不当 0；不驱动狗的 3D"""
+    from dog_debug.uav import reading
+    window.device_box.setCurrentText("无人机")
+    e = Event("local/uav/vfc/osd", {"sn": "", "ts": 1793760000000, "data": {"sn": "", "x": 0.42, "y": 3.1, "z": 1.2, "speed": 0.98,
+                                                                          "heading": 81, "ts": 1793760000000}}, sn="", session="s1")
+    window._ingest(e)
     body = card_text(window, "vfc")[0]
-    assert "电量 —" in body and "x 0.42　y 3.1　z 1.2（米）" in body and "速度 0.98 m/s · 航向 81°" in body
-    # 4 秒没新的就标橙（每 1 s 一条），时间和秒数照样写
-    assert time.strftime("%H:%M:%S", time.localtime(at)) + " 收到 · 4 秒前" in body
+    assert "osd" in body and "x=0.42" in body and "heading=81" in body
+    word, msg, _, extra = reading(e)
+    assert word == "电量 —" and msg == "x 0.42　y 3.1　z 1.2（米）" and extra == "速度 0.98 m/s · 航向 81°"
     assert window.scene.osd == {}
     assert not any("OSD" in text for _, text, _ in window.uav.log)
 
@@ -793,7 +752,7 @@ def test_uav_messages_do_not_show_on_dog_status(window, monkeypatch):
                            sn="TEST_DOG_001", session="old-uav"))
     window.store.add(Event("local/robotdog/vfc/state", {"type": "subsystem_status", "data": {"state": 1}}, sn="TEST_DOG_001", session="dog"))
     window.store.flush()
-    rows = window.store.query(kind="状态", sn="TEST_DOG_001", live=True, dog_only=True)
+    rows = window.store.query(kind="状态", sn="TEST_DOG_001", live=True, device="dog")
     assert [e.topic for _, e in rows] == ["local/robotdog/vfc/state"]
     assert len(window.store.query(kind="状态", sn="TEST_DOG_001", live=True)) == 3
     # 新连接：无人机的消息 sn 为空
@@ -838,6 +797,7 @@ def vfc_state(kind, info):
 
 def test_vfc_loc_map_and_action_states_on_vfc_card(window):
     """VFC 1.0.0 的定位（loc_status）、地图（map_status）、航点动作（nav_action_progress）进 VFC 卡片；定位丢失、地图结局醒目记一条"""
+    window.device_box.setCurrentText("无人机")
     window._ingest(vfc_state("loc_status", {"result": 2, "msg": "定位未启动", "data": "Init", "raw": {"localization": "STALE", "relocalization": "STALE"}}))
     window._ingest(vfc_state("loc_status", {"result": 1, "msg": "定位丢失", "data": "LocLost", "raw": {"localization": "LOST", "relocalization": "LOST"}}))
     window._ingest(vfc_state("map_status", {"result": 0, "msg": "", "data": "IDLE", "map_busy": False}))
@@ -845,45 +805,40 @@ def test_vfc_loc_map_and_action_states_on_vfc_card(window):
                                             "auto": True, "map_busy": False}))
     window._ingest(vfc_state("nav_action_progress", {"result": 1, "msg": "本期不支持航点动作，已跳过", "flight_id": "T1",
                                                      "data": {"point_index": 0, "actions": [{"action": "take_photo", "state": "skipped"}]}}))
-    window.uav.render()
     body = card_text(window, "vfc")[0]
-    assert "LocLost" in body and "Bridge 定位 LOST · 重定位 LOST" in body
-    assert "MAP_ASSETS_READY" in body and "地图 0000009_20261111_082057" in body and "自动建资产" in body
-    assert "第 0 点" in body and "take_photo skipped" in body
+    assert "data=LocLost" in body and "data=MAP_ASSETS_READY" in body and "nav_action_progress" in body
     loud = {text for _, text, flag in window.uav.log if flag}
     assert "VFC 定位 Init → LocLost：定位丢失" in loud and "VFC 地图 MAP_ASSETS_READY：地图资产已就绪" in loud
-    from dog_debug.uav import quality
-    assert quality(window.uav.latest["nav_action_progress"]) == "未知"
+    from dog_debug.uav import quality, reading
+    assert quality(window.uav.latest["nav_action_progress"]) == "未知" and "take_photo skipped" in reading(window.uav.latest["nav_action_progress"])[3]
 
 
 def test_vfc_alarms_raise_and_clear(window):
-    """VFC 告警（local/uav/vfc/events，type=alarm）：进行中的在前、已解除的灰；VFC 卡片写进行中几条；关键变化醒目"""
+    """VFC 告警（local/uav/vfc/events，type=alarm）：总览下面告警分段里进行中的在前、已解除的灰；关键变化醒目"""
     alarm = lambda code, state, title, **more: Event("local/uav/vfc/events", {"name": "vfc", "state": 1, "type": "alarm",
         "info": {"code": code, "level": "warning", "state": state, "title": title, "advice": "检查定位", **more}}, sn="", session="s1")
     window._ingest(alarm("ALM-3101", "raise", "定位丢失", x=1.0, y=2.0, z=1.2))
     window._ingest(alarm("ALM-2207", "raise", "避障触发"))
     window._ingest(alarm("ALM-2207", "clear", "避障触发"))
     window.uav.render()
-    assert window.uav.alarm_count.text() == "1 条进行中 · 已解除 1 条"
+    assert window.uav.alarm_count.text() == "告警 1 条进行中 · 已解除 1 条"
     text = window.uav.alarm_text.text()
     assert text.index("ALM-3101") < text.index("ALM-2207") and "进行中" in text and "已解除" in text and "位置 x 1.0 y 2.0 z 1.2" in text
-    assert "告警</b>" in card_text(window, "vfc")[0] and "1 条进行中" in card_text(window, "vfc")[0]
     assert any(loud and t == "告警解除 ALM-2207 避障触发" for _, t, loud in window.uav.log)
 
 
-def test_other_uav_modules_get_their_own_card(window):
-    """无人机上的其他模块（如 FSVR）收到状态后出现自己的卡片，按通用格式看；GW、Vision 没收到也占位"""
+def test_other_uav_modules_on_their_own_card(window):
+    """无人机上的其他模块（如 FSVR）按和狗一样的写法进自己的卡片；PTZ 等没收到时写还没有收到"""
+    window.device_box.setCurrentText("无人机")
     window._ingest(Event("local/uav/fsvr/state", {"data": {"info": [], "name": "fsvr", "state": 1, "version": "1.0.0"}, "sn": "",
                                                   "type": "subsystem_state"}, sn="", session="s1"))
     window._ingest(Event("local/uav/fsvr/state", {"method": "storage_status", "data": {"upload_remain": 0, "total": 100, "used": 3}},
                          sn="", session="s1"))
-    window.uav.render()
-    assert window.uav.frames["fsvr"] in window.uav.grid.cards and window.uav.frames["ptz"] not in window.uav.grid.cards
-    body = card_text(window, "fsvr")[0]
-    assert body.index("在线</b>") < body.index("storage_status") and "v1.0.0" in body and "used=3" in body
-    assert body.count("storage_status") == 1
-    window.uav._open_detail("fsvr")
-    assert window.uav.detail_title.text() == "FSVR 文件 详情" and "local/uav/fsvr/state" in window.uav.detail_topic.text()
+    body, when = card_text(window, "fsvr")
+    assert "storage_status" in body and "used=3" in body and "v1.0.0" in when
+    assert "还没有收到 PTZ" in card_text(window, "ptz")[0]
+    window.status._open_module("fsvr")
+    assert window.status.detail_title.text() == "FSVR 详情"
 
 
 def test_map_card_lists_maps_and_sends_map_commands(window, monkeypatch):

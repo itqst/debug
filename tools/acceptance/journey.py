@@ -130,7 +130,8 @@ try:
                if (w.control.commands.item(i).data(Qt.UserRole) or {}).get("method") == "take_photo")
     QTest.mouseClick(w.control.commands.viewport(), Qt.LeftButton, Qt.NoModifier, w.control.commands.visualItemRect(w.control.commands.item(row)).center())
     check(wait(lambda: not w.control.picker.isVisible() and w.control.selected["method"] == "take_photo"), "1 点选“拍照”后目录收起，当前指令为 take_photo")
-    check(w.scene3d.observer.isVisible(), "1 控制页同屏显示 3D 观察区")
+    # 3D 观察区只在总览页左边，指令与链路页整宽
+    check(not w.scene3d.observer.isVisible(), "1 指令与链路页整宽，不显示 3D 观察区")
     click(w.control.scenario.group.button(1))
     click(w.control.send_btn)
     check(wait(lambda: "相机连接超时" in w.control.result.text()), "1 控制页点“模拟发送”(执行失败)，本次结果显示“相机连接超时”")

@@ -6,10 +6,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (
-    QApplication, QFileDialog, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QSplitter,
-    QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit
 
 from ..remote import CONFIG_ROOT
 from ..ui import button, card, label, Switch
@@ -25,36 +22,32 @@ class DeviceConfigPage:
         self.app = app
         self.files, self.current, self.content, self.busy, self.listed_root = [], "", b"", False, CONFIG_ROOT
 
-    def _config_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "设备配置", "经 SSH 只读查看设备上的配置文件：远程走 FRP，局域网连 Broker 地址的 22 端口，账号用左侧填的 SSH 账号",
-                              button("刷新列表", self.refresh, "primary"))
-        tools = QHBoxLayout()
+    def _config_card(self):
+        """日志与配置页右边的设备配置卡：目录和筛选、文件列表、内容；经 SSH 只读"""
+        page, layout = card(8, 16)
+        head = QHBoxLayout()
+        head.addWidget(label("设备配置（SSH 只读）", "sectionTitle"))
+        head.addStretch()
+        head.addWidget(button("刷新列表", self.refresh, "primary"))
+        layout.addLayout(head)
         self.root = QLineEdit(CONFIG_ROOT)
-        self.root.setToolTip("要看的目录，含子目录")
+        self.root.setToolTip("要看的目录，含子目录；回车刷新")
         self.root.returnPressed.connect(self.refresh)
+        layout.addWidget(self.root)
         self.filter = QLineEdit()
         self.filter.setObjectName("search")
         self.filter.setPlaceholderText("按文件名筛选，如 media、cfg")
         self.filter.setClearButtonEnabled(True)
         self.filter.textChanged.connect(self._fill_list)
-        tools.addWidget(self.root, 2)
-        tools.addWidget(self.filter, 1)
-        layout.addLayout(tools)
-        self.note = label("还没读取；填好 SSH 账号后点“刷新列表”", "caption", True)
+        layout.addWidget(self.filter)
+        self.note = label("还没读取；在连接设置里填好 SSH 账号后点“刷新列表”", "caption", True)
         layout.addWidget(self.note)
-        split = QSplitter()
-        split.setHandleWidth(14)
-        left, lv = card(6, 10)
         self.list = QListWidget()
         # 和指令目录一样的圆角选中行、无边框
         self.list.setObjectName("commands")
+        self.list.setMaximumHeight(190)
         self.list.currentItemChanged.connect(lambda item, _: item and self._open(item.data(Qt.UserRole)))
-        lv.addWidget(self.list)
-        split.addWidget(left)
-        right, rv = card(6, 14)
+        layout.addWidget(self.list)
         head = QHBoxLayout()
         self.title = label("", "sectionTitle")
         self.title.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -62,28 +55,26 @@ class DeviceConfigPage:
         self.pretty = Switch("格式化 JSON")
         self.pretty.toggled.connect(lambda _: self._show())
         head.addWidget(self.pretty)
-        head.addWidget(button("重新读取", lambda: self.current and self._open(self.current)))
-        head.addWidget(button("复制", lambda: QApplication.clipboard().setText(self.text.toPlainText())))
-        head.addWidget(button("另存到本机…", self._save))
-        rv.addLayout(head)
+        layout.addLayout(head)
+        actions = QHBoxLayout()
+        actions.addWidget(button("重新读取", lambda: self.current and self._open(self.current)))
+        actions.addWidget(button("复制", lambda: QApplication.clipboard().setText(self.text.toPlainText())))
+        actions.addWidget(button("另存到本机…", self._save))
+        actions.addStretch()
+        layout.addLayout(actions)
         self.info = label("", "caption", True)
-        rv.addWidget(self.info)
+        layout.addWidget(self.info)
         self.text = QPlainTextEdit()
         self.text.setObjectName("code")
         self.text.setReadOnly(True)
         self.text.setLineWrapMode(QPlainTextEdit.NoWrap)
-        rv.addWidget(self.text, 1)
-        split.addWidget(right)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 3)
-        split.setSizes([280, 840])
-        layout.addWidget(split, 1)
+        layout.addWidget(self.text, 1)
         return page
 
     def _background(self, kind, work):
         """开一条 SSH 跑 work(remote)，结果放进 inbox；已经远程连着就用那条，否则按当前填写临时连一次"""
         if not self.app.ssh_user.text().strip():
-            self.app.notify("要先在左侧连接设置里填 SSH 账号")
+            self.app.notify("要先在连接设置里填 SSH 账号")
             return False
 
         def run():

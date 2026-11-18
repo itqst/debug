@@ -18,8 +18,9 @@ from ..core import Event, payload_diff, summarize
 from ..player import hide_password, StreamWindow
 from ..registry import find, MODULES
 from ..trace_view import Step, TraceView
+from ..uav import MODULES as UAV_MODULES
 from ..ui import (
-    BLUE, button, CAMERAS, card, COLUMN_WIDTHS, dot, FlowGrid, FRESH_SECONDS, glyph_icon, GRAY, GREEN, HTTP_PLAY,
+    BLUE, button, CAMERAS, card, COLUMN_WIDTHS, DEVICES, dot, FlowGrid, FRESH_SECONDS, glyph_icon, GRAY, GREEN, HTTP_PLAY,
     label, method_label, MODULE_COLORS, ModuleMessageModel, ORANGE, PillDelegate, RED, scroller, Segmented, settings,
     StayMenu, STREAM_CAMERAS, STREAM_CFGS, stream_kind, stream_presets, tint,
 )
@@ -47,7 +48,8 @@ class StatusPage:
         self.module_filter.setCursor(Qt.PointingHandCursor)
         menu = StayMenu(self.module_filter)
         self.module_actions = {}
-        for module in MODULES:
+        # 狗和无人机的模块不一样，菜单和卡片两边的都建好，按连接卡里选的设备显示
+        for module in dict.fromkeys(MODULES + UAV_MODULES):
             action = menu.addAction(module.upper())
             action.setCheckable(True)
             action.setChecked(module not in self.hidden_modules)
@@ -59,12 +61,12 @@ class StatusPage:
         menu = StayMenu(self.type_filter)
         menu.aboutToShow.connect(lambda: self._fill_type_menu(menu))
         self.type_filter.setMenu(menu)
-        self.app._page_header(layout, "状态总览", f"当前设备各模块最近一次上报，{FRESH_SECONDS} 秒内有更新显示绿点；"
+        self.heading = self.app._page_header(layout, "机器狗 · 状态总览与遥测", f"当前设备各模块最近一次上报，{FRESH_SECONDS} 秒内有更新显示绿点；"
                           "点卡片看这个模块的上报、指令和 ACK。导入的日志在日志排障页看",
                           self.module_filter, self.type_filter, button("恢复全部", self._reset_status_filter, "link"))
         cards = []
         self.module_cards, self.module_frames = {}, {}
-        for index, module in enumerate(MODULES):
+        for module in dict.fromkeys(MODULES + UAV_MODULES):
             # 整张卡片可点，右侧展开这个模块的详情
             frame = Step()
             frame.setObjectName("card")
@@ -99,6 +101,11 @@ class StatusPage:
         layout_left.setContentsMargins(0, 0, 0, 0)
         self.status_grid = FlowGrid(cards, 3, 300)
         layout_left.addWidget(scroller(self.status_grid), 1)
+        # 无人机多出来的：保留指令告警放顶上，VFC 告警、关键变化、指令时间线在卡片下面（和狗的直播一个位置）
+        layout.insertWidget(layout.count() - 1, self.app.uav.banner_widget())
+        self.uav_extras = self.app.uav.extras_widget()
+        layout_left.addSpacing(10)
+        layout_left.addWidget(self.uav_extras)
         split.addWidget(left)
         split.addWidget(self._module_detail())
         split.setStretchFactor(0, 3)
@@ -158,8 +165,27 @@ class StatusPage:
         self._refresh_presets()
         layout.addSpacing(10)
         layout.addWidget(web)
-        self._apply_status_filter()
+        self.device_changed()
         return page
+
+    def _uav(self):
+        return hasattr(self.app, "device_box") and DEVICES[self.app.device_box.currentText()] == "uav"
+
+    def modules(self):
+        """当前设备的模块，按卡片顺序"""
+        return UAV_MODULES if self._uav() else MODULES
+
+    def device_changed(self):
+        """换设备：模块菜单、卡片跟着换；直播和音视频预览只有狗有，无人机换成告警、关键变化和指令时间线"""
+        uav = self._uav()
+        self.heading.setText(("无人机" if uav else "机器狗") + " · 状态总览与遥测")
+        for module, action in self.module_actions.items():
+            action.setVisible(module in self.modules())
+        self.uav_extras.setVisible(uav)
+        if self.detail_module and self.detail_module not in self.modules():
+            self._open_module(None)
+        self.status_drawn = None
+        self._apply_status_filter()
 
     def _room_follow(self):
         """房间号自动填：当前相机在 room_state 里报的房间，没有时按规则算；手改过就不再跟"""
@@ -209,13 +235,15 @@ class StatusPage:
         store = settings()
         store.setValue("status_hidden_modules", json.dumps(sorted(self.hidden_modules)))
         store.setValue("status_hidden_types", json.dumps(sorted(self.hidden_types)))
-        shown = [m for m in MODULES if m not in self.hidden_modules]
-        self.module_filter.setText("模块：" + ("全部" if len(shown) == len(MODULES) else "、".join(m.upper() for m in shown) or "无"))
+        modules = self.modules()
+        shown = [m for m in modules if m not in self.hidden_modules]
+        self.module_filter.setText("模块：" + ("全部" if len(shown) == len(modules) else "、".join(m.upper() for m in shown) or "无"))
         self.type_filter.setText("状态类型：" + (f"隐藏 {len(self.hidden_types)} 类" if self.hidden_types else "全部"))
         self.status_grid.show_only([self.module_frames[m] for m in shown])
         # 直播和预览都是 Media 的内容，不看 Media 时一起收起
-        self.live_card[0].setVisible("media" in shown)
-        self.web_card[0].setVisible("media" in shown)
+        # 直播和音视频预览只有狗有
+        self.live_card[0].setVisible("media" in shown and not self._uav())
+        self.web_card[0].setVisible("media" in shown and not self._uav())
         if self.detail_module in self.hidden_modules:
             self._open_module(None)
         self._refresh_status()
@@ -420,7 +448,7 @@ class StatusPage:
         # 类型和方法都在查询里筛，状态报得再多也挤不掉指令和回复；方法按目录里的中文名和 method 匹配
         methods = [item["method"] for item in self.app.catalog if needle in (item["method"] + item["title"]).lower()] if needle else None
         fetched = self.app.store.query(module=module, kind=("指令", "ACK"), limit=600, sn=self._status_sn(), live=True, methods=methods,
-                                       dog_only=True)
+                                       device=self._device())
         merged = {}
         for _, e in fetched:
             key = self._detail_row_key(e)
@@ -466,8 +494,13 @@ class StatusPage:
         self.detail_pages.setCurrentIndex(2)
 
     def _status_sn(self):
-        """状态页只看当前设备：连着就是连接时的 SN，没连就是左侧填的"""
+        """状态页只看当前设备：连着就是连接时的 SN，没连就是左侧填的；无人机的主题不带 SN，不按 SN 筛"""
+        if self._uav():
+            return ""
         return self.app.mqtt.sn if self.app.mqtt.client else self.app.sn.text().strip()
+
+    def _device(self):
+        return "uav" if self._uav() else "dog"
 
     def _status_block(self, e):
         """一类状态的完整字段；和上一条同类消息相比变了的字段标橙色并附旧值。云端汇总里拆出来的不比对"""
@@ -801,10 +834,10 @@ class StatusPage:
         self.status_aged = time.monotonic()
 
     def _refresh_status(self):
-        self.status_drawn = (self.app.store.status_version, self._status_sn())
+        self.status_drawn = (self.app.store.status_version, self._status_sn(), self._device())
         before, self.status_seen = self.status_seen, {}
         latest = {}
-        for _, e in self.app.store.query(kind="状态", limit=3000, sn=self._status_sn(), live=True, dog_only=True):
+        for _, e in self.app.store.query(kind="状态", limit=3000, sn=self._status_sn(), live=True, device=self._device()):
             info = e.payload.get("info", {})
             index = str(info.get("index", "")) if isinstance(info, dict) else ""
             latest.setdefault((e.module, e.method, index), e)
@@ -942,7 +975,7 @@ class StatusPage:
 
     def refresh_if_changed(self):
         """没有新状态、设备没换就不重读状态；详情里的指令与回复由它自己按模块消息数判断"""
-        if (self.app.store.status_version, self._status_sn()) != self.status_drawn:
+        if (self.app.store.status_version, self._status_sn(), self._device()) != self.status_drawn:
             self._refresh_status()
         elif self.detail_module:
             self._render_detail()

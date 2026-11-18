@@ -582,8 +582,7 @@ class MissionPage:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "导航与文件", "建图定位、航点导航、文件同步、红外测温和喊话；设备回复的地图、文件和温度会自动回填",
-                          self.app._quick_view())
+        self.app._page_header(layout, "机器狗 · 导航与文件", "建图定位、航点导航、文件同步、红外测温和喊话；设备回复的地图、文件和温度会自动回填")
         self.missions = MissionPanel(self.app._quick_send, self._edit_payload, lambda: self.app.teleop.remote.camera(),
                                      lambda: (self.app.scene.x, self.app.scene.y, self.app.scene.heading))
         self.app.scene.changed.connect(self.missions.update_robot)

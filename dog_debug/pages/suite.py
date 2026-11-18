@@ -5,12 +5,12 @@ import json
 import uuid
 from pathlib import Path
 
-from PySide6.QtWidgets import QFileDialog, QTextBrowser, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QTextBrowser, QVBoxLayout
 
 from ..core import diagnose, trace_report
 from ..registry import find, make_command
 from ..transport import simulate
-from ..ui import button, card, GRAY, GREEN, RED, SCENARIOS
+from ..ui import button, card, GRAY, GREEN, label, RED, SCENARIOS
 
 
 class SuitePage:
@@ -19,18 +19,32 @@ class SuitePage:
     def __init__(self, app):
         self.app = app
 
-    def _suite_page(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "回归测试", "内置九组沙盒用例覆盖六个模块；也可以加载控制页保存的 YAML 用例",
-                          button("加载 YAML 用例", self._load_case), button("运行内置回归", self._run_suite, "primary"))
-        result, rv = card(8, 18)
+    def _suite_card(self):
+        """任务与文件页底下的模块契约回归测试：平时折成一行摘要，点“详情”展开各用例结果"""
+        box, layout = card(6, 14)
+        head = QHBoxLayout()
+        text = QVBoxLayout()
+        text.setSpacing(0)
+        text.addWidget(label("模块契约回归测试", "sectionTitle"))
+        self.suite_summary = label("内置九组沙盒用例，覆盖 GW、VFC、PTZ、Media、Vision、FSVR；也可以加载控制调试页存的 YAML 用例", "caption", True)
+        text.addWidget(self.suite_summary)
+        head.addLayout(text, 1)
+        self.suite_toggle = button("详情 ▾", self._toggle_details)
+        head.addWidget(self.suite_toggle)
+        head.addWidget(button("加载 YAML 用例", self._load_case))
+        head.addWidget(button("运行全部", self._run_suite, "primary"))
+        layout.addLayout(head)
         self.suite_info = QTextBrowser()
-        self.suite_info.setPlaceholderText("点右上角“运行内置回归”")
-        rv.addWidget(self.suite_info)
-        layout.addWidget(result, 1)
-        return page
+        self.suite_info.setPlaceholderText("点“运行全部”")
+        self.suite_info.setMinimumHeight(220)
+        self.suite_info.hide()
+        layout.addWidget(self.suite_info)
+        return box
+
+    def _toggle_details(self, show=None):
+        show = self.suite_info.isHidden() if show is None else show
+        self.suite_info.setVisible(show)
+        self.suite_toggle.setText("收起 ▴" if show else "详情 ▾")
 
     def _save_case(self):
         import yaml
@@ -59,6 +73,10 @@ class SuitePage:
                      f"{verdict}</span>　<b>{html.escape(name)}</b><br>"
                      f"<span style='color:{GRAY}'>{html.escape(detail)}</span></p>")
         self.suite_info.setHtml(body)
+        counted = [passed for passed, _, _ in rows if passed is not None]
+        self.suite_summary.setText((f"{title}　" if title else "") + f"{sum(counted)} / {len(counted)} 通过" + (
+            f"，{len(rows) - len(counted)} 条只执行" if len(rows) > len(counted) else ""))
+        self._toggle_details(True)
 
     def _run_suite(self):
         cases = [("GW 配置查询", "oss_config_get", "success"), ("VFC 导航受理", "start_nav", "success"),

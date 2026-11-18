@@ -34,14 +34,9 @@ DOMAINS = {
     "map_status": ("地图", 3),
     "vfc_osd": ("OSD", 3),
 }
-BRIDGE_KEYS = ("online", "system", "localization", "relocalization", "navigation", "mapping", "flight", "pose")
-VFC_KEYS = ("subsystem_status", "nav_status", "nav_status_progress", "nav_action_progress", "mapping_status", "loc_status",
-            "map_status", "vfc_osd")
-# 状态总览的模块卡片：前四个一直显示（还没收到也占一张），其余收到消息才出现；GW、Vision 等的无人机版还没接，先按通用格式看
-MODULES = ("bridge", "vfc", "gw", "vision", "fsvr", "ptz", "media")
-ALWAYS = ("bridge", "vfc", "gw", "vision")
-MODULE_TITLES = {"bridge": "Bridge 机载服务", "vfc": "VFC 任务", "gw": "GW 网关", "vision": "Vision 视觉", "fsvr": "FSVR 文件",
-                 "ptz": "PTZ 云台", "media": "Media 音视频"}
+# 无人机状态总览的模块（tta_vfc 11-17 按《室内巡检无人机-软件系统设计》答复）：MQTT 域的 GW、VTC（气体传感器和补光灯）、VFC、
+# VISION、PTZ，桥接层 Bridge，支持服务 FSVR；现在实际在跑的是 Bridge、VFC、FSVR，其余没接时按通用格式看
+MODULES = ("bridge", "vfc", "gw", "vision", "ptz", "vtc", "fsvr")
 # 其他模块和 GW 一样按 type=subsystem_state 报在线，旧名、新名都认
 GENERIC_ONLINE = ("subsystem_status", "subsystem_state")
 # VFC 告警（local/uav/vfc/events，type=alarm）：raise、clear 成对，ALM-3101 定位丢失等持续性告警跟状态走
@@ -56,15 +51,6 @@ VFC_TO_BRIDGE = {"start_multi_nav_by_points": "system.start", "pause_nav": "navi
 VFC_AUTO = {"navigation.next", "system.stop", "system.status"}
 # VFC 单线程按顺序处理，同一条指令触发的 Bridge 命令实测 20 ms 内跟上；留足余量，又不至于串到下一条
 LINK_SECONDS = 5
-
-
-def module_of(key):
-    """状态键属于哪个模块：Bridge 领域、VFC 状态，其余是“模块:类型”"""
-    if key in BRIDGE_KEYS:
-        return "bridge"
-    if key in VFC_KEYS:
-        return "vfc"
-    return key.split(":", 1)[0]
 
 
 def title_of(key):

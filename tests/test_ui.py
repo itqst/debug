@@ -48,7 +48,7 @@ def test_demo_opens_actionable_trace(window):
 
 def test_messages_page_removed(window):
     rows = [window.nav.item(i).text() for i in range(window.nav.count())]
-    assert "消息追踪" not in rows and "日志排障" in rows and not hasattr(window, "messages")
+    assert rows == ["总览与遥测", "遥控与载荷", "指令与链路", "任务与文件", "日志与配置"] and not hasattr(window, "messages")
 
 
 def test_all_control_modules_have_templates(window):
@@ -1096,7 +1096,7 @@ def test_status_filter_hides_types_and_modules_without_touching_data(window):
         again.close()
     finally:
         window.status._reset_status_filter()
-    assert window.status.status_grid.cards == [window.status.module_frames[m] for m in window.status.module_frames]
+    assert window.status.status_grid.cards == [window.status.module_frames[m] for m in MODULES]
     assert "subsystem_state" in card("gw") and window.status.type_filter.text() == "状态类型：全部"
 
 

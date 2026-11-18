@@ -337,7 +337,7 @@ class TeleopPage:
         sv = QVBoxLayout(page)
         sv.setContentsMargins(0, 0, 0, 0)
         sv.setSpacing(12)
-        self.app._page_header(sv, "遥控", "", self.app._quick_view())
+        self.app._page_header(sv, "机器狗 · 遥控与载荷", "按住方向键或 WASD / QE 移动，松手、切走页面或窗口、断线都会补发零速；空格急停")
         self.side_tabs = Segmented(["遥控", "模型"])
         sv.addWidget(self.side_tabs)
         self.side_stack = QStackedWidget()

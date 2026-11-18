@@ -18,7 +18,7 @@ from ..pointcloud import CloudError, decode as decode_cloud, summary as cloud_su
 from ..robot import VARIANTS
 from ..scene import LIVE_SECONDS, osd_fields
 from ..ui import (
-    button, card, Compass, GRAY, glyph_icon, GREEN, guard_wheel, label, method_label, ORANGE, pill, PURPLE, Segmented,
+    button, card, Compass, GRAY, GREEN, guard_wheel, label, method_label, ORANGE, pill, PURPLE, Segmented,
     SPARK_COLORS, Sparkline, Switch, tint,
 )
 
@@ -604,24 +604,27 @@ class ScenePanel:
         self._device_card()
 
     def _device_card(self):
+        """侧栏底部的当前设备档案：狗写 SN、型号、电量和 OSD，无人机写 Broker 地址；圆点颜色只在变了时改，这里调用很频繁"""
         uav = self.app.device_box.currentText() == "无人机"
-        self.app.device_badge.setPixmap(glyph_icon("UAV" if uav else "L2", "#1C1C1E").pixmap(30, 30))
+        self.app.device_badge.setText("UAV 无人机" if uav else "DOG 机器狗")
         if uav:
-            linked = self.app.mqtt.connected and self.app.mqtt.device == "uav"
-            self.app.device_name.setText("无人机")
-            self.app.device_meta.setText(f"VFC / Bridge  ·  {self.app.mqtt.host if linked else '未连接'}")
-            self.app.device_dot.setStyleSheet(f"background:{GREEN if linked else '#C7C7CC'};border-radius:4px")
-            return
-        osd, live = self.app.scene.osd, self.app.scene.live
-        sn = self.app.mqtt.sn if self.app.mqtt.connected else self.app.sn.text().strip()
-        self.app.device_name.setText(sn or "未设置 SN")
-        robot = self.app.scene.robot
-        parts = [(self.app.scene.variant or list(VARIANTS)[0]).split(" ")[0] if not robot or robot.kind == "L2" else robot.name]
-        if "batteryRemain" in osd:
-            parts.append(f"电量 {osd['batteryRemain']:.0f}%")
-        parts.append("OSD 实时" if live else "未收到 OSD" if not osd else "OSD 已停")
-        self.app.device_meta.setText("  ·  ".join(parts))
-        self.app.device_dot.setStyleSheet(f"background:{GREEN if live else '#C7C7CC'};border-radius:4px")
+            live = self.app.mqtt.connected and self.app.mqtt.device == "uav"
+            self.app.device_name.setText(self.app.mqtt.host if live else self.app.host.text().strip() or "未连接")
+            self.app.device_meta.setText("VFC / Bridge　·　" + ("已连接" if live else "未连接"))
+        else:
+            osd, live = self.app.scene.osd, self.app.scene.live
+            sn = self.app.mqtt.sn if self.app.mqtt.connected else self.app.sn.text().strip()
+            self.app.device_name.setText(sn or "未设置 SN")
+            robot = self.app.scene.robot
+            parts = [(self.app.scene.variant or list(VARIANTS)[0]).split(" ")[0] if not robot or robot.kind == "L2" else robot.name]
+            if "batteryRemain" in osd:
+                parts.append(f"电量 {osd['batteryRemain']:.0f}%")
+            parts.append("OSD 实时" if live else "未收到 OSD" if not osd else "OSD 已停")
+            self.app.device_meta.setText("　·　".join(parts))
+        color = GREEN if live else "#C7C7CC"
+        if getattr(self, "device_color", None) != color:
+            self.device_color = color
+            self.app.device_dot.setStyleSheet(f"background:{color};border-radius:4px")
 
     def set_dark(self, dark):
         if self.viewer:

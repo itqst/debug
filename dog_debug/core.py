@@ -264,12 +264,12 @@ class Store:
         self.db.commit()
 
     def query(self, module="", method="", kind="", text="", limit=1000, before=None, sn="", live=False, methods=None, session="",
-              prefixes=(), dog_only=False):
+              prefixes=(), device=""):
         """按条件取最新的 limit 条，返回 [(行号, 事件)]；before 为行号时只取更早的，用于翻页
 
         kind 可以是一组类型；methods 为列表时只要这些方法，prefixes 只要以这些前缀开头的方法（如 Bridge 的 "navigation."）。条件都在 SQL 里，先筛再取 limit 条，不会被别的消息挤掉
         sn 只取这台设备的；live 为真时不要导入的日志（会话以 import- 开头），实时总览不被历史日志顶掉；
-        dog_only 为真时不要无人机的消息（local/uav/），旧版把狗的 SN 记在过无人机消息上
+        device 为 "dog" 时不要无人机的消息（local/uav/，旧版把狗的 SN 记在过无人机消息上），为 "uav" 时只要无人机的
         """
         clauses, params = [], []
         if isinstance(kind, tuple):
@@ -289,8 +289,8 @@ class Store:
             params.append(sn)
         if live:
             clauses.append("session NOT LIKE 'import-%'")
-        if dog_only:
-            clauses.append("body NOT LIKE '%\"topic\":\"local/uav/%'")
+        if device:
+            clauses.append(("body LIKE" if device == "uav" else "body NOT LIKE") + " '%\"topic\":\"local/uav/%'")
         if session:
             clauses.append("session=?")
             params.append(session)

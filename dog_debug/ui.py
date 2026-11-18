@@ -14,7 +14,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout,
-    QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStyle, QStyledItemDelegate,
+    QHBoxLayout, QLabel, QMenu, QPushButton, QScrollArea, QSizePolicy, QSlider, QStackedWidget, QStyle, QStyledItemDelegate,
     QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 
@@ -33,7 +33,7 @@ SCENARIOS = [("正常", "success"), ("执行失败", "failure"), ("无 ACK", "no
 BLUE, GREEN, ORANGE, RED, GRAY = "#007AFF", "#34C759", "#FF9500", "#FF3B30", "#8E8E93"
 PURPLE = "#AF52DE"
 MODULE_COLORS = {"gw": "#5856D6", "vfc": BLUE, "ptz": ORANGE, "media": "#FF2D55", "vision": "#AF52DE", "fsvr": GREEN,
-                 "ros2bridge": "#A2845E", "zlm": "#30B0C7"}
+                 "ros2bridge": "#A2845E", "zlm": "#30B0C7", "bridge": "#64D2FF", "vtc": "#FFCC00"}
 FAILED = {"失败", "错误线索", "重复请求未执行"}
 WARNING = {"契约待核", "未活跃", "待核", "无 ACK", "保留消息", "结果不确定"}
 PROGRESS = {"已受理/上传中", "阶段待判", "受理中"}
@@ -259,7 +259,7 @@ class Segmented(QFrame):
         super().__init__()
         self.setObjectName("seg")
         row = QHBoxLayout(self)
-        row.setContentsMargins(2, 2, 2, 2)
+        row.setContentsMargins(3, 3, 3, 3)
         row.setSpacing(2)
         # 选中块是按钮后面的一块底色，换选中项时滑过去，不是瞬间跳
         self.thumb = QFrame(self)
@@ -431,7 +431,8 @@ class FlowGrid(QWidget):
         """只显示并重排 cards，其余卡片隐藏且不占位"""
         for widget in self.every:
             widget.setVisible(widget in cards)
-        self.cards = [w for w in self.every if w in cards]
+        # 按给的顺序排（狗和无人机的模块顺序不一样）
+        self.cards = list(cards)
         self._place(self.columns)
 
     def _place(self, columns):
@@ -630,6 +631,10 @@ class Compass(QWidget):
         painter.drawText(QRectF(0, 101, 92, 11), Qt.AlignCenter, self.state)
 
 
+# 统一工作台的 5 个页沿用原来页面的图标
+NAV_ICON_ALIASES = {"遥控与载荷": "遥控", "任务与文件": "导航与文件"}
+
+
 def nav_icon(painter, name, x, y, color):
     """侧栏的线形图标，画在 (x, y) 起的约 20 px 方框里；name 为页面名"""
     p = painter
@@ -639,7 +644,16 @@ def nav_icon(painter, name, x, y, color):
     p.setPen(QPen(QColor(color), 1.8, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
     p.setBrush(Qt.NoBrush)
     line = lambda *points: p.drawPolyline(QPolygonF([QPointF(*pt) for pt in points]))
-    if name == "遥控":
+    name = NAV_ICON_ALIASES.get(name, name)
+    if name == "指令与链路":
+        line((4, 17), (10, 11), (4, 5))
+        line((12, 19), (20, 19))
+    elif name == "日志与配置":
+        line((14, 2), (6, 2), (4, 4), (4, 20), (6, 22), (18, 22), (20, 20), (20, 8), (14, 2))
+        line((14, 2), (14, 8), (20, 8))
+        line((8, 13), (16, 13))
+        line((8, 17), (16, 17))
+    elif name == "遥控":
         p.drawRoundedRect(QRectF(2, 6, 20, 13), 5, 5)
         line((6, 12), (11, 12))
         line((8.5, 9.5), (8.5, 14.5))
@@ -682,41 +696,48 @@ def nav_icon(painter, name, x, y, color):
 
 
 class NavDelegate(QStyledItemDelegate):
-    """侧栏一行：线形图标加页名；选中是白底细边加左侧蓝色短标记，悬停浅底，深浅色按调色板取"""
+    """侧栏一行：线形图标、页名、右边快捷键号；选中是蓝色渐变填充、白字白图标，悬停浅蓝底，深浅色按调色板取"""
 
     def paint(self, painter, option, index):
         # 看程序的调色板：套了样式表的列表自己的调色板窗口色和实际外观不一致
         dark = QApplication.palette().color(QPalette.Window).lightness() < 128
         selected = bool(option.state & QStyle.State_Selected)
-        rect = QRectF(option.rect).adjusted(1.5, 1.5, -1.5, -1.5)
+        rect = QRectF(option.rect).adjusted(1.5, 2, -1.5, -2)
         painter.save()
         painter.setRenderHint(QPainter.Antialiasing)
         if selected:
             fill = QLinearGradient(rect.topLeft(), rect.bottomLeft())
-            fill.setColorAt(0, QColor("#2C2C2E" if dark else "#FFFFFF"))
-            fill.setColorAt(1, QColor("#242426" if dark else "#F8FAFE"))
-            painter.setBrush(fill)
-            painter.setPen(QPen(QColor("#3A3A3C" if dark else "#D8E1EF"), 1))
-            painter.drawRoundedRect(rect, 10, 10)
+            fill.setColorAt(0, QColor("#1987FF"))
+            fill.setColorAt(1, QColor("#0A84FF" if dark else "#007AFF"))
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(BLUE))
-            painter.drawRoundedRect(QRectF(rect.x() + 5, rect.center().y() - 7.5, 3, 15), 1.5, 1.5)
+            painter.setBrush(fill)
+            painter.drawRoundedRect(rect, 12, 12)
         elif option.state & QStyle.State_MouseOver:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor("#2A2A2C" if dark else "#E9EEF7"))
-            painter.drawRoundedRect(rect, 10, 10)
+            painter.setBrush(QColor(10, 132, 255, 40) if dark else QColor(0, 122, 255, 18))
+            painter.drawRoundedRect(rect, 12, 12)
         name = index.data(Qt.DisplayRole)
-        accent = ("#64A8FF" if dark else "#2469D8") if selected else ("#98989F" if dark else "#697C99")
-        nav_icon(painter, name, rect.x() + 16, rect.center().y() - 10, accent)
+        accent = "#FFFFFF" if selected else ("#A1A1AA" if dark else "#545458")
+        nav_icon(painter, name, rect.x() + 12, rect.center().y() - 10, accent)
         font = QFont(option.font)
         font.setWeight(QFont.DemiBold if selected else QFont.Medium)
         painter.setFont(font)
-        painter.setPen(QColor(("#64A8FF" if dark else "#1F5FC5") if selected else ("#E5E5EA" if dark else "#35445B")))
-        painter.drawText(rect.adjusted(46, 0, -8, 0), Qt.AlignVCenter | Qt.AlignLeft, name)
+        painter.setPen(QColor("#FFFFFF" if selected else ("#E4E4E7" if dark else "#3A3A3C")))
+        painter.drawText(rect.adjusted(40, 0, -36, 0), Qt.AlignVCenter | Qt.AlignLeft, name)
+        # 右边的快捷键号，Ctrl 或 Alt 加数字切到这一页
+        key = QRectF(rect.right() - 28, rect.center().y() - 9, 18, 18)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 56) if selected else (QColor("#2C2C31") if dark else QColor("#EAEAEF")))
+        painter.drawRoundedRect(key, 5, 5)
+        small = QFont(option.font)
+        small.setPointSizeF(option.font.pointSizeF() * 0.8)
+        painter.setFont(small)
+        painter.setPen(QColor("#FFFFFF" if selected else "#8E8E93"))
+        painter.drawText(key, Qt.AlignCenter, str(index.row() + 1))
         painter.restore()
 
     def sizeHint(self, option, index):
-        return QSize(option.rect.width(), 40)
+        return QSize(option.rect.width(), 42)
 
 
 class CommandDelegate(QStyledItemDelegate):
@@ -837,6 +858,69 @@ class ModuleMessageModel(QAbstractTableModel):
         self.endResetModel()
 
 
+class DeviceStack(QWidget):
+    """同一个导航页在狗和无人机上内容不同时（遥控与载荷、任务与文件），两份都建好，换设备时切过去，页面本身不换"""
+
+    def __init__(self, dog, uav):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(dog)
+        self.stack.addWidget(uav)
+        layout.addWidget(self.stack)
+
+    def show_device(self, device):
+        self.stack.setCurrentIndex(1 if device == "uav" else 0)
+
+
+class Sheet(QWidget):
+    """盖在窗口上的浮层：半透明底加居中的一张卡片（如连接设置），点卡片外面或按 Esc 收起；窗口大小变了跟着铺满"""
+
+    def __init__(self, parent, card):
+        super().__init__(parent)
+        self.card = card
+        card.setParent(self)
+        self.hide()
+        parent.installEventFilter(self)
+
+    def open(self):
+        self.setGeometry(self.parentWidget().rect())
+        self._place()
+        self.show()
+        self.raise_()
+        self.setFocus()
+
+    def close(self):
+        self.hide()
+
+    def _place(self):
+        self.card.adjustSize()
+        size = self.card.sizeHint()
+        self.card.setGeometry((self.width() - size.width()) // 2, max(24, (self.height() - size.height()) // 3),
+                              size.width(), min(size.height(), self.height() - 48))
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Resize and self.isVisible():
+            self.setGeometry(self.parentWidget().rect())
+            self._place()
+        return False
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 70))
+
+    def mousePressEvent(self, event):
+        if not self.card.geometry().contains(event.position().toPoint()):
+            self.hide()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.hide()
+        else:
+            super().keyPressEvent(event)
+
+
 class Toast(QLabel):
     """内容区底部居中的短暂提示，淡入后停 2.6 s 再淡出；放底部是为了不挡页头的指令结果"""
 
@@ -888,6 +972,11 @@ DARK_COLORS = {
     "#FCFDFF": "#1A1A1C", "#F7F9FC": "#232325", "#D6DFEB": "#3A3A3C", "#F2F6FD": "#2C2C2E", "#B5C8E6": "#48484A",
     "#E4ECF7": "#3A3A3C", "#A7BEDF": "#545458", "#33496A": "#E5E5EA", "#FBFCFE": "#232325", "#DCE4EF": "#38383A",
     "#548BEA": "#0A84FF", "#578EEF": "#0A84FF", "#FFF3F1": "#3A1D1B", "#F0D6D1": "#5A2A27",
+    # 按 tta_debug_studio_ios.html 改版后的浅色值 → 深色值
+    "#F3F4F8": "#09090B", "#F9F9FB": "#141417", "#E6E7EC": "#2A2A2E", "#E7E8EE": "#2A2A2E", "#E1E2E8": "#323237",
+    "#EAEAEF": "#2C2C31", "#545458": "#A1A1AA", "#E1EEFF": "#0F2B4D", "#EFF0F5": "#2A2A2F", "#7FB5FF": "#0A84FF",
+    "#E5F0FF": "#16304F", "#B8D6FF": "#245A92", "#99C5FF": "#2A5A8F", "#EFEFF3": "#232327", "#A8CCF5": "#1F3D60",
+    "#FFDAD7": "#4A2220", "#DCDDE3": "#3A3A3F", "#F2F2F5": "#232327", "#0062CC": "#409CFF", "#1A88FF": "#2A8FFF",
 }
 
 

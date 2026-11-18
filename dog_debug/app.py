@@ -11,12 +11,10 @@ import time
 import uuid
 from pathlib import Path
 
-from PySide6.QtCore import (
-    QEasingCurve, QEvent, QParallelAnimationGroup, QPoint, QPropertyAnimation, QSize, QStandardPaths, Qt, QTimer,
-)
+from PySide6.QtCore import QEvent, QSize, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QPalette, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QApplication, QComboBox, QDialog, QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QLineEdit,
+    QAbstractSpinBox, QApplication, QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QMainWindow, QMenu, QPlainTextEdit, QPushButton, QSlider, QSpinBox, QSplitter,
     QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -31,8 +29,9 @@ from .scene import Scene
 from .trace_view import Step, TraceView
 from .transport import MqttTransport, simulate
 from .ui import (
-    APP_NAME, apply_theme, button, DEVICES, dot, FAILED, glyph_icon, GRAY, guard_wheel, label, logo_icon, logo_image,
-    MODES, NavDelegate, ORANGE, press_feedback, SCENARIOS, scroller, settings, setup_fonts, Switch, tint, Toast, tone,
+    APP_NAME, apply_theme, button, DEVICES, dot, FAILED, GRAY, GREEN, guard_wheel, label, logo_icon, logo_image,
+    DeviceStack, MODES, NavDelegate, ORANGE, press_feedback, SCENARIOS, Segmented, settings, setup_fonts, Sheet, Switch, tint,
+    Toast, tone,
 )
 from .pages.connection import ConnectionPanel
 from .pages.control import ControlPage
@@ -48,15 +47,19 @@ from .pages.uav import UavPage
 
 
 class Studio(QMainWindow):
-    # 页面栈里的序号；左侧导航按连接卡里选的设备只列这种设备用得上的页面，名字和顺序各设备自己定
-    REMOTE, CONTROL, MISSION, STATUS, UAV, LOGS, SUITE, UAV_MISSION, DEVICE_CONFIG = range(9)
-    # 要看整条请求的地方就地展开或单独开窗口（open_request）
-    NAV = {"dog": [("遥控", REMOTE), ("控制调试", CONTROL), ("导航与文件", MISSION), ("状态总览", STATUS),
-                   ("日志排障", LOGS), ("设备配置", DEVICE_CONFIG), ("回归测试", SUITE)],
-           "uav": [("控制调试", CONTROL), ("航线任务", UAV_MISSION), ("状态总览", UAV), ("日志排障", LOGS)]}
-    PAGES = [title for title, _ in NAV["dog"]]
-    # 这些页旁边显示 3D 观察区；其余是分析页，整宽显示
-    OBSERVED = (REMOTE, CONTROL)
+    # 狗和无人机共用同样的 5 个页（页面栈里的序号）；换设备只换页里的数据和协议目录，不换页
+    OVERVIEW, TELEOP, COMMANDS, MISSION, LOGS = range(5)
+    # 旧名字：状态总览、无人机状态在总览页，遥控在遥控与载荷，控制调试在指令与链路，回归测试、航线任务在任务与文件，设备配置在日志与配置
+    STATUS = UAV = OVERVIEW
+    REMOTE = TELEOP
+    CONTROL = COMMANDS
+    SUITE = UAV_MISSION = MISSION
+    DEVICE_CONFIG = LOGS
+    TITLES = ("总览与遥测", "遥控与载荷", "指令与链路", "任务与文件", "日志与配置")
+    NAV = dict.fromkeys(("dog", "uav"), list(zip(TITLES, range(5))))
+    PAGES = list(TITLES)
+    # 3D 观察区只在总览页左边（狗），其余页整宽
+    OBSERVED = (OVERVIEW,)
 
     def __init__(self, db_path=None):
         super().__init__()
@@ -117,43 +120,79 @@ class Studio(QMainWindow):
     # ---- 布局 ----
 
     def _build(self):
+        """上面一条统一栏（设备、连接、最近指令、指令目录、外观），下面左侧栏加页面；按 tta_debug_studio_ios.html 的布局"""
         root = QWidget()
-        outer = QHBoxLayout(root)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        outer.addWidget(self._sidebar())
+        root.setObjectName("shell")
+        column = QVBoxLayout(root)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        # 连接设置面板要用到侧栏里建的控件，先建侧栏和连接面板，再建顶栏
+        side = self._sidebar()
+        column.addWidget(self._topbar())
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        body.addWidget(side)
         content = QWidget()
         content.setObjectName("content")
         inner = QVBoxLayout(content)
-        inner.setContentsMargins(28, 22, 28, 20)
+        inner.setContentsMargins(26, 20, 26, 18)
         observer = self.scene3d._observer()
         self.stack = QStackedWidget()
-        for page in (self.teleop._remote_page(), self.control._control_page(), self.mission._mission_page(),
-                     self.status._status_page(), self.uav._uav_page(),
-                     self.logs._logs_page(), self.suite._suite_page(), self.uav._mission_page(),
-                     self.device_config._config_page()):
+        self.teleop_stack = DeviceStack(self.teleop._remote_page(), self.uav._teleop_page())
+        self.mission_stack = DeviceStack(self._dog_mission(), self.uav._mission_page())
+        for page in (self.status._status_page(), self.teleop_stack, self.control._control_page(), self.mission_stack,
+                     self._logs_and_config()):
             self.stack.addWidget(page)
-        # 观察区放在页面栈外，切页时模型、镜头和轨迹都不动；比例可拖
+        # 观察区放在页面栈外、总览页的左边，切页时模型、镜头和轨迹都不动；比例可拖
         self.workspace = QSplitter()
         self.workspace.setHandleWidth(14)
         self.workspace.setChildrenCollapsible(False)
-        self.workspace.addWidget(self.stack)
         self.workspace.addWidget(observer)
-        self.workspace.setStretchFactor(0, 3)
-        self.workspace.setStretchFactor(1, 2)
-        self.workspace.setSizes([600, 400])
+        self.workspace.addWidget(self.stack)
+        self.workspace.setStretchFactor(0, 2)
+        self.workspace.setStretchFactor(1, 3)
+        self.workspace.setSizes([420, 700])
         inner.addWidget(self.workspace)
-        outer.addWidget(content, 1)
+        body.addWidget(content, 1)
+        column.addLayout(body, 1)
         self.setCentralWidget(root)
+        self.connection_sheet = Sheet(root, self._connection_card())
         self.toast = Toast(root)
-        # 任何页面按 Ctrl+K 直接调出指令目录，选中后在控制调试页编辑
+        # 任何页面按 Ctrl+K 直接调出指令目录，选中后在控制调试页编辑；Ctrl+1～5 切到侧栏第几页
         QShortcut(QKeySequence("Ctrl+K"), self, self.control._quick_pick)
+        for number in range(1, 6):
+            QShortcut(QKeySequence(f"Ctrl+{number}"), self, lambda row=number - 1: row < self.nav.count() and self.nav.setCurrentRow(row))
         # 上次保存的配置可能是无人机，开在当前设备导航的第一页
         self._go(self.NAV[DEVICES[self.device_box.currentText()]][0][1])
 
+    def _dog_mission(self):
+        """狗的任务与文件：导航与文件，下面是折成一行的模块契约回归测试"""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(12)
+        layout.addWidget(self.mission._mission_page(), 1)
+        layout.addWidget(self.suite._suite_card())
+        return page
+
+    def _logs_and_config(self):
+        """日志与配置：左边日志排障，右边经 SSH 只读看设备配置"""
+        split = QSplitter()
+        split.setHandleWidth(16)
+        split.setChildrenCollapsible(False)
+        split.addWidget(self.logs._logs_page())
+        split.addWidget(self.device_config._config_card())
+        split.setStretchFactor(0, 2)
+        split.setStretchFactor(1, 1)
+        split.setSizes([800, 400])
+        return split
+
     def _page_header(self, layout, title, caption, *extra):
+        """页头：大标题、右边的按钮，下面一行说明；返回标题，换设备时页可以改标题"""
         row = QHBoxLayout()
-        row.addWidget(label(title, "largeTitle"))
+        heading = label(title, "largeTitle")
+        row.addWidget(heading)
         row.addStretch()
         for widget in extra:
             row.addWidget(widget)
@@ -161,34 +200,86 @@ class Studio(QMainWindow):
         if caption:
             layout.addWidget(label(caption, "caption"))
         layout.addSpacing(6)
+        return heading
+
+    def _topbar(self):
+        """统一栏：左边应用名和设备切换，中间连接胶囊（点开连接设置）和最近一条指令结果，右边无人机发送开关、指令目录、外观"""
+        bar = QFrame()
+        bar.setObjectName("topbar")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(16, 8, 16, 8)
+        row.setSpacing(12)
+        mark = QLabel()
+        mark.setPixmap(QPixmap.fromImage(logo_image(64)).scaled(30, 30, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        row.addWidget(mark)
+        brand = QVBoxLayout()
+        brand.setSpacing(0)
+        name = QHBoxLayout()
+        name.setSpacing(6)
+        name.addWidget(label(APP_NAME, "appTitle"))
+        name.addWidget(label("v" + __version__, "version"))
+        name.addStretch()
+        brand.addLayout(name)
+        brand.addWidget(label("MQTT → GW → 模块 统一调试台", "appSub"))
+        row.addLayout(brand)
+        # 设备切换就是连接卡里设备的另一个入口：连上后锁住，断开才能换
+        self.device_seg = Segmented(["机器狗 L2", "无人机 UAV"])
+        self.device_seg.set_index(list(DEVICES).index(self.device_box.currentText()))
+        self.device_seg.changed.connect(lambda index: self.device_box.setCurrentText(list(DEVICES)[index]))
+        row.addWidget(self.device_seg)
+        row.addStretch()
+        self.pill = Step()
+        self.pill.setObjectName("pill")
+        self.pill.setCursor(Qt.PointingHandCursor)
+        self.pill.setToolTip("连接与通道设置")
+        self.pill.clicked.connect(lambda: self.connection_sheet.open())
+        pr = QHBoxLayout(self.pill)
+        pr.setContentsMargins(14, 6, 12, 6)
+        pr.setSpacing(8)
+        self.pill_dot = dot(GRAY, 10)
+        self.pill_text = label("")
+        self.pill_text.setTextFormat(Qt.RichText)
+        self.pill_rate = label("", "kbd")
+        pr.addWidget(self.pill_dot)
+        pr.addWidget(self.pill_text)
+        pr.addWidget(self.pill_rate)
+        pr.addWidget(label("⌄", "caption"))
+        row.addWidget(self.pill)
+        row.addWidget(self._quick_view())
+        row.addStretch()
+        # 无人机默认只读：打开才往 VFC、Bridge 的指令主题发，控制调试页和航线任务页都受它管；每次新连接自动关上
+        self.uav_lock = QFrame()
+        self.uav_lock.setObjectName("lockPill")
+        lr = QHBoxLayout(self.uav_lock)
+        lr.setContentsMargins(12, 2, 6, 2)
+        self.uav_send = Switch("允许下发")
+        self.uav_send.setToolTip("无人机默认只读，打开后才向 VFC / Bridge 的指令主题发送")
+        self.uav_send.toggled.connect(lambda on: (setattr(self.mqtt, "uav_send", on), self.uav.render()))
+        lr.addWidget(self.uav_send)
+        self.uav_lock.hide()
+        row.addWidget(self.uav_lock)
+        palette_btn = button("⌕  指令  Ctrl+K", self.control._quick_pick)
+        palette_btn.setToolTip("快速指令目录（任何页面按 Ctrl+K）")
+        row.addWidget(palette_btn)
+        theme = button("◐", self._toggle_theme)
+        theme.setObjectName("icon")
+        theme.setToolTip("切换浅色 / 深色")
+        row.addWidget(theme)
+        return bar
 
     def _sidebar(self):
+        """左侧栏：统一工作台的页和快捷键，底下是当前设备档案和演示故障定位；连接的控件也在这里建，放进连接设置面板"""
         side = QFrame()
         side.setObjectName("sidebar")
-        side.setFixedWidth(252)
-        outer = QVBoxLayout(side)
-        outer.setContentsMargins(0, 0, 0, 0)
-        # 窗口矮时侧栏整体滚动，避免设备卡和连接卡压住导航
-        body = QWidget()
-        outer.addWidget(scroller(body))
-        layout = QVBoxLayout(body)
-        layout.setContentsMargins(14, 22, 14, 16)
+        side.setFixedWidth(224)
+        layout = QVBoxLayout(side)
+        layout.setContentsMargins(12, 14, 12, 14)
         layout.setSpacing(6)
-        title = QHBoxLayout()
-        title.setSpacing(10)
-        mark = QLabel()
-        mark.setPixmap(QPixmap.fromImage(logo_image(64)).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        title.addWidget(mark)
-        title.addWidget(label(APP_NAME, "appTitle"))
-        title.addStretch()
-        theme = button("◐", self._toggle_theme, "link")
-        # 符号在默认字号下小得像字母，单独放大
-        theme.setStyleSheet("font-size:18px")
-        theme.setToolTip("切换浅色 / 深色")
-        title.addWidget(theme)
-        layout.addLayout(title)
-        layout.addWidget(label("设备调试工具  ·  v" + __version__, "appSub"))
-        layout.addSpacing(14)
+        head = QHBoxLayout()
+        head.addWidget(label("统一工作台", "groupHeader"))
+        head.addStretch()
+        head.addWidget(label("快捷键 Ctrl+", "groupHeader"))
+        layout.addLayout(head)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
         self.nav.setIconSize(QSize(22, 22))
@@ -201,55 +292,37 @@ class Studio(QMainWindow):
         layout.addWidget(self.nav)
         layout.addStretch()
 
-        layout.addWidget(label("当前设备", "groupHeader"))
         device = Step()
         device.setObjectName("sideCard")
         device.setCursor(Qt.PointingHandCursor)
-        device.clicked.connect(lambda: self._go(self.UAV if self.device_box.currentText() == "无人机" else self.REMOTE))
-        dl = QHBoxLayout(device)
+        device.setToolTip("点开连接与通道设置")
+        dl = QVBoxLayout(device)
         dl.setContentsMargins(12, 10, 12, 10)
-        badge = QLabel()
-        self.device_badge = badge
-        badge.setPixmap(glyph_icon("L2", "#1C1C1E").pixmap(30, 30))
-        dl.addWidget(badge)
-        text = QVBoxLayout()
-        text.setSpacing(1)
+        dl.setSpacing(4)
+        top = QHBoxLayout()
+        top.addWidget(label("当前设备档案", "groupHeader"))
+        top.addStretch()
+        self.device_dot = dot("#C7C7CC")
+        top.addWidget(self.device_dot)
+        self.device_badge = label("DOG 机器狗", "badge")
+        top.addWidget(self.device_badge)
+        dl.addLayout(top)
         self.device_name = label("", "deviceName")
         self.device_meta = label("", "caption", True)
-        text.addWidget(self.device_name)
-        text.addWidget(self.device_meta)
-        dl.addLayout(text, 1)
-        self.device_dot = dot("#C7C7CC")
-        dl.addWidget(self.device_dot)
+        dl.addWidget(self.device_name)
+        dl.addWidget(self.device_meta)
+        replay = QHBoxLayout()
+        replay.addWidget(label("会话回放", "caption"))
+        replay.addStretch()
+        replay.addWidget(button("OSD 轨迹回放", lambda: self.scene3d._replay_scan(), "link"))
+        dl.addLayout(replay)
         layout.addWidget(device)
-        layout.addSpacing(8)
+        layout.addWidget(button("●  演示一次故障定位", lambda: self.control._demo()))
 
-        layout.addWidget(label("连接", "groupHeader"))
-        box = QFrame()
-        box.setObjectName("sideCard")
-        form = QVBoxLayout(box)
-        form.setContentsMargins(12, 12, 12, 12)
-        form.setSpacing(8)
-        # 保存的连接配置：选一个就填好下面各项，密码不保存
-        saved = QHBoxLayout()
-        saved.setSpacing(6)
+        # 下面这些控件放进连接设置面板（_connection_card），在这里建是因为别处构建时就要用到
         self.profile_box = QComboBox()
         self.profile_box.activated.connect(self.connection._profile_chosen)
-        saved.addWidget(self.profile_box, 1)
-        more = QPushButton("⋯")
-        more.setObjectName("tile")
-        more.setFixedWidth(40)
-        # 去掉菜单箭头，窄按钮里只放“⋯”
-        more.setStyleSheet("QPushButton{font-size:18px;padding:0 0 4px 0}QPushButton::menu-indicator{image:none;width:0px}")
-        more.setToolTip("保存或删除连接配置")
-        more.setCursor(Qt.PointingHandCursor)
-        menu = QMenu(more)
-        menu.addAction("把当前填写存为配置…", self.connection._save_profile)
-        menu.addAction("删除选中的配置", self.connection._delete_profile)
-        more.setMenu(menu)
-        saved.addWidget(more)
-        form.addLayout(saved)
-        # 设备类型跟着连接走（随连接配置保存），左侧导航跟着换；连上后锁住，断开才能换
+        # 设备类型跟着连接走（随连接配置保存），左侧导航跟着换；连上后锁住，断开才能换；界面上用顶栏的分段切换
         self.device_box = QComboBox()
         self.device_box.addItems(DEVICES)
         self.device_box.currentTextChanged.connect(lambda _: self._device_changed())
@@ -264,22 +337,24 @@ class Studio(QMainWindow):
         self.port.setRange(1, 65535)
         self.port.setValue(1883)
         self.port.setButtonSymbols(QAbstractSpinBox.NoButtons)
-        self.port.setFixedWidth(68)
+        self.port.setFixedWidth(90)
         self.sn = QLineEdit("TEST_DOG_001")
         self.sn.setPlaceholderText("设备 SN")
         self.sn.textChanged.connect(self.control._update_topic)
         self.sn.textChanged.connect(self.connection._connection_hint)
         self.sn.textChanged.connect(self.scene3d._device_card)
+        self.sn.textChanged.connect(lambda _: self._update_pill())
         self.host.textChanged.connect(self.connection._connection_hint)
+        self.host.textChanged.connect(lambda _: self._update_pill())
         self.user = QLineEdit()
         self.user.setPlaceholderText("用户名")
         self.password = QLineEdit()
         self.password.setEchoMode(QLineEdit.Password)
         self.password.setPlaceholderText("密码")
-        self.tls = Switch("TLS")
+        self.tls = Switch("")
         # 远程：经 FRP 用 SSH 登到狗上，把狗上的 Broker 和 ZLM 端口转到本机，之后和直连一样用；取设备日志也用这组 SSH 账号
         stored = settings()
-        self.frp = Switch("经远程（FRP）")
+        self.frp = Switch("")
         self.frp.toggled.connect(self.connection._frp_toggled)
         self.ssh_user = QLineEdit(stored.value("ssh_user", ""))
         self.ssh_user.setPlaceholderText("SSH 用户名")
@@ -291,75 +366,133 @@ class Studio(QMainWindow):
         self.ssh_password.editingFinished.connect(lambda: settings().setValue("ssh_password", self.ssh_password.text()))
         self.ssh, self.connection.ssh_zlm, self.connection.ssh_connecting = None, 0, False
         self.connect_btn = button("连接", self.connection._connect, "primary")
-        broker = QHBoxLayout()
-        broker.addWidget(self.host, 1)
-        broker.addWidget(self.port)
+        self.link_dot = dot(GRAY)
+        self.link = label("", "caption", True)
+        self.rate_label = label("", "caption")
+        device.clicked.connect(lambda: self.connection_sheet.open())
+        self.connection._load_profiles()
+        return side
+
+    def _connection_card(self):
+        """连接与通道设置：预设配置、接入方式、Broker、SN、账号、FRP、TLS，下面是连接状态和连接 / 断开"""
+        sheet = QFrame()
+        sheet.setObjectName("sheet")
+        sheet.setFixedWidth(500)
+        form = QVBoxLayout(sheet)
+        form.setContentsMargins(22, 18, 22, 20)
+        form.setSpacing(8)
+        head = QHBoxLayout()
+        head.addWidget(label("连接与通道设置", "heading"))
+        head.addStretch()
+        head.addWidget(button("完成", lambda: self.connection_sheet.close()))
+        form.addLayout(head)
+        form.addWidget(label("预设连接配置（选一个就填好下面各项，密码不保存）", "caption"))
+        saved = QHBoxLayout()
+        saved.addWidget(self.profile_box, 1)
+        more = QPushButton("⋯")
+        more.setFixedWidth(42)
+        # 去掉菜单箭头，窄按钮里只放“⋯”
+        more.setStyleSheet("QPushButton{font-size:18px;padding:0 0 4px 0}QPushButton::menu-indicator{image:none;width:0px}")
+        more.setToolTip("保存或删除连接配置")
+        menu = QMenu(more)
+        menu.addAction("把当前填写存为配置…", self.connection._save_profile)
+        menu.addAction("删除选中的配置", self.connection._delete_profile)
+        more.setMenu(menu)
+        saved.addWidget(more)
+        form.addLayout(saved)
+        form.addWidget(label("接入模式", "caption"))
+        # 分段只是接入方式下拉的另一个样子，切换逻辑还在下拉上
+        self.mode_seg = Segmented(["沙盒模拟", "云端 → GW", "局域网直连", "离线分析"])
+        self.mode_seg.set_index(self.mode_box.currentIndex())
+        self.mode_seg.changed.connect(self.mode_box.setCurrentIndex)
+        self.mode_box.currentIndexChanged.connect(lambda index: self.mode_seg.index() != index and self.mode_seg.set_index(index))
+        form.addWidget(self.mode_seg)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(4)
+        grid.addWidget(label("Broker 地址", "caption"), 0, 0)
+        grid.addWidget(label("端口", "caption"), 0, 1)
+        grid.addWidget(self.host, 1, 0)
+        grid.addWidget(self.port, 1, 1)
+        form.addLayout(grid)
+        self.sn_caption = label("设备 SN（Topic 路由键）", "caption")
+        form.addWidget(self.sn_caption)
+        form.addWidget(self.sn)
         account = QHBoxLayout()
         account.addWidget(self.user)
         account.addWidget(self.password)
-        form.addWidget(self.device_box)
-        form.addWidget(self.mode_box)
-        form.addLayout(broker)
-        form.addWidget(self.sn)
         form.addLayout(account)
         self.ssh_row = QWidget()
         ssh = QVBoxLayout(self.ssh_row)
-        ssh.setContentsMargins(0, 0, 0, 0)
+        ssh.setContentsMargins(0, 4, 0, 0)
         ssh.setSpacing(6)
-        ssh.addWidget(self.frp)
+        ssh.addLayout(self._switch_row(self.frp, "经远程 FRP（SSH 端口转发）", "把狗上的 1883 和 ZLM 80 转到本机，之后和直连一样用"))
         account = QHBoxLayout()
         account.addWidget(self.ssh_user)
         account.addWidget(self.ssh_password)
         ssh.addLayout(account)
         form.addWidget(self.ssh_row)
-        # 无人机默认只读：打开才往 VFC、Bridge 的指令主题发，控制调试页和航线任务页都受它管；每次新连接自动关上
-        self.uav_send = Switch("允许向无人机发送")
-        self.uav_send.toggled.connect(lambda on: (setattr(self.mqtt, "uav_send", on), self.uav.render()))
-        self.uav_send.hide()
-        form.addWidget(self.uav_send)
-        actions = QHBoxLayout()
-        actions.addWidget(self.tls)
-        actions.addStretch()
-        actions.addWidget(self.connect_btn)
-        form.addLayout(actions)
-        layout.addWidget(box)
+        form.addLayout(self._switch_row(self.tls, "启用 TLS 加密传输", "云端生产 Broker 建议开启"))
         state = QHBoxLayout()
-        state.setContentsMargins(6, 6, 6, 0)
-        self.link_dot = dot(GRAY)
-        self.link = label("", "caption", True)
         state.addWidget(self.link_dot)
         state.addWidget(self.link, 1)
-        self.rate_label = label("", "caption")
         state.addWidget(self.rate_label, 0, Qt.AlignTop)
-        layout.addLayout(state)
-        self.connection._load_profiles()
-        return side
+        form.addLayout(state)
+        self.connect_btn.setMinimumHeight(38)
+        form.addWidget(self.connect_btn)
+        return sheet
+
+    @staticmethod
+    def _switch_row(switch, title, note):
+        row = QHBoxLayout()
+        text = QVBoxLayout()
+        text.setSpacing(0)
+        text.addWidget(label(title))
+        text.addWidget(label(note, "caption", True))
+        row.addLayout(text, 1)
+        row.addWidget(switch)
+        return row
+
+    def _update_pill(self):
+        """顶栏连接胶囊：圆点颜色跟连接状态，文字是接入方式和 SN（无人机写 Broker 地址），后面是每秒消息数"""
+        if not hasattr(self, "pill_text"):
+            return
+        mode = {"sandbox": "沙盒模拟", "gw": "云端 MQTT", "direct": "局域网直连", "offline": "离线分析"}[self.mode]
+        uav = DEVICES[self.device_box.currentText()] == "uav"
+        target = (self.mqtt.host if self.mqtt.connected else self.host.text().strip()) if uav else (
+            self.mqtt.sn if self.mqtt.connected else self.sn.text().strip())
+        self.pill_text.setText(f"<b>{html.escape(mode)}</b>　<span style='color:#8E8E93'>·</span>　"
+                               f"<span style='font-family:Consolas,monospace'>{html.escape(target or '—')}</span>")
+        color = GREEN if self.mqtt.connected else ORANGE if self.mqtt.client or self.connection.ssh_connecting else GRAY
+        self.pill_dot.setStyleSheet(f"background:{color};border-radius:5px")
+        self.pill_rate.setText(self.rate_label.text())
+        self.pill_rate.setVisible(bool(self.rate_label.text()))
+
+    def _lock_device(self, locked):
+        """连着或正在登录时不能换设备：顶栏的分段和连接卡里的设备一起锁"""
+        self.device_box.setEnabled(not locked)
+        if hasattr(self, "device_seg"):
+            self.device_seg.setEnabled(not locked)
 
     @property
     def dark(self):
         return QApplication.instance().palette().color(QPalette.Window).lightness() < 128
 
     def _toggle_theme(self):
-        """换外观要整窗重新套样式（约半秒）；先拿旧画面盖住，换好后让它淡出，看起来是平滑过渡"""
+        """换外观：整窗重新套样式；不再截图盖住做淡出，截图在带 3D 视图时很卡"""
         dark = not self.dark
-        cover = QLabel(self)
-        cover.setPixmap(self.grab())
-        cover.setGeometry(self.rect())
-        cover.show()
-        cover.repaint()
         apply_theme(QApplication.instance(), dark)
         settings().setValue("theme", "dark" if dark else "light")
         self.scene3d.set_dark(dark)
-        effect = QGraphicsOpacityEffect(cover)
-        cover.setGraphicsEffect(effect)
-        fade = QPropertyAnimation(effect, b"opacity", cover)
-        fade.setDuration(260)
-        fade.setStartValue(1.0)
-        fade.setEndValue(0.0)
-        fade.setEasingCurve(QEasingCurve.OutCubic)
-        fade.finished.connect(cover.deleteLater)
-        fade.start()
 
+    def keyPressEvent(self, event):
+        """焦点不在输入框时直接按数字 1～5 切到侧栏第几页（输入框会先收下数字，不会误切）"""
+        if event.modifiers() == Qt.NoModifier and Qt.Key_1 <= event.key() <= Qt.Key_5:
+            row = event.key() - Qt.Key_1
+            if row < self.nav.count():
+                self.nav.setCurrentRow(row)
+                return
+        super().keyPressEvent(event)
 
     def _background(self, work, kind, *extra):
         """在只读连接上跑 work(reader)，结果以 (kind, 结果, *extra) 进 inbox；内存库没有文件，直接在当前线程跑"""
@@ -413,7 +546,7 @@ class Studio(QMainWindow):
         chip = Step()
         chip.setObjectName("quickChip")
         chip.setCursor(Qt.PointingHandCursor)
-        chip.setMaximumWidth(760)
+        chip.setMaximumWidth(380)
         chip.clicked.connect(self._open_quick)
         chip.setStyleSheet(f"QFrame#quickChip{{background:{tint(GRAY, 26)};border-radius:12px}}")
         row = QHBoxLayout(chip)
@@ -456,10 +589,13 @@ class Studio(QMainWindow):
 
     def _page(self, index):
         self._slide_to(index)
-        page = {self.STATUS: self.status, self.LOGS: self.logs, self.REMOTE: self.teleop,
-                self.UAV: self.uav, self.UAV_MISSION: self.uav}.get(index)
+        uav = DEVICES[self.device_box.currentText()] == "uav"
+        page = {self.OVERVIEW: self.status, self.LOGS: self.logs, self.TELEOP: None if uav else self.teleop,
+                self.MISSION: self.uav if uav else None}.get(index)
         if page:
             page.shown()
+        if uav and index == self.OVERVIEW:
+            self.uav.shown()
         self._show_observer(index)
         # 窗口还没显示时不加载，showEvent 再补；测试里窗口不显示，也就不加载 OpenGL
         if index in self.OBSERVED and self.isVisible():
@@ -470,47 +606,8 @@ class Studio(QMainWindow):
         self.scene3d.observer.setVisible(index in self.OBSERVED and DEVICES[self.device_box.currentText()] != "uav")
 
     def _slide_to(self, index):
-        """切页：旧页截图淡出并往反方向滑走，新页从切换方向淡入滑到位（参照 host 的切页动画，260 ms）"""
-        old, new = self.stack.currentWidget(), self.stack.widget(index)
-        if new is old or not self.isVisible():
-            self.stack.setCurrentIndex(index)
-            return
-        direction = 1 if index > self.stack.currentIndex() else -1
-        ghost = QLabel(self.stack)
-        ghost.setAttribute(Qt.WA_TransparentForMouseEvents)
-        ghost.setPixmap(old.grab())
-        ghost.setGeometry(old.geometry())
+        """切页直接换页面栈；不截整窗做动画（带 OpenGL 视图和高频表格时 grab 很卡主线程）"""
         self.stack.setCurrentIndex(index)
-        ghost.show()
-        ghost.raise_()
-        home = new.pos()
-        group = QParallelAnimationGroup(self)
-
-        def animate(target, prop, start, end, ms):
-            item = QPropertyAnimation(target, prop, group)
-            item.setDuration(ms)
-            item.setStartValue(start)
-            item.setEndValue(end)
-            item.setEasingCurve(QEasingCurve.OutCubic)
-
-        ghost_fade = QGraphicsOpacityEffect(ghost)
-        ghost.setGraphicsEffect(ghost_fade)
-        page_fade = QGraphicsOpacityEffect(new)
-        new.setGraphicsEffect(page_fade)
-        animate(ghost_fade, b"opacity", 1.0, 0.0, 170)
-        animate(ghost, b"pos", home, home - QPoint(direction * 28, 0), 260)
-        animate(page_fade, b"opacity", 0.0, 1.0, 260)
-        animate(new, b"pos", home + QPoint(direction * 28, 0), home, 260)
-
-        def done():
-            ghost.deleteLater()
-            # 只撤掉本次加的效果：连续快速切页时，后一次动画可能已经换上自己的效果
-            if new.graphicsEffect() is page_fade:
-                new.setGraphicsEffect(None)
-            new.move(home)
-
-        group.finished.connect(done)
-        group.start(QParallelAnimationGroup.DeleteWhenStopped)
 
     def _fill_nav(self, device):
         """左侧导航换成这种设备的页面；每行记着页面栈序号，不按行号对页面"""
@@ -521,26 +618,30 @@ class Studio(QMainWindow):
             item.setData(Qt.UserRole, index)
             self.nav.addItem(item)
         # 行高 40 加上下各 1 px 间距；固定高度，窗口矮时由侧栏整体滚动
-        self.nav.setFixedHeight(len(self.NAV[device]) * 42 + 4)
+        self.nav.setFixedHeight(len(self.NAV[device]) * 44 + 8)
         self.nav.blockSignals(False)
 
     def _device_changed(self):
-        """连接卡里换设备：左侧导航、指令目录、发送开关跟着换；当前页这种设备没有就切到第一页"""
+        """换设备（顶栏分段或连接配置）：5 个页不换，各页换成这种设备的内容和协议目录，顶栏和连接面板跟着换"""
         device = DEVICES[self.device_box.currentText()]
-        current = self.stack.currentIndex()
-        self._fill_nav(device)
-        self.uav_send.setVisible(device == "uav")
+        self.teleop_stack.show_device(device)
+        self.mission_stack.show_device(device)
+        self.uav_lock.setVisible(device == "uav")
+        if self.device_seg.index() != list(DEVICES.values()).index(device):
+            self.device_seg.set_index(list(DEVICES.values()).index(device))
         # 无人机的主题里不带 SN，也不走 FRP
         self.sn.setVisible(device == "dog")
+        self.sn_caption.setVisible(device == "dog")
         if device == "uav":
             self.frp.setChecked(False)
         self.ssh_row.setVisible(device == "dog" and self.mode == "direct")
         self.scene3d._device_card()
+        self._update_pill()
         self.control.device_changed()
         self.logs.device_changed(device)
-        pages = [index for _, index in self.NAV[device]]
-        self._go(current if current in pages else pages[0])
-        self._show_observer(self.stack.currentIndex())
+        self.status.device_changed()
+        # 页不换，当前页按新设备重画
+        self._page(self.stack.currentIndex())
 
     def _go(self, index):
         row = next((r for r in range(self.nav.count()) if self.nav.item(r).data(Qt.UserRole) == index), None)
@@ -692,12 +793,13 @@ class Studio(QMainWindow):
     def _drain(self):
         now = time.monotonic()
         if now - self.rate_at >= 1:
-            self.rate_label.setText(f"{self.rate_count / (now - self.rate_at):.0f} 条/秒" if self.mqtt.connected else "")
+            self.rate_label.setText(f"{self.rate_count / (now - self.rate_at):.0f} msg/s" if self.mqtt.connected else "")
             self.rate_count, self.rate_at = 0, now
+            self._update_pill()
         self.scene3d.tick(now)
-        if self.stack.currentIndex() == self.STATUS:
+        if self.stack.currentIndex() == self.OVERVIEW:
             self.status.tick(now)
-        elif self.stack.currentIndex() == self.UAV:
+        if self.stack.currentIndex() in (self.OVERVIEW, self.MISSION) and DEVICES[self.device_box.currentText()] == "uav":
             self.uav.tick(now)
         changed = False
         # 每次最多处理约 60 ms，剩下的留到下一轮，避免大批导入时界面无响应

@@ -84,6 +84,7 @@ class ConnectionPanel:
         self.app.connect_btn.setObjectName("danger" if self.app.mqtt.client else "primary")
         self.app.connect_btn.style().polish(self.app.connect_btn)
         self.app.scene3d._device_card()
+        self.app._update_pill()
 
     def _connection_hint(self):
         """连接中修改了 Broker/SN 时提示仍按旧连接收发，重连后才切换"""
@@ -137,7 +138,7 @@ class ConnectionPanel:
             self.app.teleop.remote.halt()
             self.app.mqtt.close()
             self._close_ssh()
-            self.app.device_box.setEnabled(True)
+            self.app._lock_device(False)
             self._set_link("已断开", GRAY)
             return
         if self.app.mode in {"sandbox", "offline"}:
@@ -159,7 +160,7 @@ class ConnectionPanel:
                           self.app.user.text(), self.app.password.text(), self.app.tls.isChecked(), device)
         # 新连接回到只读，开关跟着关上；连着的时候不能换设备，免得页面是无人机的、连着的却是狗
         self.app.uav_send.setChecked(False)
-        self.app.device_box.setEnabled(False)
+        self.app._lock_device(True)
         self.app.scene.reset_telemetry()
         self.app.scene.clear_cloud()
         self._set_link("连接中…", ORANGE)
@@ -175,7 +176,7 @@ class ConnectionPanel:
     def _connect_frp(self):
         """经 FRP 登录狗、把 1883 和 80 转到本机，再按直连的方式连 Broker；登录在后台，结果进 inbox"""
         self.ssh_connecting = True
-        self.app.device_box.setEnabled(False)
+        self.app._lock_device(True)
         self._set_link(f"正在经 FRP 登录 {self.app.sn.text().strip()}…", ORANGE)
 
         def work():
@@ -221,10 +222,10 @@ class ConnectionPanel:
         self.app.teleop.remote.halt()
         self.app.mqtt.close()
         self._close_ssh()
-        self.app.device_box.setEnabled(True)
+        self.app._lock_device(False)
         self._set_link(str(note), RED)
 
     def _ssh_failed(self, note):
         self.ssh_connecting = False
-        self.app.device_box.setEnabled(True)
+        self.app._lock_device(False)
         self._set_link(note, RED)

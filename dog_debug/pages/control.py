@@ -39,7 +39,7 @@ class ControlPage:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "控制调试", "", button("演示一次故障定位", self._demo, "link"))
+        self.app._page_header(layout, "指令与链路", "协议目录、参数和 JSON 双向同步、发送后看 ACK 证据链；沙盒里可以注入故障", button("演示一次故障定位", self._demo, "link"))
         # 全部指令收在弹出列表里，让出宽度给编辑和结果；最近发送过的点一下回到它的草稿接着改，不会自动发送
         picker = QHBoxLayout()
         picker.setSpacing(6)
