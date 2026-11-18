@@ -676,11 +676,12 @@ class Studio(QMainWindow):
         self.sn.setVisible(device == "dog")
         self.sn_caption.setVisible(device == "dog")
         self.cloud_box.setVisible(device == "uav" and self.mode == "gw")
-        if hasattr(self, "connection_sheet"):
-            self.connection_sheet.refit()
         if device == "uav":
             self.frp.setChecked(False)
         self.ssh_row.setVisible(device == "dog" and self.mode == "direct")
+        # 各行显示与否都定了再量连接面板的高度
+        if hasattr(self, "connection_sheet"):
+            self.connection_sheet.refit()
         self.scene3d._device_card()
         self._update_pill()
         self.control.device_changed()

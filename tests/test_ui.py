@@ -1625,3 +1625,20 @@ def test_copy_mosquitto_pub_command(window):
     text = QApplication.clipboard().text()
     assert text.startswith("mosquitto_pub -h 10.0.0.5 -p 1884 -q 0 -u 'tta' -P '<密码>' -t ")
     assert text.endswith("""-m '{"method":"take_photo","data":{"note":"it'\\''s"}}'""") and "secret" not in text
+
+
+def test_connection_sheet_refits_after_mode_change(window):
+    """连接面板开着时切接入方式：各行显示与否定了再量高度，面板和内容一样高，不被压扁（GPT 1e92309 复现：狗 云端→直连）"""
+    window.resize(1180, 900)
+    window.show()
+    window.device_box.setCurrentText("机器狗")
+    window.mode_box.setCurrentText("云端 → 真实 GW")
+    sheet = window.connection_sheet
+    sheet.open()
+    window.mode_box.setCurrentText("直连模块")
+    assert not window.ssh_row.isHidden()
+    assert sheet.area.height() == sheet.card.sizeHint().height()
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("云端 → 真实 GW")
+    assert sheet.area.height() == sheet.card.sizeHint().height()
+    sheet.close()
