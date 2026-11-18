@@ -875,12 +875,22 @@ class DeviceStack(QWidget):
 
 
 class Sheet(QWidget):
-    """盖在窗口上的浮层：半透明底加居中的一张卡片（如连接设置），点卡片外面或按 Esc 收起；窗口大小变了跟着铺满"""
+    """盖在窗口上的浮层：半透明底加居中的一张卡片（如连接设置），点卡片外面或按 Esc 收起；窗口大小变了跟着铺满
+
+    卡片放在滚动区里：窗口矮、内容比可用高度高时在卡片里滚动，不把控件压扁叠在一起
+    """
 
     def __init__(self, parent, card):
         super().__init__(parent)
         self.card = card
-        card.setParent(self)
+        self.area = QScrollArea(self)
+        # 卡片保持自己的大小（宽度固定、高度按内容），滚动区只负责滚，不压缩卡片
+        self.area.setWidgetResizable(False)
+        self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.area.setFrameShape(QFrame.NoFrame)
+        self.area.setStyleSheet("QScrollArea {background:transparent}")
+        self.area.viewport().setAutoFillBackground(False)
+        self.area.setWidget(card)
         self.hide()
         parent.installEventFilter(self)
 
@@ -894,11 +904,18 @@ class Sheet(QWidget):
     def close(self):
         self.hide()
 
+    def refit(self):
+        """卡片里显示或藏起了几行（比如切了接入方式）后重新量高度"""
+        if self.isVisible():
+            self._place()
+
     def _place(self):
         self.card.adjustSize()
-        size = self.card.sizeHint()
-        self.card.setGeometry((self.width() - size.width()) // 2, max(24, (self.height() - size.height()) // 3),
-                              size.width(), min(size.height(), self.height() - 48))
+        size = self.card.size()
+        height = min(size.height(), self.height() - 48)
+        # 要滚动时右边留出滚动条的宽度
+        width = size.width() + (self.area.verticalScrollBar().sizeHint().width() if height < size.height() else 0)
+        self.area.setGeometry((self.width() - width) // 2, max(24, (self.height() - height) // 3), width, height)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Resize and self.isVisible():
@@ -911,7 +928,7 @@ class Sheet(QWidget):
         painter.fillRect(self.rect(), QColor(0, 0, 0, 70))
 
     def mousePressEvent(self, event):
-        if not self.card.geometry().contains(event.position().toPoint()):
+        if not self.area.geometry().contains(event.position().toPoint()):
             self.hide()
 
     def keyPressEvent(self, event):

@@ -441,11 +441,10 @@ class Studio(QMainWindow):
         cloud = QVBoxLayout(self.cloud_box)
         cloud.setContentsMargins(0, 0, 0, 0)
         cloud.setSpacing(4)
-        cloud.addWidget(label("无人机 SN（云端主题 tta/uav/{sn}/…，板上 db/deviceInfo.cfg 里的）", "caption"))
+        cloud.addWidget(label("无人机 SN（板上 db/deviceInfo.cfg）", "caption"))
         cloud.addWidget(self.uav_sn)
-        cloud.addWidget(label("Broker 要和板上 GW 云端那一侧连的是同一个（板上 db/accessServer.cfg），否则收不到 GW 的上报", "caption", True))
-        cloud.addLayout(self._switch_row(self.cloud_answer, "扮演云端应答上线和心跳",
-                                         "GW 看心跳回复判断在线；不回也能转发指令，但 GW 会一直显示离线、一直重发上线"))
+        cloud.addWidget(label("Broker 要和板上 GW 云端那一侧的一致（db/accessServer.cfg），否则收不到上报", "caption", True))
+        cloud.addLayout(self._switch_row(self.cloud_answer, "扮演云端应答上线和心跳", "不回的话 GW 一直显示离线"))
         form.addWidget(self.cloud_box)
         account = QHBoxLayout()
         account.addWidget(self.user)
@@ -677,6 +676,8 @@ class Studio(QMainWindow):
         self.sn.setVisible(device == "dog")
         self.sn_caption.setVisible(device == "dog")
         self.cloud_box.setVisible(device == "uav" and self.mode == "gw")
+        if hasattr(self, "connection_sheet"):
+            self.connection_sheet.refit()
         if device == "uav":
             self.frp.setChecked(False)
         self.ssh_row.setVisible(device == "dog" and self.mode == "direct")

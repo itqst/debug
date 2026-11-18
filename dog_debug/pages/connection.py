@@ -117,6 +117,8 @@ class ConnectionPanel:
         self._swap_uav_broker(self.app.mode, mode)
         self.app.mode = mode
         self.app.cloud_box.setVisible(self.app.uav_cloud())
+        # 面板开着时切方式，多出或少了几行，重新量高度
+        self.app.connection_sheet.refit()
         # 无人机只直连板上 Broker，不走 FRP
         self.app.ssh_row.setVisible(mode == "direct" and self.app.device_box.currentText() == "机器狗")
         sandbox = self.app.mode == "sandbox"
