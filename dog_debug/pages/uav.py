@@ -95,7 +95,7 @@ class UavPage:
         self.table.cellDoubleClicked.connect(self._open_row)
         tv.addWidget(self.table, 1)
         pages.addWidget(timeline)
-        pages.setFixedHeight(250)
+        pages.setFixedHeight(140)
         ev.addWidget(pages)
         self.rows = []
         return extras

@@ -122,14 +122,13 @@ try:
     w.resize(1480, 940)
     w.show()
     wait(w.isVisible)
-    # 1 控制页：点“全部指令”，在弹出目录里点 take_photo，点“执行失败”分段，点“模拟发送”
+    # 1 指令与链路页：在左边目录里点 take_photo，点“执行失败”分段，点“模拟发送”
     click_nav(w, w.CONTROL)
-    click(w.control.picker_btn)
-    check(wait(w.control.picker.isVisible), "1 点“全部指令”弹出指令目录")
+    check(wait(w.control.commands.isVisible), "1 指令与链路页左边常驻指令目录")
     row = next(i for i in range(w.control.commands.count())
                if (w.control.commands.item(i).data(Qt.UserRole) or {}).get("method") == "take_photo")
     QTest.mouseClick(w.control.commands.viewport(), Qt.LeftButton, Qt.NoModifier, w.control.commands.visualItemRect(w.control.commands.item(row)).center())
-    check(wait(lambda: not w.control.picker.isVisible() and w.control.selected["method"] == "take_photo"), "1 点选“拍照”后目录收起，当前指令为 take_photo")
+    check(wait(lambda: w.control.selected["method"] == "take_photo"), "1 点选“拍照”，当前指令为 take_photo")
     # 3D 观察区只在总览页左边，指令与链路页整宽
     check(not w.scene3d.observer.isVisible(), "1 指令与链路页整宽，不显示 3D 观察区")
     click(w.control.scenario.group.button(1))

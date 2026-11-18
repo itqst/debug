@@ -751,18 +751,18 @@ class CommandDelegate(QStyledItemDelegate):
         self.initStyleOption(opt, index)
         opt.text = ""
         opt.widget.style().drawControl(QStyle.CE_ItemViewItem, opt, painter, opt.widget)
-        selected = bool(option.state & QStyle.State_Selected)
+        # 选中行是淡蓝底（QSS），文字仍用正常颜色
         rect = option.rect.adjusted(12, 0, -10, 0)
         painter.save()
         font = QFont(option.font)
         font.setPixelSize(11)
         painter.setFont(font)
         method = painter.fontMetrics().elidedText(item["method"], Qt.ElideMiddle, rect.width() // 2)
-        painter.setPen(QColor(255, 255, 255, 200) if selected else QColor(GRAY))
+        painter.setPen(QColor(GRAY))
         painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, method)
         used = painter.fontMetrics().horizontalAdvance(method) + 10
         painter.setFont(option.font)
-        painter.setPen(QColor("white") if selected else option.palette.color(QPalette.Text))
+        painter.setPen(option.palette.color(QPalette.Text))
         title = painter.fontMetrics().elidedText(item["title"], Qt.ElideRight, rect.width() - used)
         painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, title)
         painter.restore()

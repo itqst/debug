@@ -3,11 +3,11 @@
 import json
 import uuid
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QButtonGroup, QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit, QRadioButton, QSplitter,
-    QVBoxLayout, QWidget,
+    QApplication, QButtonGroup, QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
+    QPushButton, QRadioButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from .uav import PointsTable
@@ -36,43 +36,45 @@ class ControlPage:
         self.watch, self.watch_size = None, 0
 
     def _control_page(self):
+        """三栏：左边协议目录（搜索、模块筛选、最近发过的），中间 Topic 和参数（快捷参数 / 原始 JSON 二选一），右边本次结果的证据链"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(layout, "指令与链路", "协议目录、参数和 JSON 双向同步、发送后看 ACK 证据链；沙盒里可以注入故障", button("演示一次故障定位", self._demo, "link"))
-        # 全部指令收在弹出列表里，让出宽度给编辑和结果；最近发送过的点一下回到它的草稿接着改，不会自动发送
-        picker = QHBoxLayout()
-        picker.setSpacing(6)
-        self.picker_btn = button("全部指令 ▾", self._open_picker, "primary")
-        self.picker_btn.setToolTip("任何页面按 Ctrl+K 也能打开")
-        picker.addWidget(self.picker_btn)
-        picker.addSpacing(8)
-        self.recent_row = QHBoxLayout()
-        self.recent_row.setSpacing(6)
-        picker.addLayout(self.recent_row, 1)
-        layout.addLayout(picker)
-        self._show_recent()
+        self.new_tid_btn = button("换新 tid", self._new_tid)
+        self.send_btn = button("发送", self._send, "primary")
+        self.app._page_header(layout, "指令与链路", "协议目录、参数和 JSON 双向同步，发送后右边看 ACK 证据链；沙盒里可以选回复场景演示故障",
+                              self.new_tid_btn, self.send_btn)
+        columns = QSplitter()
+        columns.setHandleWidth(14)
+        columns.setChildrenCollapsible(False)
 
-        # 弹出层是独立窗口：外层透明，里面一张卡片，才能露出圆角
-        self.picker = QWidget(self.app, Qt.Popup)
-        self.picker.setAttribute(Qt.WA_TranslucentBackground)
-        self.picker.resize(400, 540)
-        sheet, lv = card(8, 12)
-        outer_box = QVBoxLayout(self.picker)
-        outer_box.setContentsMargins(0, 0, 0, 0)
-        outer_box.addWidget(sheet)
+        catalog, lv = card(8, 14)
         self.command_search = QLineEdit()
         self.command_search.setObjectName("search")
-        self.command_search.setPlaceholderText("搜索中文名、method 或模块，回车选第一条")
+        self.command_search.setPlaceholderText("搜索中文名、method 或模块，回车选第一条（Ctrl+K）")
         self.command_search.textChanged.connect(self._commands)
         self.command_search.returnPressed.connect(self._pick_first)
+        lv.addWidget(self.command_search)
+        # 模块筛选：全部加上当前设备目录里有的模块，换设备时重建
+        self.module_chips = QGridLayout()
+        self.module_chips.setSpacing(6)
+        self.module_group = QButtonGroup(page)
+        self.module_group.setExclusive(True)
+        self.module_group.idClicked.connect(lambda _: self._commands())
+        lv.addLayout(self.module_chips)
         self.commands = QListWidget()
         self.commands.setObjectName("commands")
         self.commands.setItemDelegate(CommandDelegate(self.commands))
         self.commands.currentItemChanged.connect(self._select_command)
-        self.commands.itemClicked.connect(lambda item: item.data(Qt.UserRole) and self.picker.hide())
-        lv.addWidget(self.command_search)
-        lv.addWidget(self.commands)
+        lv.addWidget(self.commands, 1)
+        self.recent_row = QHBoxLayout()
+        self.recent_row.setSpacing(6)
+        recent = QWidget()
+        recent.setLayout(self.recent_row)
+        lv.addWidget(recent)
+        self._show_recent()
+        catalog.setMinimumWidth(260)
+        columns.addWidget(catalog)
 
         middle, mv = card(8, 18)
         head = QHBoxLayout()
@@ -84,30 +86,39 @@ class ControlPage:
         mv.addLayout(head)
         self.contract = label("", "caption", True)
         mv.addWidget(self.contract)
-        mv.addSpacing(4)
-        mv.addWidget(label("Topic", "groupHeader"))
+        mv.addWidget(label("目标 Topic（跟着连接方式自动换）", "groupHeader"))
         self.topic = QLineEdit()
         mv.addWidget(self.topic)
-        form_head = QHBoxLayout()
-        form_head.addWidget(label("参数", "groupHeader"))
+        view_row = QHBoxLayout()
+        self.edit_view = Segmented(["快捷参数", "原始 JSON"])
+        view_row.addWidget(self.edit_view)
         self.form_note = label("", "caption")
-        form_head.addWidget(self.form_note, 1)
-        mv.addLayout(form_head)
+        view_row.addWidget(self.form_note, 1)
+        mv.addLayout(view_row)
+        # 两种看法二选一：表单改了同步到 JSON，JSON 改了 0.3 s 后重建表单
+        self.edit_pages = QStackedWidget()
+        self.edit_view.changed.connect(self.edit_pages.setCurrentIndex)
+        form_page = QWidget()
+        fv = QVBoxLayout(form_page)
+        fv.setContentsMargins(0, 0, 0, 0)
         holder = QWidget()
-        self.form_grid = QGridLayout(holder)
-        self.form_grid.setContentsMargins(0, 0, 0, 0)
+        # 字段从上往下排，下面留白，不在中间悬着
+        stack = QVBoxLayout(holder)
+        stack.setContentsMargins(0, 0, 0, 0)
+        self.form_grid = QGridLayout()
+        stack.addLayout(self.form_grid)
+        stack.addStretch()
         self.form_grid.setHorizontalSpacing(10)
         self.form_grid.setVerticalSpacing(6)
         self.form_area = scroller(holder)
-        self.form_area.setMaximumHeight(120)
-        mv.addWidget(self.form_area)
+        fv.addWidget(self.form_area, 1)
         # 无人机开始航线的 points 用航点表格编：只填航向角，不手填四元数
         self.points_table = PointsTable()
         self.points_table.setMinimumHeight(200)
         self.points_table.changed.connect(self._points_edited)
         self.points_table.hide()
-        mv.addWidget(self.points_table)
-        mv.addWidget(label("Payload", "groupHeader"))
+        fv.addWidget(self.points_table, 2)
+        self.edit_pages.addWidget(form_page)
         self.editor = QPlainTextEdit()
         self.editor.setObjectName("code")
         self.editor.setMinimumHeight(110)
@@ -116,33 +127,28 @@ class ControlPage:
         self.form_timer.setInterval(300)
         self.form_timer.timeout.connect(self._rebuild_form)
         self.editor.textChanged.connect(lambda: None if self.form_syncing else self.form_timer.start())
-        mv.addWidget(self.editor, 1)
+        self.edit_pages.addWidget(self.editor)
+        mv.addWidget(self.edit_pages, 1)
         self.scenario_row = QWidget()
-        sr = QHBoxLayout(self.scenario_row)
+        # 标题单独一行，窄屏下五个场景也放得下
+        sr = QVBoxLayout(self.scenario_row)
         sr.setContentsMargins(0, 4, 0, 0)
-        sr.addWidget(label("沙盒结果", "caption"))
+        sr.setSpacing(4)
+        sr.addWidget(label("沙盒回复场景", "caption"))
         self.scenario = Segmented([name for name, _ in SCENARIOS])
-        sr.addWidget(self.scenario)
-        sr.addStretch()
+        sr.addWidget(self.scenario, 0, Qt.AlignLeft)
         mv.addWidget(self.scenario_row)
         actions = QHBoxLayout()
-        self.new_tid_btn = button("换新 tid", self._new_tid)
-        actions.addWidget(self.new_tid_btn)
         actions.addWidget(button("恢复模板", lambda: self._template()))
         actions.addWidget(button("存为用例", self.app.suite._save_case))
+        actions.addWidget(button("复制报文", lambda: QApplication.clipboard().setText(self.editor.toPlainText())))
         actions.addStretch()
-        self.send_btn = button("发送", self._send, "primary")
-        actions.addWidget(self.send_btn)
         mv.addLayout(actions)
-        # 编辑在上、回复在下，发送后不用转头找结果
-        work = QSplitter(Qt.Vertical)
-        work.setHandleWidth(12)
-        # 开始航线多了航点表格，窗口矮时编辑卡整体滚动，不把表格、Payload 和按钮挤到一起
-        work.addWidget(scroller(middle))
+        columns.addWidget(middle)
 
         right, rv = card(8, 16)
         rh = QHBoxLayout()
-        self.result_title = label("本次结果", "sectionTitle")
+        self.result_title = label("本次结果 · 证据链", "sectionTitle")
         rh.addWidget(self.result_title)
         rh.addStretch()
         rh.addWidget(button("单独窗口打开", self._open_watch, "link"))
@@ -150,26 +156,38 @@ class ControlPage:
         self.result = TraceView("发送后在这里看 ACK、状态和失败原因")
         self.result.original.connect(self.app._original)
         rv.addWidget(self.result, 1)
-        work.addWidget(right)
-        work.setSizes([560, 400])
-        layout.addWidget(work, 1)
+        columns.addWidget(right)
+        columns.setStretchFactor(0, 3)
+        columns.setStretchFactor(1, 4)
+        columns.setStretchFactor(2, 4)
+        columns.setSizes([300, 420, 420])
+        layout.addWidget(columns, 1)
+        self._module_chips()
         return page
 
-    def _quick_pick(self):
-        self.app._go(self.app.CONTROL)
-        self._open_picker()
+    def _module_chips(self):
+        """模块筛选：全部 + 当前目录里有的模块；换设备时按新目录重建"""
+        while self.module_chips.count():
+            widget = self.module_chips.takeAt(0).widget()
+            if widget:
+                self.module_group.removeButton(widget)
+                widget.hide()
+                widget.deleteLater()
+        modules = ["全部"] + list(dict.fromkeys(sorted((item["module"] for item in self._catalog()),
+                                                      key=lambda m: MODULES.index(m) if m in MODULES else len(MODULES))))
+        for index, module in enumerate(modules):
+            chip = QPushButton(module.upper() if module != "全部" else module)
+            chip.setObjectName("filterChip")
+            chip.setCheckable(True)
+            chip.setChecked(index == 0)
+            chip.setProperty("module", "" if module == "全部" else module)
+            self.module_group.addButton(chip, index)
+            chip.setMinimumHeight(26)
+            self.module_chips.addWidget(chip, index // 3, index % 3)
 
-    def _open_picker(self):
-        self.picker.move(self.picker_btn.mapToGlobal(self.picker_btn.rect().bottomLeft()))
-        # 弹出层是独立窗口，用窗口透明度淡入
-        self.picker.setWindowOpacity(0.0)
-        self.picker.show()
-        pop = QPropertyAnimation(self.picker, b"windowOpacity", self.picker)
-        pop.setDuration(150)
-        pop.setStartValue(0.0)
-        pop.setEndValue(1.0)
-        pop.setEasingCurve(QEasingCurve.OutCubic)
-        pop.start(QPropertyAnimation.DeleteWhenStopped)
+    def _quick_pick(self):
+        """Ctrl+K：到指令与链路页，光标放进目录搜索框"""
+        self.app._go(self.app.CONTROL)
         self.command_search.setFocus()
         self.command_search.selectAll()
 
@@ -177,20 +195,21 @@ class ControlPage:
         item = next((self.commands.item(i) for i in range(self.commands.count()) if self.commands.item(i).data(Qt.UserRole)), None)
         if item:
             self.commands.setCurrentItem(item)
-            self.picker.hide()
 
     def _commands(self):
         """按搜索词重建列表；不改变当前指令，启动时才默认选第一条"""
         self.commands.blockSignals(True)
         self.commands.clear()
         needle = self.command_search.text().lower()
+        chip = self.module_group.checkedButton() if hasattr(self, "module_group") else None
+        only = chip.property("module") if chip else ""
         first, group = None, None
         # 目录按文档顺序登记，同一模块的方法分散在多处；按模块归拢后分节，模块内保持文档顺序
         ordered = sorted(self._catalog(), key=lambda item: MODULES.index(item["module"]) if item["module"] in MODULES else len(MODULES))
         for item in ordered:
             available = item["category"] == "command" or (item["module"] == "gw" and item["method"] in {"oss_config_get", "online", "heartbeat"})
             words = " ".join((item["method"], item["module"], item["title"], item["summary"])).lower()
-            if not available or (needle and needle not in words):
+            if not available or (needle and needle not in words) or (only and item["module"] != only):
                 continue
             if item["module"] != group:
                 group = item["module"]
@@ -224,6 +243,7 @@ class ControlPage:
         """换设备类型：指令目录换成那种设备的，未发出的草稿作废（报文格式不同）"""
         self.selected = None
         self.app.drafts.clear()
+        self._module_chips()
         self._commands()
 
     def _select_command(self, current, previous=None):

@@ -109,6 +109,9 @@ QFrame#stat {background:#F7F7FA;border:1px solid #E6E7EC;border-radius:14px}
 QLabel#statValue {font-size:18px;font-weight:700}
 QLabel#deviceName {font-size:14px;font-weight:700}
 QLabel#badge {background:#E1EEFF;color:#007AFF;border-radius:9px;padding:1px 8px;font-size:11px;font-weight:700}
+QPushButton#filterChip {background:#F2F2F5;border:1px solid #E6E7EC;border-radius:13px;padding:3px 10px;color:#545458;font-size:12px;font-weight:600}
+QPushButton#filterChip:hover {color:#007AFF;background:#E5F0FF}
+QPushButton#filterChip:checked {background:#007AFF;border-color:#007AFF;color:white}
 QPushButton#chip {background:#E5F1FF;border:0;color:#007AFF;border-radius:13px;padding:4px 12px;font-weight:600}
 QPushButton#chip:hover {background:#D6E8FF}
 QProgressBar {background:#E6E7EC;border:0;border-radius:3px}
