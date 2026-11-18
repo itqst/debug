@@ -78,14 +78,17 @@ class ControlPage:
 
         middle, mv = card(8, 18)
         head = QHBoxLayout()
-        self.command_heading = label("选择指令", "heading")
+        # 长 method（如 start_multi_nav_by_points）在窄屏下折到第二行，不截断
+        self.command_heading = label("选择指令", "heading", True)
         self.command_module = pill("", GRAY)
-        head.addWidget(self.command_heading)
-        head.addWidget(self.command_module)
-        head.addStretch()
+        head.addWidget(self.command_heading, 1)
+        head.addWidget(self.command_module, 0, Qt.AlignTop)
         mv.addLayout(head)
         self.contract = label("", "caption", True)
-        mv.addWidget(self.contract)
+        # 航线这类说明很长，限高约四行、超出滚动，给下面的参数和航点表留地方
+        contract = scroller(self.contract)
+        contract.setMaximumHeight(68)
+        mv.addWidget(contract)
         mv.addWidget(label("目标 Topic（跟着连接方式自动换）", "groupHeader"))
         self.topic = QLineEdit()
         mv.addWidget(self.topic)
@@ -243,6 +246,10 @@ class ControlPage:
         """换设备类型：指令目录换成那种设备的，未发出的草稿作废（报文格式不同）"""
         self.selected = None
         self.app.drafts.clear()
+        # 上一种设备的本次结果不留在新设备的页面上
+        self.watch, self.watch_size = None, 0
+        self.result_title.setText("本次结果 · 证据链")
+        self.result.show_empty()
         self._module_chips()
         self._commands()
 
@@ -410,7 +417,7 @@ class ControlPage:
     def _template(self, draft=None):
         """显示当前指令；draft 为之前没发出的 (Topic, 正文)，没有时按目录生成新模板（新 tid）"""
         module = self.selected["module"]
-        self.command_heading.setText(f"{self.selected['title']}　{self.selected['method']}")
+        self.command_heading.setText(f"{self.selected['title']} {self.selected['method']}")
         self.command_module.setText(module.upper())
         color = MODULE_COLORS.get(module, GRAY)
         self.command_module.setStyleSheet(f"background:{tint(color, 34)};color:{color};border-radius:9px;"

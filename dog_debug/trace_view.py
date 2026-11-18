@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QScrollArea, QVBoxLayout, QWidget,
+    QApplication, QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from .core import diagnose, occurred, payload_diff, summarize
@@ -160,7 +160,8 @@ class TraceView(QScrollArea):
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(4)
         meta = label(f"{selected.sn or '未知设备'}  ·  {selected.source.split(':')[0]}", "caption")
-        heading = label(title)
+        self._narrowable(meta)
+        heading = label(title, wrap=True)
         heading.setStyleSheet(f"font-size:20px;font-weight:700;color:{color}")
         layout.addWidget(meta)
         layout.addWidget(heading)
@@ -196,17 +197,23 @@ class TraceView(QScrollArea):
         logged = e.kind == "日志" and e.file
         kind = "日志记录" if logged else f"{e.kind} · {e.direction}"
         name = label(f"<b>{html.escape(e.module.upper())}</b>　{html.escape(kind)}")
-        head.addWidget(name)
+        self._narrowable(name)
+        head.addWidget(name, 1)
         if not (logged and d.status == "未判定"):
             head.addWidget(pill(d.status, tone(d.status)))
-        head.addStretch()
-        # 日志来的消息显示原文里写的时间；实时收到的显示收到时刻
-        when = e.source_time.split()[-1].split("T")[-1] if e.source_time else time.strftime("%H:%M:%S", time.localtime(e.timestamp))
-        head.addWidget(label(when, "caption"))
         column.addLayout(head)
+        # 时刻放在 Topic 这一行右边，标题行留给模块名和结论，窄栏里也能看全
+        where = QHBoxLayout()
+        where.setSpacing(8)
         topic = label(e.topic or (f"原文未记录 Topic · {Path(e.file).name} 第 {e.line} 行" if logged else "无 Topic"), "caption")
         topic.setStyleSheet("font-family:'Cascadia Mono','Consolas',monospace;font-size:11px")
-        column.addWidget(topic)
+        topic.setToolTip(topic.text())
+        self._narrowable(topic)
+        where.addWidget(topic, 1)
+        # 日志来的消息显示原文里写的时间；实时收到的显示收到时刻
+        when = e.source_time.split()[-1].split("T")[-1] if e.source_time else time.strftime("%H:%M:%S", time.localtime(e.timestamp))
+        where.addWidget(label(when, "caption"))
+        column.addLayout(where)
         self.lines += [f"[{e.module} · {e.kind} · {d.status}] {e.topic}"]
         if d.summary and e.kind != "指令":
             summary = label(d.summary, wrap=True)
@@ -215,6 +222,12 @@ class TraceView(QScrollArea):
         row.addLayout(column, 1)
         step.clicked.connect(lambda e=e: self.show_trace(e, self.events, self.note, self.headline, self.origin))
         self.box.addWidget(step)
+
+    @staticmethod
+    def _narrowable(widget):
+        """Topic 这类不能换行的长串不撑宽整栏：栏窄时右边截掉，完整内容看悬停提示；否则会把同栏可换行的结论也一起顶出可视区"""
+        widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        widget.setMinimumWidth(40)
 
     def refresh(self):
         """按库里现在的消息重画当前这组，所选消息和“回到原来那组”不变"""
