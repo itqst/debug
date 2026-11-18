@@ -92,7 +92,7 @@
     "data": {}
    },
    "title": "结束航线",
-   "summary": "取消后续航点，飞机原地悬停，不降落（VFC 让 Bridge navigation.pause）",
+   "summary": "只暂停并取消剩余航点，不停任务环境，原地悬停（Bridge navigation.pause）；空闲时回 1“没有进行中的导航”，降落中会被拒；落地上锁后 VFC 自动停环境回 StandBy",
    "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
    "unverified": ""
   },
@@ -111,7 +111,7 @@
     "data": {}
    },
    "title": "返航",
-   "summary": "在空中任何状态都可以（Bridge navigation.return_home）",
+   "summary": "在空中任何状态都可以，bid 新生成（新任务，原任务报 Cancelled reason=return_home）（Bridge navigation.return_home）",
    "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
    "unverified": ""
   },
@@ -130,7 +130,7 @@
     "data": {}
    },
    "title": "降落",
-   "summary": "只在航点上悬停或返航完成时接受（Bridge flight.land）",
+   "summary": "只在航点上悬停或返航完成时接受；bid 新生成：原任务报 Cancelled（reason=land），再用新 bid 报 Active“降落中”，落地上锁报 Succeeded（Bridge flight.land）",
    "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
    "unverified": "无人机新增指令，平台暂时不发"
   },

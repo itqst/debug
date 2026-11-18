@@ -4,13 +4,19 @@
 板上时钟不准（实测慢约 36 h），时效一律按本机收到的时间算，报文里的 ts 只用来显示
 """
 
+import dataclasses
 import math
+import re
 
 from .core import BRIDGE
 
 VFC = "local/uav/vfc/"
 # 往这两个主题发的是指令；上面的保留消息在 VFC 或 Bridge 重启、重连时会被再收到一遍，VFC 分不出来会照样执行
 COMMAND_TOPICS = (VFC + "command", BRIDGE + "command")
+
+# 开始新任务的 VFC 指令：bid 新生成（按钮是“换新 bid”）；其他 VFC 指令带当前任务的 bid
+# 返航、降落也是新任务（VFC 994c1ae：原任务报 Cancelled，再用新 bid 报 Active）
+NEW_TASK = ("start_multi_nav_by_points", "start_mapping", "start_nav_return_home", "land")
 
 # 状态：键 → (名称, 多久没新消息算过期（秒，None 为不按时效判断）)；键的顺序就是模块卡片里各行的顺序
 # Bridge 各领域没变化也至少每秒重发一次；VFC 的 subsystem_status 每 2 s 一次，nav_status、mapping_status、loc_status、
@@ -53,6 +59,49 @@ VFC_AUTO = {"navigation.next", "system.stop", "system.status"}
 LINK_SECONDS = 5
 
 
+# 模拟云端时收到的是 GW 转过的云端报文（tta/uav/{sn}/...），外壳和本地不一样（nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 2 节）：
+# services_reply 的 result、msg 在 data 里，原来的 data 变成 data.data；state 是 method 加 data；osd 字段平铺
+CLOUD = re.compile(r"^tta/uav/[^/]+/(services|services_reply|state|osd|events)$")
+# 云端指令默认交给 VFC；sync_map_file 是 FSVR 的。地图列表、删除、改名云端协议写的是 fsvr，但现在是 VFC 在处理，也默认 vfc
+CLOUD_TARGETS = {"sync_map_file": "fsvr"}
+
+
+def cloud_topic(sn):
+    return f"tta/uav/{sn}/services"
+
+
+def cloud_command(payload):
+    """本地格式的 VFC 指令加上云端要的 target（GW 转给 VFC 时会去掉）；已经填了 target 的不动"""
+    if isinstance(payload, dict) and "target" not in payload:
+        payload["target"] = CLOUD_TARGETS.get(payload.get("method"), "vfc")
+    return payload
+
+
+def local_view(event):
+    """云端报文换成本地等价的样子（主题和外壳），后面的解读只认本地格式；不是云端报文原样返回。原始报文照样入库，对照时看原文"""
+    match = CLOUD.match(event.topic)
+    if not match:
+        return event
+    kind, p = match[1], event.payload
+    if kind == "services":
+        payload = {k: v for k, v in p.items() if k != "target"}
+        return dataclasses.replace(event, topic=VFC + "command", payload=payload)
+    if kind == "services_reply":
+        body = p.get("data") if isinstance(p.get("data"), dict) else {}
+        payload = {k: v for k, v in p.items() if k not in ("data", "target")}
+        payload.update(result=body.get("result", 2), msg=body.get("msg", ""), data=body.get("data"))
+        return dataclasses.replace(event, topic=VFC + "ack", payload=payload)
+    if kind == "state":
+        body = p.get("data") if isinstance(p.get("data"), dict) else {}
+        # subsystem_status 本地放在 data 里，其他放在 info 里；两个都给，解读按各自的键取
+        return dataclasses.replace(event, topic=VFC + "state", payload={"type": p.get("method"), "info": body, "data": body})
+    if kind == "osd":
+        return dataclasses.replace(event, topic=VFC + "osd", payload={"data": p})
+    # 告警 GW 现在不转；以后转了按状态的外壳认：method 是 alarm、内容在 data
+    return dataclasses.replace(event, topic=VFC + "events",
+                               payload={"type": p.get("method") or p.get("type"), "info": p.get("data") or p.get("info")})
+
+
 def title_of(key):
     if key in DOMAINS:
         return DOMAINS[key][0]
@@ -62,6 +111,7 @@ def title_of(key):
 
 def domain(event):
     """这条消息是哪一类状态：Bridge 领域、VFC 状态，或别的模块的“模块:类型”；不是无人机状态返回 None"""
+    event = local_view(event)
     topic = event.topic
     if topic.startswith(BRIDGE):
         rest = topic[len(BRIDGE):]
@@ -88,6 +138,7 @@ def domain(event):
 
 def reading(event):
     """状态卡上显示的内容：(状态词, 说明, result, 附加信息)；result 0 正常、1 失败、2 未知或过期"""
+    event = local_view(event)
     payload = event.payload
     key = domain(event)
     if key == "vfc_osd":
@@ -98,6 +149,10 @@ def reading(event):
         value = lambda name, unit="": f"{data[name]}{unit}" if measured(name) else "—"
         bad = [name for name in OSD_KEYS if name in data and not measured(name)]
         extra = f"速度 {value('speed', ' m/s')} · 航向 {value('heading', '°')}" + (f"（{'、'.join(bad)} 不是数字）" if bad else "")
+        # 飞控那几个（VFC 1.0.0 起 OSD 里带），没有的不写
+        flags = [f"{text} {_yes(data[name]) if isinstance(data[name], bool) else data[name]}" for name, text in OSD_FLAGS if name in data]
+        if flags:
+            extra += " · " + " · ".join(flags)
         return f"电量 {value('batteryRemain', '%')}", f"x {value('x')}　y {value('y')}　z {value('z')}（米）", 2 if bad else 0, extra
     if key == "subsystem_status":
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
@@ -108,22 +163,31 @@ def reading(event):
         data = info.get("data") if isinstance(info.get("data"), dict) else {}
         return f"{data.get('current_index', '?')} / {data.get('count', '?')}", msg, result, f"任务 {info.get('flight_id') or '—'}"
     if key == "nav_status":
-        return str(info.get("data", "")), msg, result, f"任务 {info.get('flight_id') or '—'}"
+        # reason 只在 Cancelled 时有：stop、return_home、land（VFC 994c1ae 降落先取消原任务，再用新 bid 报降落中）
+        reason = f" · 取消原因 {REASONS.get(info['reason'], info['reason'])}" if info.get("reason") else ""
+        return str(info.get("data", "")), msg, result, f"任务 {info.get('flight_id') or '—'}" + reason
     if key == "mapping_status":
         # data 是云端协议的词（MappingRunning 等），raw 是 Bridge 原词；result 是协议码（5 建图中、7 保存中、8 已保存、6 出错、
         # 2 不在建图），不是成败。VFC 自己判断不了时报 Unknown，原因只在 msg 里。session_id 生成地图时要用
         raw = info.get("raw")
         extra = " · ".join(part for part in (f"Bridge {raw}" if raw else "", f"session {info.get('session_id') or '—'}",
-                                             f"资产 {info.get('assets')}" if info.get("assets") else "") if part)
+                                             f"资产 {info.get('assets')}" if info.get("assets") else "",
+                                             f"资产任务 {info['map_job_id']}" if info.get("map_job_id") else "") if part)
         return str(info.get("data", "")), msg, result, extra
     if key == "loc_status":
         raw = info.get("raw") if isinstance(info.get("raw"), dict) else {}
         return (str(info.get("data", "")), msg, result,
                 f"Bridge 定位 {raw.get('localization') or '—'} · 重定位 {raw.get('relocalization') or '—'}")
     if key == "map_status":
+        # VFC 994c1ae：保存后 Bridge 自动建资产（auto）；失败时有 stage、exit_code、job_log
         parts = [f"地图 {info['map_id']}" if info.get("map_id") else "", f"会话 {info['session_id']}" if info.get("session_id") else "",
-                 "自动建资产" if info.get("auto") else "", f"地图忙（{info.get('map_busy_reason') or '原因未写'}）" if info.get("map_busy") else "",
-                 f"原因 {info['reason']}" if info.get("reason") else "", "已清掉原选中的同名地图" if info.get("selection_cleared") else ""]
+                 "保存后自动建资产" if info.get("auto") else "", "自动建资产任务" if info.get("map_job_auto") else "",
+                 f"资产任务 {info['map_job_id']}" if info.get("map_job_id") else "",
+                 f"地图忙（{info.get('map_busy_reason') or '原因未写'}）" if info.get("map_busy") else "",
+                 f"原因 {info['reason']}" if info.get("reason") else "", f"阶段 {info['stage']}" if info.get("stage") else "",
+                 f"退出码 {info['exit_code']}" if info.get("exit_code") not in (None, "") else "",
+                 f"日志 {info['job_log']}" if info.get("job_log") else "",
+                 "已清掉原选中的同名地图" if info.get("selection_cleared") else ""]
         return str(info.get("data", "")), msg, result, " · ".join(p for p in parts if p)
     if key == "nav_action_progress":
         data = info.get("data") if isinstance(info.get("data"), dict) else {}
@@ -178,6 +242,11 @@ def _yes(value):
 
 # VFC OSD 里的测量值
 OSD_KEYS = ("x", "y", "z", "speed", "heading", "batteryRemain")
+# OSD 里飞控的状态（VFC 1.0.0）
+OSD_FLAGS = (("flightState", "飞行中"), ("flightMode", "模式"), ("armed", "解锁"), ("landed", "落地"), ("takeoffComplete", "起飞完成"),
+             ("mapId", "地图"), ("batteryVoltage", "电压"))
+# nav_status 取消原因
+REASONS = {"stop": "结束航线", "return_home": "返航", "land": "降落"}
 # 到点放行要醒目：航点完成等待放行、控制桥转向完成可以放行
 WAITING_NEXT = "WAYPOINT_COMPLETE_WAITING_EXTERNAL_TRIGGER"
 YAW_DONE = {"HOLD", "WAITING_TRAJECTORY"}
@@ -189,6 +258,7 @@ def changes(before, event):
 
     只记状态词、导航航点进度、飞控的解锁/落地/模式/起飞、VFC 任务状态的说明这些人会关心的，电量和位姿每次都变不记
     """
+    event, before = local_view(event), before and local_view(before)
     key = domain(event)
     name = DOMAINS.get(key, (key, None))[0]
     word, msg, _, _ = reading(event)
@@ -212,7 +282,8 @@ def changes(before, event):
         return out
     if key == "map_status":
         if not old or (word, msg) != old[:2]:
-            out.append((f"VFC 地图 {word}" + (f"：{msg}" if msg else ""), word not in ("IDLE", "BUILDING")))
+            # 进行中（BUILDING、等资产锁）不醒目，结局（资产就绪、失败、超时、不确定、跳过）醒目
+            out.append((f"VFC 地图 {word}" + (f"：{msg}" if msg else ""), word not in ("IDLE", "BUILDING", "MAP_AUTO_BUILD_WAITING")))
         return out
     if key == "nav_action_progress":
         out.append((f"航点动作 {word}：{msg or ''} {reading(event)[3]}".strip(), False))
@@ -257,6 +328,12 @@ def quality(event):
     if domain(event) == "mapping_status":
         # 建图状态的 result 是协议码，按词判断
         return {"MappError": "失败", "Unknown": "未知", "Passive": "不适用"}.get(word, "正常")
+    if domain(event) == "map_status":
+        # 地图生成的结局按词判：失败、超时算失败，自动建资产结果不确定算未知，跳过的不适用
+        verdict = {"MAP_BUILD_FAILED": "失败", "MAP_BUILD_TIMEOUT": "失败", "MAP_AUTO_BUILD_UNCERTAIN": "未知",
+                   "MAP_AUTO_BUILD_SKIPPED": "不适用"}.get(word)
+        if verdict:
+            return verdict
     if domain(event) == "nav_action_progress":
         # 本期 VFC 不执行航点动作，全部报 skipped（result 1），是提醒不是失败
         return "正常" if result == 0 else "未知"
@@ -269,6 +346,7 @@ def quality(event):
 
 def alarm_of(event):
     """VFC 告警的内容（code、level、state raise/clear、title、advice、x/y/z、detail）；不是告警返回 None"""
+    event = local_view(event)
     if event.topic != EVENTS or event.payload.get("type") != "alarm":
         return None
     info = event.payload.get("info")
@@ -277,7 +355,7 @@ def alarm_of(event):
 
 def retained_command(event):
     """指令主题上收到的保留消息（非空）：Broker 会把它补发给每个新订阅者，执行方重启后会再执行一遍"""
-    return event.topic in COMMAND_TOPICS and event.retained and bool(event.payload or event.raw.strip())
+    return local_view(event).topic in COMMAND_TOPICS and event.retained and bool(event.payload or event.raw.strip())
 
 
 def link(events):
@@ -289,7 +367,7 @@ def link(events):
     Bridge 命令不带 VFC 的 tid，只能按动作对应、时间就近配：同一动作、5 s 内、还没配过的 VFC 指令里取最近的一条
     """
     rows, by_key = [], {}
-    for e in sorted(events, key=lambda e: e.timestamp):
+    for e in sorted((local_view(e) for e in events), key=lambda e: e.timestamp):
         if e.kind not in ("指令", "ACK") or not e.tid:
             continue
         source = "Bridge" if e.topic.startswith(BRIDGE) else "VFC"

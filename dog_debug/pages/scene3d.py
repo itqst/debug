@@ -610,7 +610,8 @@ class ScenePanel:
         if uav:
             live = self.app.mqtt.connected and self.app.mqtt.device == "uav"
             self.app.device_name.setText(self.app.mqtt.host if live else self.app.host.text().strip() or "未连接")
-            self.app.device_meta.setText("VFC / Bridge　·　" + ("已连接" if live else "未连接"))
+            way = "模拟云端 · 经 GW" if (self.app.mqtt.cloud_sn if live else self.app.uav_cloud()) else "模拟 GW · VFC / Bridge"
+            self.app.device_meta.setText(way + "　·　" + ("已连接" if live else "未连接"))
         else:
             # 和关键遥测卡一致：断开后立刻不算实时
             osd, live = self.app.scene.osd, self.app.scene.live and self.app.mqtt.connected

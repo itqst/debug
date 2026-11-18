@@ -161,6 +161,14 @@ def infer_module(topic, payload):
     match = re.search(r"local/(?:robotdog|uav)/(\w+)/", topic)
     if match:
         return match[1]
+    # 无人机云端主题（GW 转过的）：指令和回执看 target，状态和 OSD 是 VFC 的，上线和心跳是 GW 自己的
+    match = re.match(r"tta/uav/[^/]+/(\w+)$", topic)
+    if match:
+        if match[1] in ("services", "services_reply"):
+            return str(payload.get("target") or "vfc")
+        return "gw" if match[1].startswith("heartbeat") else "vfc"
+    if topic.startswith("tta/uav/status/"):
+        return "gw"
     data = payload.get("data", {})
     name = payload.get("name") or (data.get("name") if isinstance(data, dict) else "")
     return str(name or payload.get("target") or (find(payload.get("method")) or {}).get("module") or "unknown")
@@ -290,7 +298,9 @@ class Store:
         if live:
             clauses.append("session NOT LIKE 'import-%'")
         if device:
-            clauses.append(("body LIKE" if device == "uav" else "body NOT LIKE") + " '%\"topic\":\"local/uav/%'")
+            # 本地主题和模拟云端时的云端主题都算无人机的
+            uav = "(body LIKE '%\"topic\":\"local/uav/%' OR body LIKE '%\"topic\":\"tta/uav/%')"
+            clauses.append(uav if device == "uav" else "NOT " + uav)
         if session:
             clauses.append("session=?")
             params.append(session)
@@ -389,7 +399,8 @@ class Store:
         return list(groups.values())
 
     # 回放用：OSD 消息只按 Topic 认（云端 .../osd，本地 vfc/data），Topic 在 body 里
-    OSD_ROWS = "kind='状态' AND (body LIKE '%/osd\"%' OR body LIKE '%local/robotdog/vfc/data%') AND body NOT LIKE '%\"topic\":\"local/uav/%'"
+    OSD_ROWS = ("kind='状态' AND (body LIKE '%/osd\"%' OR body LIKE '%local/robotdog/vfc/data%') AND body NOT LIKE '%\"topic\":\"local/uav/%'"
+                " AND body NOT LIKE '%\"topic\":\"tta/uav/%'")
 
     def osd_sessions(self, limit=20):
         """带 OSD 消息的 (设备, 会话)，最近导入或收到的在前：[(sn, session, OSD 条数)]；要扫全表，大库放后台线程调用"""

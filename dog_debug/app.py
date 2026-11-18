@@ -28,6 +28,7 @@ from .robot import VARIANTS
 from .scene import Scene
 from .trace_view import Step, TraceView
 from .transport import MqttTransport, simulate
+from .uav import cloud_command, cloud_topic, VFC as UAV_VFC
 from .ui import (
     APP_NAME, apply_theme, button, DEVICES, dot, FAILED, GRAY, GREEN, guard_wheel, label, logo_icon, logo_image,
     DeviceStack, MODES, NavDelegate, ORANGE, press_feedback, SCENARIOS, Segmented, settings, setup_fonts, Sheet, Switch, tint,
@@ -44,6 +45,9 @@ from .pages.status import StatusPage
 from .pages.suite import SuitePage
 from .pages.teleop import TeleopPage
 from .pages.uav import UavPage
+
+# 无人机 VFC 本地指令主题；模拟云端时换成 tta/uav/{sn}/services
+VFC_COMMAND = UAV_VFC + "command"
 
 
 class Studio(QMainWindow):
@@ -362,6 +366,14 @@ class Studio(QMainWindow):
         stored = settings()
         self.frp = Switch("")
         self.frp.toggled.connect(self.connection._frp_toggled)
+        # 无人机模拟云端用的 SN 和是否替云端回上线、心跳；和狗的 SN 分开记
+        self.uav_sn = QLineEdit(stored.value("uav_sn", "1209039909594066"))
+        self.uav_sn.setPlaceholderText("无人机 SN")
+        self.uav_sn.editingFinished.connect(lambda: settings().setValue("uav_sn", self.uav_sn.text().strip()))
+        self.uav_sn.textChanged.connect(self.control._update_topic)
+        self.cloud_answer = Switch("")
+        self.cloud_answer.setChecked(stored.value("cloud_answer", True, type=bool))
+        self.cloud_answer.toggled.connect(lambda on: settings().setValue("cloud_answer", on))
         self.ssh_user = QLineEdit(stored.value("ssh_user", ""))
         self.ssh_user.setPlaceholderText("SSH 用户名")
         self.ssh_password = QLineEdit(stored.value("ssh_password", ""))
@@ -424,6 +436,17 @@ class Studio(QMainWindow):
         self.sn_caption = label("设备 SN（Topic 路由键）", "caption")
         form.addWidget(self.sn_caption)
         form.addWidget(self.sn)
+        # 无人机“云端 → GW”就是模拟云端：往 tta/uav/{sn}/services 发，收 GW 转上来的回执、状态和 OSD
+        self.cloud_box = QWidget()
+        cloud = QVBoxLayout(self.cloud_box)
+        cloud.setContentsMargins(0, 0, 0, 0)
+        cloud.setSpacing(4)
+        cloud.addWidget(label("无人机 SN（云端主题 tta/uav/{sn}/…，板上 db/deviceInfo.cfg 里的）", "caption"))
+        cloud.addWidget(self.uav_sn)
+        cloud.addWidget(label("Broker 要和板上 GW 云端那一侧连的是同一个（板上 db/accessServer.cfg），否则收不到 GW 的上报", "caption", True))
+        cloud.addLayout(self._switch_row(self.cloud_answer, "扮演云端应答上线和心跳",
+                                         "GW 看心跳回复判断在线；不回也能转发指令，但 GW 会一直显示离线、一直重发上线"))
+        form.addWidget(self.cloud_box)
         account = QHBoxLayout()
         account.addWidget(self.user)
         account.addWidget(self.password)
@@ -465,14 +488,29 @@ class Studio(QMainWindow):
             return
         mode = {"sandbox": "沙盒模拟", "gw": "云端 MQTT", "direct": "局域网直连", "offline": "离线分析"}[self.mode]
         uav = DEVICES[self.device_box.currentText()] == "uav"
-        target = (self.mqtt.host if self.mqtt.connected else self.host.text().strip()) if uav else (
-            self.mqtt.sn if self.mqtt.connected else self.sn.text().strip())
+        if uav:
+            # 无人机：模拟云端写 SN，模拟 GW（本地主题）写 Broker 地址
+            mode = {"gw": "模拟云端", "direct": "模拟 GW"}.get(self.mode, mode)
+            target = (self.mqtt.cloud_sn or self.mqtt.host) if self.mqtt.connected else (
+                self.uav_sn.text().strip() if self.mode == "gw" else self.host.text().strip())
+        else:
+            target = self.mqtt.sn if self.mqtt.connected else self.sn.text().strip()
         self.pill_text.setText(f"<b>{html.escape(mode)}</b>　<span style='color:#8E8E93'>·</span>　"
                                f"<span style='font-family:Consolas,monospace'>{html.escape(target or '—')}</span>")
         color = GREEN if self.mqtt.connected else ORANGE if self.mqtt.client or self.connection.ssh_connecting else GRAY
         self.pill_dot.setStyleSheet(f"background:{color};border-radius:5px")
         self.pill_rate.setText(self.rate_label.text())
         self.pill_rate.setVisible(bool(self.rate_label.text()))
+
+    def uav_cloud(self):
+        """设备是无人机、方式是“云端 → GW”：模拟云端，指令走 tta/uav/{sn}/services 经真 GW 转到 VFC"""
+        return self.mode == "gw" and DEVICES[self.device_box.currentText()] == "uav"
+
+    def uav_wire(self, payload, topic):
+        """VFC 指令按当前方式定主题和外壳：模拟云端改发 services 并带 target，模拟 GW 照本地；Bridge 命令只有本地"""
+        if self.uav_cloud() and topic == VFC_COMMAND:
+            return cloud_topic(self.uav_sn.text().strip()), cloud_command(payload)
+        return topic, payload
 
     def _lock_device(self, locked):
         """连着或正在登录时不能换设备：顶栏的分段和连接卡里的设备一起锁"""
@@ -638,6 +676,7 @@ class Studio(QMainWindow):
         # 无人机的主题里不带 SN，也不走 FRP
         self.sn.setVisible(device == "dog")
         self.sn_caption.setVisible(device == "dog")
+        self.cloud_box.setVisible(device == "uav" and self.mode == "gw")
         if device == "uav":
             self.frp.setChecked(False)
         self.ssh_row.setVisible(device == "dog" and self.mode == "direct")
@@ -698,6 +737,16 @@ class Studio(QMainWindow):
         self.store.flush()
         self.demo_note = self.scene.command(record.get("method"), record.get("data")) if record else ""
         return sent
+
+    def _reply(self, topic, payload):
+        """模拟云端时替云端回 GW 的上线、心跳，和指令一样入库，能在报文里对照"""
+        try:
+            self.mqtt.reply(topic, payload)
+        except RuntimeError as error:
+            self.notify(str(error))
+            return
+        text = json.dumps(payload, ensure_ascii=False)
+        self.store.add(Event(topic, payload, "发送", "mqtt", self.mqtt.sn, self.mqtt.session, "gw", qos=0, raw=text))
 
     def _quick_send(self, method, data):
         """遥控面板的发送入口：取协议模板，覆盖 data 字段后按当前模式发出"""

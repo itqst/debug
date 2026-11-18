@@ -95,6 +95,9 @@ class ConnectionPanel:
         if self.app.ssh:
             active = f"已经远程连接 {self.app.ssh.host} · {self.app.mqtt.sn}"
             edited = self.app.sn.text().strip() != self.app.mqtt.sn
+        elif self.app.mqtt.device == "uav" and self.app.mqtt.cloud_sn:
+            active = f"已连接 {self.app.mqtt.host}，模拟云端 · {self.app.mqtt.cloud_sn}"
+            edited = (self.app.host.text().strip(), self.app.uav_sn.text().strip()) != (self.app.mqtt.host, self.app.mqtt.cloud_sn)
         elif self.app.mqtt.device == "uav":
             # 无人机按连上的 Broker 认设备，板上的 sn 现在是空串
             active = f"已连接无人机 {self.app.mqtt.host}"
@@ -111,7 +114,9 @@ class ConnectionPanel:
             if self.app.mqtt.client:
                 self._connect()
             self.app.status.zlm_timer.stop()
+        self._swap_uav_broker(self.app.mode, mode)
         self.app.mode = mode
+        self.app.cloud_box.setVisible(self.app.uav_cloud())
         # 无人机只直连板上 Broker，不走 FRP
         self.app.ssh_row.setVisible(mode == "direct" and self.app.device_box.currentText() == "机器狗")
         sandbox = self.app.mode == "sandbox"
@@ -121,10 +126,30 @@ class ConnectionPanel:
         if not self.app.mqtt.client:
             self._set_link({"sandbox": "沙盒模式，不联网", "offline": "离线分析，不发送"}.get(self.app.mode, "未连接"), GRAY)
         self.app.drafts.clear()
-        self.app.control._template()
+        # 无人机两种方式的目录不一样（模拟云端不列 Bridge 命令）
+        if self.app.control._uav():
+            self.app.control.mode_changed()
+        else:
+            self.app.control._template()
         if self.app.mode == "offline":
             self.app._go(self.app.LOGS)
             self.app.notify("离线分析只看本地历史：在这里导入日志文件")
+
+    def _swap_uav_broker(self, old, new):
+        """无人机的模拟 GW 和模拟云端各记一套 Broker（地址、端口、账号、密码，本机设置里）：切方式时存下旧的、填上新的；
+        云端 Broker 可能和板上本地 Broker 不是同一个；没记过的保持当前填写"""
+        if self.app.device_box.currentText() != "无人机" or old == new:
+            return
+        fields = (self.app.host, self.app.user, self.app.password)
+        if old in ("direct", "gw"):
+            settings().setValue(f"uav_broker_{old}", json.dumps([self.app.host.text().strip(), self.app.port.value(),
+                                                                self.app.user.text(), self.app.password.text()]))
+        saved = settings().value(f"uav_broker_{new}", "") if new in ("direct", "gw") else ""
+        if saved:
+            host, port, user, password = json.loads(saved)
+            for field, value in zip(fields, (host, user, password)):
+                field.setText(value)
+            self.app.port.setValue(port)
 
     def _frp_toggled(self, on):
         # 经远程时 Broker 就是狗自己，地址由整机 SN 定，不用填
@@ -147,8 +172,12 @@ class ConnectionPanel:
             self.app.notify("先在上面选择“云端 → 真实 GW”或“直连模块”")
             return
         device = DEVICES[self.app.device_box.currentText()]
-        if device == "uav" and (self.app.mode != "direct" or self.app.frp.isChecked()):
-            self.app.notify("无人机第一期只支持局域网直连：方式选“直连模块”，不开“经远程（FRP）”")
+        if device == "uav" and self.app.frp.isChecked():
+            self.app.notify("无人机不走 FRP：关掉“经远程（FRP）”")
+            return
+        cloud_sn = self.app.uav_sn.text().strip() if self.app.uav_cloud() else ""
+        if self.app.uav_cloud() and not cloud_sn:
+            self.app.notify("模拟云端要填无人机 SN")
             return
         # 记住这次的连接（含密码，本机自用），下次启动自动填上
         settings().setValue("connection", json.dumps({
@@ -159,7 +188,10 @@ class ConnectionPanel:
             self._connect_frp()
             return
         self.app.mqtt.connect(self.app.host.text().strip(), self.app.port.value(), self.app.sn.text().strip(),
-                          self.app.user.text(), self.app.password.text(), self.app.tls.isChecked(), device)
+                          self.app.user.text(), self.app.password.text(), self.app.tls.isChecked(), device, cloud_sn)
+        if device == "uav" and self.app.mode in ("direct", "gw"):
+            settings().setValue(f"uav_broker_{self.app.mode}", json.dumps([self.app.host.text().strip(), self.app.port.value(),
+                                                                           self.app.user.text(), self.app.password.text()]))
         # 新连接回到只读，开关跟着关上；连着的时候不能换设备，免得页面是无人机的、连着的却是狗
         self.app.uav_send.setChecked(False)
         self.app._lock_device(True)

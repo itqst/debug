@@ -7,7 +7,7 @@ import time
 import uuid
 
 from .core import Event
-from .uav import COMMAND_TOPICS as UAV_COMMAND_TOPICS
+from .uav import cloud_topic, COMMAND_TOPICS as UAV_COMMAND_TOPICS
 from .pointcloud import demo_frame
 from .registry import UPLOAD, local_payload, route
 
@@ -23,6 +23,8 @@ class MqttTransport:
         self.sn = ""
         self.session = ""
         self.device = "dog"
+        # 无人机模拟云端时的 SN（订阅、发送都用 tta/uav/{sn}/...）；模拟 GW（本地主题）时为空
+        self.cloud_sn = ""
         self.uav_send = False
         self.dropped = 0
 
@@ -32,14 +34,18 @@ class MqttTransport:
         except queue.Full:
             self.dropped += 1
 
-    def connect(self, host, port, sn, username="", password="", tls=False, device="dog"):
-        """device 为 "dog" 时订阅狗的本地和云端主题，"uav" 时订阅无人机本地主题（VFC 和 Bridge），只读"""
+    def connect(self, host, port, sn, username="", password="", tls=False, device="dog", cloud_sn=""):
+        """device 为 "dog" 时订阅狗的本地和云端主题，"uav" 时订阅无人机本地主题（VFC 和 Bridge），只读
+
+        无人机给了 cloud_sn 是模拟云端：订阅 tta/uav/{sn}/# 和共用的上线主题，指令发 tta/uav/{sn}/services
+        """
         import paho.mqtt.client as mqtt
         self.close()
         # 无人机的主题不带 SN，连接卡里隐藏着的狗 SN 不能记到无人机的消息上，否则狗的状态总览按 SN 查会混进来
         self.host, self.sn, self.session, self.device = host, "" if device == "uav" else sn, str(uuid.uuid4()), device
         # 每次新连接都回到只读
         self.uav_send = False
+        self.cloud_sn = cloud_sn if device == "uav" else ""
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="dog-debug-" + uuid.uuid4().hex[:12],
                              clean_session=True, reconnect_on_failure=False)
         if username:
@@ -65,7 +71,9 @@ class MqttTransport:
         self.connected = reason == 0
         self._offer(("connection", "已连接，只读" if self.connected else "连接失败 " + str(reason)))
         if self.connected:
-            if self.device == "uav":
+            if self.device == "uav" and self.cloud_sn:
+                client.subscribe([(f"tta/uav/{self.cloud_sn}/#", 0), ("tta/uav/status/online", 0)])
+            elif self.device == "uav":
                 client.subscribe([("local/uav/#", 0)])
             else:
                 client.subscribe([(f"tta/robotdog/{self.sn}/#", 0), ("local/robotdog/#", 0)])
@@ -107,17 +115,29 @@ class MqttTransport:
         if self.device == "uav":
             if not self.uav_send:
                 raise RuntimeError("连着的是无人机，默认只读：要发指令先在控制调试页打开“允许向无人机发送”")
-            if topic not in UAV_COMMAND_TOPICS:
-                raise RuntimeError(f"无人机只往 VFC、Bridge 的指令主题发，{topic} 不发")
+            allowed = (cloud_topic(self.cloud_sn),) if self.cloud_sn else UAV_COMMAND_TOPICS
+            if topic not in allowed:
+                where = "云端的 services 主题" if self.cloud_sn else "VFC、Bridge 的指令主题"
+                raise RuntimeError(f"无人机只往{where}发，{topic} 不发")
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
         result = self.client.publish(topic, text, qos=self.qos_for(topic), retain=retain)
         if result.rc != 0:
             raise RuntimeError("MQTT 未接受发布 rc=" + str(result.rc))
 
+    def reply(self, topic, payload):
+        """模拟云端时替云端回 GW 的上线和心跳；不是指令，不受“允许下发”开关管，只放行这两类应答主题"""
+        if not self.client or not self.connected or not self.cloud_sn:
+            raise RuntimeError("没有模拟云端的连接")
+        if topic not in ("tta/uav/status/online_reply", f"tta/uav/{self.cloud_sn}/heartbeat_reply"):
+            raise RuntimeError(f"{topic} 不是上线或心跳应答")
+        result = self.client.publish(topic, json.dumps(payload, ensure_ascii=False), qos=0, retain=False)
+        if result.rc != 0:
+            raise RuntimeError("MQTT 未接受发布 rc=" + str(result.rc))
+
     @staticmethod
     def qos_for(topic):
-        """无人机 VFC、Bridge 的指令主题按它们的协议用 QoS 1（Bridge 字段说明第 6 节；VFC 订阅和转发 Bridge 都是 1），狗照旧 0"""
-        return 1 if topic in UAV_COMMAND_TOPICS else 0
+        """无人机指令主题按协议用 QoS 1（Bridge 字段说明第 6 节；VFC 订阅和转发 Bridge 都是 1；云端 services 也是 1），狗照旧 0"""
+        return 1 if topic in UAV_COMMAND_TOPICS or (topic.startswith("tta/uav/") and topic.endswith("/services")) else 0
 
     def close(self):
         client, self.client = self.client, None

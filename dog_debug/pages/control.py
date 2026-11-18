@@ -6,7 +6,7 @@ import uuid
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QApplication, QButtonGroup, QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
+    QApplication, QButtonGroup, QComboBox, QGridLayout, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPlainTextEdit,
     QPushButton, QRadioButton, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -14,13 +14,15 @@ from .uav import PointsTable
 from ..registry import find, local_payload, make_command, MODULES, refresh_ids, route, uav_entries
 from ..trace_view import TraceView
 from ..transport import MqttTransport, simulate
+from ..uav import cloud_command, NEW_TASK
+
+# 表单里“删掉这个字段”的取值：停止建图选“按默认”时 data 里不带 save
+OMIT = object()
 from ..ui import (
     button, card, CommandDelegate, DEVICES, GRAY, label, MODULE_COLORS, pill, RED, SCENARIOS, scroller, Segmented,
     Switch, tint,
 )
 
-# 无人机开始新任务的 VFC 指令：bid 新生成，按钮是“换新 bid”；其他 VFC 指令带当前任务的 bid
-NEW_TASK = ("start_multi_nav_by_points", "start_mapping")
 
 
 class ControlPage:
@@ -93,7 +95,18 @@ class ControlPage:
         mv.addWidget(contract)
         mv.addWidget(label("目标 Topic（跟着连接方式自动换）", "groupHeader"))
         self.topic = QLineEdit()
-        mv.addWidget(self.topic)
+        topic_row = QHBoxLayout()
+        topic_row.addWidget(self.topic, 1)
+        # 模拟云端时云端指令要带 target，GW 按它转给哪个模块；默认 vfc，可以改成 fsvr 等看 GW 怎么转
+        self.target_label = label("target", "caption")
+        self.target_box = QComboBox()
+        self.target_box.setEditable(True)
+        self.target_box.addItems(["vfc", "fsvr", "gw"])
+        self.target_box.setFixedWidth(96)
+        self.target_box.currentTextChanged.connect(self._target_edited)
+        topic_row.addWidget(self.target_label)
+        topic_row.addWidget(self.target_box)
+        mv.addLayout(topic_row)
         view_row = QHBoxLayout()
         self.edit_view = Segmented(["快捷参数", "原始 JSON"])
         view_row.addWidget(self.edit_view)
@@ -228,7 +241,9 @@ class ControlPage:
                 continue
             if item["module"] != group:
                 group = item["module"]
-                header = QListWidgetItem(item["label"].split(" · ")[0])
+                title = item["label"].split(" · ")[0]
+                # 目录里写的是本地方式（模拟 GW 发）；模拟云端时其实是云端经 GW 转
+                header = QListWidgetItem(title.replace("模拟 GW 发", "模拟云端发，经 GW 转") if self.app.uav_cloud() else title)
                 header.setFlags(Qt.NoItemFlags)
                 header.setForeground(QColor(GRAY))
                 font = header.font()
@@ -252,7 +267,31 @@ class ControlPage:
         return DEVICES[self.app.device_box.currentText()] == "uav"
 
     def _catalog(self):
-        return self.uav_catalog if self._uav() else self.app.catalog
+        if not self._uav():
+            return self.app.catalog
+        # 模拟云端只能发 services 给 GW，Bridge 命令是本地的，不列
+        return [e for e in self.uav_catalog if e["module"] != "bridge"] if self.app.uav_cloud() else self.uav_catalog
+
+    def mode_changed(self):
+        """无人机换方式（模拟 GW / 模拟云端）：目录、模块筛选和当前模板跟着换"""
+        if self._uav():
+            self.selected = None
+            self._module_chips()
+            self._commands()
+
+    def _target_edited(self, text):
+        """target 下拉改了写回 JSON 顶层"""
+        if self.form_syncing:
+            return
+        try:
+            payload = json.loads(self.editor.toPlainText())
+        except ValueError:
+            return
+        if isinstance(payload, dict) and payload.get("target") != text:
+            payload["target"] = text
+            self.form_syncing = True
+            self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
+            self.form_syncing = False
 
     def device_changed(self):
         """换设备类型：指令目录换成那种设备的，未发出的草稿作废（报文格式不同）"""
@@ -288,9 +327,9 @@ class ControlPage:
 
     def _topic_for(self, item):
         """直连时按 GW 对云端模板的路由选模块 Topic，例如喊话器目录归 MEDIA，GW 实际转给 audio"""
-        # 无人机的指令目录每条自带 Topic（VFC 或 Bridge 的指令主题）
+        # 无人机的指令目录每条自带 Topic（VFC 或 Bridge 的指令主题）；模拟云端时 VFC 指令改发 tta/uav/{sn}/services
         if item.get("topic"):
-            return item["topic"]
+            return self.app.uav_wire({}, item["topic"])[0]
         # pcd_switch 这类本地指令云端没有，哪种模式都发本地 Topic
         if item.get("local_only"):
             return f"local/robotdog/{item['module']}/command"
@@ -309,6 +348,8 @@ class ControlPage:
                 widget.hide()
                 widget.deleteLater()
         self.points_table.hide()
+        self.target_label.hide()
+        self.target_box.hide()
         try:
             payload = json.loads(self.editor.toPlainText())
         except ValueError:
@@ -323,6 +364,13 @@ class ControlPage:
             self.form_area.hide()
             return
         self.form_note.setText("改这里会同步到 JSON；列表和对象请在 JSON 里改" if data else "data 为空")
+        cloud = self.app.uav_cloud() and self.selected["module"] == "vfc"
+        self.target_label.setVisible(cloud)
+        self.target_box.setVisible(cloud)
+        if cloud and isinstance(payload.get("target"), str) and payload["target"] != self.target_box.currentText():
+            self.form_syncing = True
+            self.target_box.setCurrentText(payload["target"])
+            self.form_syncing = False
         self.form_area.setVisible(bool(data))
         # 狗也有 VFC 模块，航点表格只给无人机的开始航线
         route = self._uav() and self.selected["module"] == "vfc" and isinstance(data.get("points"), list)
@@ -335,7 +383,11 @@ class ControlPage:
                 self.form_note.setText(f"航点表格暂停：{error}；直接编辑下方 JSON")
                 route = False
         self.points_table.setVisible(route)
-        for index, (key, value) in enumerate(data.items()):
+        items = list(data.items())
+        if self._uav() and self.selected["method"] == "stop_mapping" and "save" not in data:
+            # 不带 save 就是按 VFC 默认（保存）；选项照样列出来，表明这是选过的
+            items.append(("save", OMIT))
+        for index, (key, value) in enumerate(items):
             row, column = divmod(index, 2)
             self.form_grid.addWidget(label(key, "caption"), row, column * 2)
             if key == "save" and self._uav() and self.selected["method"] == "stop_mapping":
@@ -354,12 +406,15 @@ class ControlPage:
             self.form_grid.addWidget(field, row, column * 2 + 1)
 
     def _save_choice(self, value):
-        """停止建图的 save：“保存地图”“不保存”两个选项，模板里不选，必须由人选一个"""
+        """停止建图的 save：“保存地图”“不保存”“按默认（保存）”三选一；模板里 save 是 null，不选不让发
+
+        选“按默认”时 data 里不带 save，VFC 按保存处理（VFC 994c1ae）
+        """
         box = QWidget()
         row = QHBoxLayout(box)
         row.setContentsMargins(0, 0, 0, 0)
         group = QButtonGroup(box)
-        for text, choice in (("保存地图", True), ("不保存", False)):
+        for text, choice in (("保存地图", True), ("不保存", False), ("按默认（保存）", OMIT)):
             option = QRadioButton(text)
             option.setChecked(value is choice)
             option.toggled.connect(lambda on, choice=choice: on and self._form_edited("save", choice))
@@ -399,7 +454,10 @@ class ControlPage:
             payload = json.loads(self.editor.toPlainText())
         except ValueError:
             return
-        payload[self.form_key][key] = value
+        if value is OMIT:
+            payload[self.form_key].pop(key, None)
+        else:
+            payload[self.form_key][key] = value
         self.form_syncing = True
         cursor = self.editor.textCursor().position()
         self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -456,14 +514,20 @@ class ControlPage:
                 payload = local_payload(payload)
             if module == "vfc" and self._uav():
                 payload["bid"] = self._vfc_bid(payload)
+                # 已知地图航线的 map_id 要等于当前选用的图，查过地图列表就用选用的那张
+                chosen = self.app.uav.selected_map()
+                if chosen and isinstance(payload.get("data"), dict) and "map_id" in payload["data"]:
+                    payload["data"]["map_id"] = chosen
+                if self.app.uav_cloud():
+                    cloud_command(payload)
             self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))
             self._update_topic()
         self._rebuild_form()
 
     def _send(self):
         """发送编辑框内容；非对象或非法 JSON 照原文发出，沙盒里只记录不模拟"""
-        if self._uav() and self.app.mode != "direct":
-            self.app.notify("无人机只能直连：连接方式选“直连模块”")
+        if self._uav() and self.app.mode not in ("direct", "gw"):
+            self.app.notify("无人机要连上才能发：方式选“局域网直连”（模拟 GW）或“云端 → GW”（模拟云端）")
             return
         text, topic = self.editor.toPlainText(), self.topic.text().strip()
         try:
@@ -471,9 +535,10 @@ class ControlPage:
         except ValueError:
             payload = text
         data = payload.get("data") if isinstance(payload, dict) else None
+        # save 必须选过：true / false，或者不带（按默认保存）；模板里的 null、手写的字符串都不发
         if self._uav() and isinstance(payload, dict) and payload.get("method") == "stop_mapping" \
-                and not (isinstance(data, dict) and isinstance(data.get("save"), bool)):
-            self.app.notify("停止建图要先选“保存地图”还是“不保存”")
+                and not (isinstance(data, dict) and (isinstance(data.get("save"), bool) or "save" not in data)):
+            self.app.notify("停止建图要先选“保存地图”“不保存”或“按默认（保存）”")
             return
         if self._uav() and isinstance(payload, dict):
             # VFC 和 Bridge 按 tid / id 认请求，同一个编号再发会被当成重复请求（Bridge 直接回旧的缓存结果、不执行），

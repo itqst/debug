@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from ..core import BRIDGE
 from ..registry import make_command
-from ..uav import alarm_of, changes, domain, freshness, link, outcome, quality, reading, retained_command
+from ..uav import alarm_of, changes, domain, freshness, link, local_view, NEW_TASK, outcome, quality, reading, retained_command
 from ..ui import BLUE, button, card, GRAY, GREEN, label, ORANGE, RED, scroller, Segmented, tint
 
 QUALITY_COLORS = {"正常": GREEN, "失败": RED, "未知": ORANGE, "不适用": GRAY}
@@ -129,14 +129,17 @@ class UavPage:
         return extras
 
     def observe(self, event):
-        """每条入库消息都过一遍：只有当前活动连接的无人机消息进卡片和告警"""
-        if not event.topic.startswith("local/uav/") or event.source != "mqtt" or event.session != self.app.mqtt.session:
+        """每条入库消息都过一遍：只有当前活动连接的无人机消息进卡片和告警；模拟云端时先换成本地的样子再看"""
+        if not event.topic.startswith(("local/uav/", "tta/uav/")) or event.source != "mqtt" or event.session != self.app.mqtt.session:
             return
         if event.session != self.session:
             self.session, self.latest, self.alerts, self.log = event.session, {}, {}, []
             self.since, self.history, self.alarms, self.maps = event.timestamp, {}, {}, None
+        self._answer(event)
         if retained_command(event):
+            # 记原始主题：清除时要往它实际所在的主题发
             self.alerts[event.topic] = event
+        event = local_view(event)
         key = domain(event)
         if key:
             # 保留消息是订阅时的旧快照，不当成这次连接里发生的变化
@@ -155,6 +158,7 @@ class UavPage:
             self._note(event, f"告警{'' if raised else '解除'} {alarm['code']} {alarm.get('title', '')}", True)
         elif event.topic == "local/uav/vfc/ack" and event.payload.get("method") == "get_map_list" and isinstance(event.payload.get("data"), list):
             self.maps = (event, event.payload["data"])
+            self._follow_selected()
         elif event.topic == BRIDGE + "events" and event.payload.get("type") == "waypoint_complete":
             info = event.payload.get("info") if isinstance(event.payload.get("info"), dict) else {}
             self._note(event, f"Bridge 到点事件：{info.get('data', '')}", True)
@@ -162,6 +166,17 @@ class UavPage:
             self._note(event, f"Bridge 把 {event.payload.get('action')}（id {event.payload.get('id')}）当重复请求，回了旧的缓存结果，这次没有执行", True)
         elif event.topic == BRIDGE + "command" and event.payload.get("action") == "navigation.next":
             self._note(event, f"发出 navigation.next（{event.payload.get('client') or '未写 client'}，id {event.payload.get('id')}）", True)
+
+    def _answer(self, event):
+        """模拟云端时替云端回 GW：上线（共用主题，按 sn 认是不是这台）回 online_reply，心跳回 heartbeat_reply（seq 原样带回）"""
+        sn = self.app.mqtt.cloud_sn
+        if not sn or event.retained or not self.app.cloud_answer.isChecked():
+            return
+        payload = event.payload
+        if event.topic == "tta/uav/status/online" and str(payload.get("sn", "")) == sn:
+            self.app._reply("tta/uav/status/online_reply", {"sn": sn, "type": "uav", "result": 0, "ts": int(time.time() * 1000)})
+        elif event.topic == f"tta/uav/{sn}/heartbeat":
+            self.app._reply(f"tta/uav/{sn}/heartbeat_reply", {"seq": payload.get("seq"), "ts": int(time.time() * 1000)})
 
     def _note(self, event, text, loud):
         self.log.insert(0, (event.timestamp, text, loud))
@@ -191,7 +206,8 @@ class UavPage:
         elif self.app.mqtt.client:
             self.link_note.setText("当前连接按机器狗订阅（只收 local/robotdog），收不到无人机的消息：先断开，设备选“无人机”再连接")
         else:
-            self.link_note.setText("还没连无人机：左侧连接卡里设备选“无人机”、方式选“直连模块”，填板上 Broker 地址")
+            self.link_note.setText("还没连无人机：连接设置里方式选“局域网直连”（模拟 GW，本地主题）或“云端 → GW”（模拟云端，走板上 GW），"
+                                   "填 Broker 地址后连接")
         self._render_alerts()
         self._render_alarms()
         self._render_changes()
@@ -218,8 +234,20 @@ class UavPage:
             lines.append(f"<b style='color:{color}'>{html.escape(str(info['code']))}　{html.escape(str(info.get('title', '')))}</b>"
                          f"<span style='color:{GRAY}'>　{info.get('level', '')} · {'进行中' if raised else '已解除'} · "
                          f"{time.strftime('%H:%M:%S', time.localtime(e.timestamp))}{where}</span>"
-                         + (f"<br>　　{html.escape(str(info['advice']))}" if info.get("advice") else ""))
-        self.alarm_text.setText("<br>".join(lines) or "这次连接里 VFC 没报过告警（local/uav/vfc/events）")
+                         + (f"<br>　　{html.escape(str(info['advice']))}" if info.get("advice") else "")
+                         + (f"<br>　　<span style='color:{GRAY}'>详情 {html.escape(self._detail_text(info['detail']))}</span>"
+                            if info.get("detail") else "")
+                         # Bridge 转来的告警（BRG-*）只有 raise，不会自己解除
+                         + (f"<span style='color:{GRAY}'>（Bridge 告警只报不解除）</span>" if raised and str(info["code"]).startswith("BRG-") else ""))
+        empty = ("这次连接里没收到告警；模拟云端时 GW 现在可能不转告警（本地主题 local/uav/vfc/events）" if self.app.mqtt.cloud_sn
+                 else "这次连接里 VFC 没报过告警（local/uav/vfc/events）")
+        self.alarm_text.setText("<br>".join(lines) or empty)
+
+    @staticmethod
+    def _detail_text(detail):
+        if isinstance(detail, dict):
+            return "　".join(f"{k}={v}" for k, v in detail.items())
+        return str(detail)
 
     def _render_changes(self):
         self.changes.clear()
@@ -248,13 +276,16 @@ class UavPage:
         """按无人机目录生成一条 VFC 指令（新 tid、ts），模拟 GW 发出；开关没开时由 MQTT 出口拒绝并提示"""
         item = next(entry for entry in self.app.control.uav_catalog if entry["method"] == method)
         payload = make_command(item)
-        payload["bid"] = bid or self._task_bid()
+        # 开始航线、建图、返航、降落是新任务，bid 新生成；其他带当前任务的
+        payload["bid"] = bid or (str(uuid.uuid4()) if method in NEW_TASK else self._task_bid())
         if data is not None:
             payload["data"] = data
         if profile:
             # 航线的环境放在指令顶层
             payload["profile"] = profile
-        return self.app._emit(payload, json.dumps(payload, ensure_ascii=False), item["topic"], "vfc")
+        # 模拟云端时改发 tta/uav/{sn}/services 并带 target
+        topic, payload = self.app.uav_wire(payload, item["topic"])
+        return self.app._emit(payload, json.dumps(payload, ensure_ascii=False), topic, "vfc")
 
     def _teleop_page(self):
         """设备选无人机时的“遥控与载荷”：VFC 有的指令（暂停、继续、返航、降落、结束航线）照常发；实时摇杆、起飞、云台和拍照
@@ -322,7 +353,7 @@ class UavPage:
         page = QWidget()
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
-        self.app._page_header(outer, "无人机 · 航线任务与地图", "模拟 GW 给 VFC 发指令，暂停、继续带当前任务的 bid；顶栏打开“允许下发”才会真的发")
+        self.app._page_header(outer, "无人机 · 航线任务与地图", "给 VFC 发指令：局域网直连是模拟 GW 直接发，云端 → GW 是模拟云端经 GW 转；暂停、继续带当前任务的 bid，返航、降落用新 bid；顶栏打开“允许下发”才会真的发")
         # 四张卡片竖着排，窗口矮时整页滚动
         body = QWidget()
         layout = QVBoxLayout(body)
@@ -340,7 +371,7 @@ class UavPage:
         qv.addLayout(row)
         layout.addWidget(quick)
         layout.addSpacing(10)
-        # 建图：停止时保不保存地图由人明确选，两个按钮分开，不给默认
+        # 建图：停止时保不保存地图由人明确选；VFC 994c1ae 起不带 save 按保存，保存后 Bridge 自动建资产，不用再点生成
         mapping, mv = card(8, 16)
         mv.addWidget(label("建图", "sectionTitle"))
         status = QHBoxLayout()
@@ -355,6 +386,7 @@ class UavPage:
         row.addSpacing(12)
         row.addWidget(button("停止并保存地图", lambda: self._stop_mapping(True)))
         row.addWidget(button("停止，不保存地图", lambda: self._stop_mapping(False)))
+        row.addWidget(button("停止，按默认（保存）", lambda: self._stop_mapping(None)))
         row.addStretch()
         mv.addLayout(row)
         layout.addWidget(mapping)
@@ -455,6 +487,19 @@ class UavPage:
             self.route.map_id.setText(str(chosen.get("map_id") or ""))
             self.route.profile.set_index(0)
 
+    def selected_map(self):
+        """最近一次地图列表里选用的那张的 map_id；没查过或没有选用的为空"""
+        maps = self.maps[1] if self.maps else []
+        return next((str(m.get("map_id")) for m in maps if isinstance(m, dict) and m.get("selected") and m.get("map_id")), "")
+
+    def _follow_selected(self):
+        """已知地图航线的 map_id 要等于当前选用的图（VFC 994c1ae 不一致就拒），航线编辑默认跟着选用的图；手改过的不动"""
+        chosen = self.selected_map()
+        field = self.route.map_id
+        if chosen and field.text().strip() in ("", getattr(self, "route_map_auto", "")):
+            field.setText(chosen)
+            self.route_map_auto = chosen
+
     def _render_maps(self):
         """地图卡：VFC 的地图和定位状态一行，地图列表按最近一次 get_map_list 的回执"""
         parts = []
@@ -466,6 +511,15 @@ class UavPage:
                 parts.append(f"<b>{'地图' if key == 'map_status' else '定位'}</b>　<b style='color:{color}'>{html.escape(word or '—')}</b>"
                              f"　{html.escape('　'.join(p for p in (note, extra) if p))}")
         listed = f"列表 {time.strftime('%H:%M:%S', time.localtime(self.maps[0].timestamp))} 查的，共 {len(self.maps[1])} 张" if self.maps else "还没查过地图列表"
+        if self.maps:
+            # get_map_list 回执顶层的 quota（已用和上限，字节）和 selection_error（选用的图有问题）
+            ack = local_view(self.maps[0]).payload
+            quota = ack.get("quota") if isinstance(ack.get("quota"), dict) else {}
+            mb = lambda value: f"{value / 1048576:.0f} MB" if isinstance(value, (int, float)) and not isinstance(value, bool) else "—"
+            if quota:
+                listed += f"　空间 已用 {mb(quota.get('used_bytes'))} / 上限 {mb(quota.get('limit_bytes'))}"
+            if ack.get("selection_error"):
+                listed += f"　<b style='color:{RED}'>选用的图有问题：{html.escape(str(ack['selection_error']))}</b>"
         self.map_line.setText("<br>".join(parts + [f"<span style='color:{GRAY}'>{listed}</span>"]))
         if self.maps_drawn is self.maps:
             return
@@ -492,8 +546,10 @@ class UavPage:
             self.app.notify(f"已发出开始建图（bid {bid}），进度看 VFC 任务和 VFC 建图")
 
     def _stop_mapping(self, save):
-        if self._command("stop_mapping", {"save": save}):
-            self.app.notify("已发出停止建图（" + ("保存地图" if save else "不保存地图") + "），保没保存看 VFC 建图状态")
+        """save 为 None 时不带 save，按 VFC 默认保存"""
+        if self._command("stop_mapping", {} if save is None else {"save": save}):
+            choice = "按默认保存" if save is None else "保存地图" if save else "不保存地图"
+            self.app.notify(f"已发出停止建图（{choice}），保没保存看 VFC 建图状态，保存后资产自动生成看地图状态")
 
     def mapping_session(self):
         """当前连接里 VFC 建图状态报的 session_id，生成地图时要用；没有时为空"""
@@ -579,7 +635,9 @@ class UavPage:
         if self.session:
             for module in ("vfc", "bridge"):
                 events += [e for _, e in self.app.store.query(module=module, kind=("指令", "ACK"), limit=400, session=self.session)
-                           if e.topic.startswith("local/uav/")]
+                           if e.topic.startswith(("local/uav/", "tta/uav/"))]
+        # 时间线按本地的样子配对；双击看报文时换回原始的（模拟云端时是 GW 转过的云端报文）
+        self.originals = {e.event_id: e for e in events}
         rows = link(events)
         # 新的在前；配上的 Bridge 行紧跟在它的 VFC 指令下面
         ordered = []
@@ -603,7 +661,8 @@ class UavPage:
     def _open_row(self, index, _column):
         """双击：单独开窗口看这一请求的全部报文和证据链"""
         row = self.rows[index]
-        self.app.open_request(row["events"][0], row["events"])
+        events = [self.originals.get(e.event_id, e) for e in row["events"]]
+        self.app.open_request(events[0], events)
 
 
 def quaternion(yaw_deg):
@@ -724,7 +783,7 @@ class RouteEditor(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        # 环境：已知地图（map_id 要是当前选用的地图，可以不填）或未知环境边建图边飞
+        # 环境：已知地图（map_id 要是当前选用的地图，不一致 VFC 回 1“不是当前选用的地图”）或未知环境边建图边飞
         self.profile = Segmented(["已知地图 known_navigation", "未知环境 online_navigation"])
         env = QHBoxLayout()
         env.addWidget(label("环境", "caption"))
@@ -733,7 +792,7 @@ class RouteEditor(QWidget):
         layout.addLayout(env)
         top = QHBoxLayout()
         self.map_id, self.task_name = QLineEdit(), QLineEdit("test_route")
-        self.map_id.setPlaceholderText("不填就用当前选用的地图")
+        self.map_id.setPlaceholderText("要和当前选用的地图一致；查过地图列表会自动填上")
         self.bid = QLineEdit(str(uuid.uuid4()))
         for text, field in (("map_id", self.map_id), ("task_name", self.task_name), ("bid（任务 ID）", self.bid)):
             top.addWidget(label(text, "caption"))

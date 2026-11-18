@@ -26,7 +26,7 @@ OSD_FIELDS = ("x", "y", "z", "heading", "speed", "batteryRemain", "functionMode"
 
 def osd_fields(event):
     """从 OSD 类消息取出遥测字段；不是 OSD 返回空字典。无人机的 OSD（local/uav/vfc/osd）在无人机页看，不驱动狗的 3D"""
-    if event.topic.startswith("local/uav/"):
+    if event.topic.startswith(("local/uav/", "tta/uav/")):
         return {}
     if event.topic.endswith("/osd"):
         body = event.payload

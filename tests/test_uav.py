@@ -173,17 +173,22 @@ def test_uav_connection_subscribes_local_uav_only():
     assert topics == [[("local/uav/#", 0)]]
 
 
-def test_uav_needs_direct_mode(window, monkeypatch):
+def test_uav_connect_modes(window, monkeypatch):
+    """无人机两种方式：“云端 → GW”是模拟云端（带无人机 SN 连），“直连模块”是模拟 GW（本地主题）；沙盒不连"""
     window.mqtt.client = None
     called = []
     monkeypatch.setattr(window.mqtt, "connect", lambda *a: called.append(a))
     window.device_box.setCurrentText("无人机")
-    window.mode_box.setCurrentText("云端 → 真实 GW")
     window.connection._connect()
     assert called == []
+    window.mode_box.setCurrentText("云端 → 真实 GW")
+    window.uav_sn.setText("1209039909594066")
+    window.connection._connect()
+    assert called[-1][-2:] == ("uav", "1209039909594066")
+    window.mqtt.client = None
     window.mode_box.setCurrentText("直连模块")
     window.connection._connect()
-    assert called and called[0][-1] == "uav"
+    assert called[-1][-2:] == ("uav", "")
 
 
 def test_bridge_ack_diagnosis_and_final_wins():
@@ -563,10 +568,15 @@ def test_control_page_vfc_bid_auto_filled(window):
     assert json.loads(client.sent[-1][1])["bid"]
     window._ingest(Event("local/uav/vfc/state", {"name": "vfc", "type": "nav_status", "info": {"result": 0, "msg": "", "data": "Active",
                                                                                               "flight_id": "11111"}}, sn="", session="s1"))
-    for method in ("start_nav_return_home", "land"):
+    for method in ("pause_nav", "stop_nav"):
         window.control._open_command(method)
         window.control._send()
         assert json.loads(client.sent[-1][1])["bid"] == "11111"
+    # 返航、降落是新任务（VFC 994c1ae），bid 新生成，不用当前任务的
+    for method in ("start_nav_return_home", "land"):
+        window.control._open_command(method)
+        window.control._send()
+        assert json.loads(client.sent[-1][1])["bid"] not in ("", "11111")
 
 
 def test_control_page_route_edits_yaw_not_quaternion(window):
@@ -607,9 +617,11 @@ def test_new_id_button_follows_command(window):
     window.control._new_tid()
     after = json.loads(window.control.editor.toPlainText())
     assert after["bid"] != before["bid"] and after["tid"] == before["tid"] and after["data"] == before["data"]
-    for method in ("land", "system.stop"):
+    for method in ("stop_nav", "system.stop"):
         window.control._open_command(method)
         assert button.isHidden()
+    window.control._open_command("land")
+    assert button.text() == "换新 bid" and not button.isHidden()
     window.device_box.setCurrentText("机器狗")
     window.control._open_command("take_photo")
     assert button.text() == "换新 tid" and not button.isHidden()
@@ -688,17 +700,27 @@ def test_mapping_commands_follow_vfc_format(window):
     assert len(client.sent) == count
     from PySide6.QtWidgets import QRadioButton
     options = {o.text(): o for o in window.control.form_area.findChildren(QRadioButton)}
-    assert set(options) == {"保存地图", "不保存"} and not any(o.isChecked() for o in options.values())
+    assert set(options) == {"保存地图", "不保存", "按默认（保存）"} and not any(o.isChecked() for o in options.values())
     options["不保存"].setChecked(True)
     window.control._send()
     sent = json.loads(client.sent[-1][1])
     assert sent["method"] == "stop_mapping" and sent["data"] == {"save": False} and sent["bid"] == "MAP-1"
+    # 按默认：data 里不带 save（VFC 按保存），表单重建后仍显示选的是“按默认”
+    options["按默认（保存）"].setChecked(True)
+    assert json.loads(window.control.editor.toPlainText())["data"] == {}
+    window.control._rebuild_form()
+    options = {o.text(): o for o in window.control.form_area.findChildren(QRadioButton) if not o.isHidden()}
+    assert options["按默认（保存）"].isChecked()
+    window.control._send()
+    assert json.loads(client.sent[-1][1])["data"] == {}
     # 航线任务页：开始建图新 bid，停止两个按钮各自带明确的 save
     window.uav._start_mapping()
     assert json.loads(client.sent[-1][1])["bid"] != "MAP-1"
     window.uav._stop_mapping(True)
     sent = json.loads(client.sent[-1][1])
     assert sent["data"] == {"save": True} and sent["bid"] == "MAP-1"
+    window.uav._stop_mapping(None)
+    assert json.loads(client.sent[-1][1])["data"] == {}
 
 
 def test_mapping_status_card_shows_data_msg_session(window):
@@ -963,3 +985,130 @@ def test_telemetry_not_live_after_disconnect(window):
     assert card.state.text() == "未收到 OSD" and card.tiles["z"][1].text() == "—"
     # 换了连接，走势线也从头画
     assert card.sparks["z"].points == []
+
+
+SN = "1209039909594066"
+
+
+def cloud(window):
+    """设备无人机、方式“云端 → GW”，假装已按模拟云端连上（订阅 tta/uav/{sn}/#）"""
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("云端 → 真实 GW")
+    window.uav_sn.setText(SN)
+    window.mqtt.cloud_sn = SN
+    window.uav_send.setChecked(True)
+
+
+def test_cloud_views_match_local_format():
+    """GW 转上来的云端报文换成本地的样子再解读：回执 result 从 data 里提出来，状态 method+data，OSD 平铺"""
+    from dog_debug.uav import domain, local_view, reading
+    reply = local_view(Event(f"tta/uav/{SN}/services_reply", {"method": "land", "tid": "t1", "bid": "b1", "target": "vfc",
+                                                              "data": {"result": 1, "msg": "降落中不能结束航线", "data": {"x": 1}}}))
+    assert reply.topic == "local/uav/vfc/ack" and reply.payload["result"] == 1 and reply.payload["msg"] == "降落中不能结束航线"
+    assert reply.payload["data"] == {"x": 1} and "target" not in reply.payload and reply.tid == "t1"
+    state = Event(f"tta/uav/{SN}/state", {"ts": 1, "method": "nav_status", "data": {"result": 0, "msg": "降落中", "data": "Active",
+                                                                                  "flight_id": "L1"}})
+    assert domain(state) == "nav_status" and reading(state)[:2] == ("Active", "降落中")
+    online = Event(f"tta/uav/{SN}/state", {"method": "subsystem_status", "data": {"name": "vfc", "state": 1, "version": "1.0.0"}})
+    assert reading(online)[0] == "在线"
+    osd = Event(f"tta/uav/{SN}/osd", {"sn": SN, "x": 1.5, "z": 1.2, "batteryRemain": 70, "functionMode": 0})
+    assert domain(osd) == "vfc_osd" and reading(osd)[0] == "电量 70%"
+    # 本地报文原样不动
+    local = Event("local/uav/vfc/ack", {"result": 0})
+    assert local_view(local) is local
+
+
+def test_cloud_mode_sends_services_with_target(window):
+    """模拟云端：指令发 tta/uav/{sn}/services、带 target（默认 vfc，可以改），QoS 1；目录里不列 Bridge 命令"""
+    cloud(window)
+    client = window.mqtt.client
+    window.control._open_command("pause_nav")
+    assert window.control.topic.text() == f"tta/uav/{SN}/services"
+    assert json.loads(window.control.editor.toPlainText())["target"] == "vfc" and not window.control.target_box.isHidden()
+    window.control.target_box.setCurrentText("fsvr")
+    assert json.loads(window.control.editor.toPlainText())["target"] == "fsvr"
+    window.control._send()
+    topic, text = client.sent[-1]
+    assert topic == f"tta/uav/{SN}/services" and json.loads(text)["target"] == "fsvr" and client.options[-1] == (1, False)
+    assert all(e["module"] != "bridge" for e in window.control._catalog())
+    # 航线任务页的快捷指令也走云端
+    window.uav._quick("land")
+    topic, text = client.sent[-1]
+    assert topic == f"tta/uav/{SN}/services" and json.loads(text)["target"] == "vfc" and json.loads(text)["method"] == "land"
+    # 换回直连就是模拟 GW：本地主题、不带 target，Bridge 命令回来
+    window.mqtt.cloud_sn = ""
+    window.mode_box.setCurrentText("直连模块")
+    window.control._open_command("pause_nav")
+    assert window.control.topic.text() == "local/uav/vfc/command" and "target" not in json.loads(window.control.editor.toPlainText())
+    assert any(e["module"] == "bridge" for e in window.control._catalog())
+
+
+def test_cloud_mode_publish_whitelist():
+    """模拟云端连接只放行这台的 services；本地主题、别的 SN 都不发；应答只放行上线和心跳应答"""
+    import queue
+    from dog_debug.transport import MqttTransport
+    t = MqttTransport(queue.Queue())
+    t.client, t.connected, t.device, t.cloud_sn, t.uav_send = StubClient(), True, "uav", SN, True
+    t.publish(f"tta/uav/{SN}/services", {"method": "land"})
+    assert t.client.options[-1] == (1, False)
+    for topic in ("local/uav/vfc/command", "tta/uav/OTHER/services"):
+        with pytest.raises(RuntimeError):
+            t.publish(topic, {})
+    t.uav_send = False
+    with pytest.raises(RuntimeError):
+        t.publish(f"tta/uav/{SN}/services", {})
+    # 应答不受允许下发管，但只能是上线和心跳应答
+    t.reply(f"tta/uav/{SN}/heartbeat_reply", {"seq": 1})
+    with pytest.raises(RuntimeError):
+        t.reply(f"tta/uav/{SN}/services", {})
+
+
+def test_cloud_mode_answers_online_and_heartbeat(window):
+    """扮演云端：本机 SN 的上线回 online_reply、心跳回 heartbeat_reply（seq 原样）；别的 SN 不回；开关关了不回；应答入库"""
+    cloud(window)
+    client = window.mqtt.client
+    live = dict(session=window.mqtt.session, source="mqtt", sn="")
+    window._ingest(Event("tta/uav/status/online", {"sn": SN, "type": "uav"}, **live))
+    topic, text = client.sent[-1]
+    assert topic == "tta/uav/status/online_reply" and {k: v for k, v in json.loads(text).items() if k != "ts"} == {"sn": SN, "type": "uav", "result": 0}
+    window._ingest(Event(f"tta/uav/{SN}/heartbeat", {"seq": 42, "ts": 1}, **live))
+    topic, text = client.sent[-1]
+    assert topic == f"tta/uav/{SN}/heartbeat_reply" and json.loads(text)["seq"] == 42
+    count = len(client.sent)
+    window._ingest(Event("tta/uav/status/online", {"sn": "OTHER"}, **live))
+    window.cloud_answer.setChecked(False)
+    window._ingest(Event(f"tta/uav/{SN}/heartbeat", {"seq": 43}, **live))
+    assert len(client.sent) == count
+    window.store.flush()
+    assert any(e.topic.endswith("heartbeat_reply") for _, e in window.store.query(kind=("ACK",), limit=20))
+
+
+def test_cloud_reports_show_on_cards_and_timeline(window):
+    """模拟云端收到的状态、OSD、回执：卡片、遥测、时间线都按本地格式解读；双击看的还是原始云端报文；GW 不转的显示没收到"""
+    cloud(window)
+    live = dict(session=window.mqtt.session, source="mqtt", sn="")
+    window._ingest(Event(f"tta/uav/{SN}/state", {"ts": 1, "method": "nav_status",
+                                                 "data": {"result": 0, "msg": "降落中", "data": "Active", "flight_id": "L1"}}, **live))
+    window._ingest(Event(f"tta/uav/{SN}/osd", {"sn": SN, "z": 1.2, "batteryRemain": 66}, **live))
+    window._ingest(Event(f"tta/uav/{SN}/services", {"method": "stop_nav", "tid": "t9", "bid": "L1", "target": "vfc", "data": {}},
+                         direction="发送", **live))
+    window._ingest(Event(f"tta/uav/{SN}/services_reply", {"method": "stop_nav", "tid": "t9", "bid": "L1", "target": "vfc",
+                                                         "data": {"result": 1, "msg": "降落中不能结束航线"}}, **live))
+    body, when = card_text(window, "vfc")
+    assert "nav_status" in body and when != "未观测"
+    assert window.uav.current_task() == "L1"
+    window.status.telemetry.update("uav")
+    assert window.status.telemetry.tiles["z"][1].text() == "1.20 m"
+    window.uav.render()
+    window.uav._render_timeline()
+    row = next(r for r in window.uav.rows if r["action"] == "stop_nav")
+    from dog_debug.uav import outcome
+    assert outcome(row) == ("拒绝：降落中不能结束航线", 1)
+    opened = []
+    window.open_request = lambda first, events: opened.append(events)
+    window.uav._open_row(window.uav.rows.index(row), 0)
+    assert all(e.topic.startswith("tta/uav/") for e in opened[0])
+    # 狗的状态不混进无人机的云端消息
+    window.store.flush()
+    assert not window.store.query(kind="状态", live=True, device="dog")
+    assert window.store.query(kind="状态", live=True, device="uav")
