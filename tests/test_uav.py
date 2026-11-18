@@ -1009,8 +1009,16 @@ def test_cloud_views_match_local_format():
     state = Event(f"tta/uav/{SN}/state", {"ts": 1, "method": "nav_status", "data": {"result": 0, "msg": "降落中", "data": "Active",
                                                                                   "flight_id": "L1"}})
     assert domain(state) == "nav_status" and reading(state)[:2] == ("Active", "降落中")
-    online = Event(f"tta/uav/{SN}/state", {"method": "subsystem_status", "data": {"name": "vfc", "state": 1, "version": "1.0.0"}})
-    assert reading(online)[0] == "在线"
+    # GW 汇总的各模块在线是个列表，取 VFC 那项；没列 VFC 就是不在线
+    online = Event(f"tta/uav/{SN}/state", {"method": "subsystem_status", "data": [{"name": "gw", "state": 1},
+                                                                                {"name": "vfc", "state": 1, "info": []}]})
+    assert domain(online) == "subsystem_status" and reading(online)[0] == "在线"
+    gone = Event(f"tta/uav/{SN}/state", {"method": "subsystem_status", "data": [{"name": "gw", "state": 1}]})
+    assert reading(gone)[0] == "state 0"
+    # storage_status 是 GW 自己报的
+    from dog_debug.core import infer_module
+    storage = Event(f"tta/uav/{SN}/state", {"method": "storage_status", "data": {"total": 1, "used": 0}})
+    assert domain(storage) == "gw:storage_status" and infer_module(storage.topic, storage.payload) == "gw"
     osd = Event(f"tta/uav/{SN}/osd", {"sn": SN, "x": 1.5, "z": 1.2, "batteryRemain": 70, "functionMode": 0})
     assert domain(osd) == "vfc_osd" and reading(osd)[0] == "电量 70%"
     # 本地报文原样不动

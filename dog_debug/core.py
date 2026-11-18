@@ -166,7 +166,8 @@ def infer_module(topic, payload):
     if match:
         if match[1] in ("services", "services_reply"):
             return str(payload.get("target") or "vfc")
-        return "gw" if match[1].startswith("heartbeat") else "vfc"
+        # storage_status 是 GW 自己报的（磁盘容量、待传文件数），其余状态和 OSD 是 VFC 经 GW 转的
+        return "gw" if match[1].startswith("heartbeat") or payload.get("method") == "storage_status" else "vfc"
     if topic.startswith("tta/uav/status/"):
         return "gw"
     data = payload.get("data", {})

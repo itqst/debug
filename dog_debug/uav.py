@@ -62,8 +62,13 @@ LINK_SECONDS = 5
 # 模拟云端时收到的是 GW 转过的云端报文（tta/uav/{sn}/...），外壳和本地不一样（nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 2 节）：
 # services_reply 的 result、msg 在 data 里，原来的 data 变成 data.data；state 是 method 加 data；osd 字段平铺
 CLOUD = re.compile(r"^tta/uav/[^/]+/(services|services_reply|state|osd|events)$")
-# 云端指令默认交给 VFC；sync_map_file 是 FSVR 的。地图列表、删除、改名云端协议写的是 fsvr，但现在是 VFC 在处理，也默认 vfc
-CLOUD_TARGETS = {"sync_map_file": "fsvr"}
+# 云端指令默认交给 VFC。GW（RobotDog 61a1649 TTA_MqttSvcSessionTopic.cpp）只认 gw、vfc、ptz、vision、audio 这几个 target，
+# 别的（比如 fsvr）直接拒掉、不回执；sync_map_file 是 GW 自己处理的（target=gw）。地图列表、删除、改名云端协议写的 fsvr，
+# 现在是 VFC 在处理，默认 vfc
+CLOUD_TARGETS = {"sync_map_file": "gw"}
+GW_TARGETS = ("vfc", "gw", "ptz", "vision", "audio")
+# GW 自己发到云端 state 的（不是 VFC 转的）
+GW_STATES = ("storage_status",)
 
 
 def cloud_topic(sn):
@@ -92,9 +97,16 @@ def local_view(event):
         payload.update(result=body.get("result", 2), msg=body.get("msg", ""), data=body.get("data"))
         return dataclasses.replace(event, topic=VFC + "ack", payload=payload)
     if kind == "state":
-        body = p.get("data") if isinstance(p.get("data"), dict) else {}
-        # subsystem_status 本地放在 data 里，其他放在 info 里；两个都给，解读按各自的键取
-        return dataclasses.replace(event, topic=VFC + "state", payload={"type": p.get("method"), "info": body, "data": body})
+        method, body = p.get("method"), p.get("data")
+        if method == "subsystem_status" and isinstance(body, list):
+            # GW 每 3 s 汇总一次各模块在线（3 s 内还在报的才列）；取出 VFC 那项当 VFC 在线，没列就是 GW 那边看 VFC 不在线
+            entry = next((m for m in body if isinstance(m, dict) and m.get("name") == "vfc"), {"name": "vfc", "state": 0})
+            return dataclasses.replace(event, topic=VFC + "state", payload={"type": method, "data": entry})
+        if method in GW_STATES:
+            return dataclasses.replace(event, topic="local/uav/gw/state", payload={"type": method, "info": body})
+        body = body if isinstance(body, dict) else {}
+        # 本地 subsystem_status 放在 data 里，其他放在 info 里；两个都给，解读按各自的键取
+        return dataclasses.replace(event, topic=VFC + "state", payload={"type": method, "info": body, "data": body})
     if kind == "osd":
         return dataclasses.replace(event, topic=VFC + "osd", payload={"data": p})
     # 告警 GW 现在不转；以后转了按状态的外壳认：method 是 alarm、内容在 data

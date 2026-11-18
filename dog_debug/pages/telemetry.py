@@ -122,7 +122,9 @@ class TelemetryCard:
             data = event.payload.get("data") if isinstance(event.payload.get("data"), dict) else {}
             # 断开后立刻标“已停”，不等时效过期
             live = mqtt.connected and time.time() - event.timestamp < LIVE_SECONDS
-            return data, live, f"VFC OSD · {time.strftime('%H:%M:%S', time.localtime(event.timestamp))} 收到"
+            # 模拟云端时是 GW 转的 OSD：GW 只取固定的几个字段，VFC 没发的它补 0，这里的 0 不一定是真值
+            source = "GW 转的 OSD（VFC 没发的字段 GW 补 0）" if mqtt.cloud_sn else "VFC OSD"
+            return data, live, f"{source} · {time.strftime('%H:%M:%S', time.localtime(event.timestamp))} 收到"
         scene = self.app.scene
         if scene.osd and not scene.osd_time:
             return scene.osd, False, "回放中的历史 OSD"
