@@ -615,8 +615,7 @@ class ScenePanel:
             osd, live = self.app.scene.osd, self.app.scene.live
             sn = self.app.mqtt.sn if self.app.mqtt.connected else self.app.sn.text().strip()
             self.app.device_name.setText(sn or "未设置 SN")
-            robot = self.app.scene.robot
-            parts = [(self.app.scene.variant or list(VARIANTS)[0]).split(" ")[0] if not robot or robot.kind == "L2" else robot.name]
+            parts = []
             if "batteryRemain" in osd:
                 parts.append(f"电量 {osd['batteryRemain']:.0f}%")
             parts.append("OSD 实时" if live else "未收到 OSD" if not osd else "OSD 已停")

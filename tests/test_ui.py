@@ -51,6 +51,16 @@ def test_messages_page_removed(window):
     assert rows == ["总览与遥测", "遥控与载荷", "指令与链路", "任务与文件", "日志与配置"] and not hasattr(window, "messages")
 
 
+def test_recent_commands_kept_per_device(window):
+    """最近发过的按设备分开：切到无人机看不到狗的，切回来狗的还在"""
+    select(window, "take_photo")
+    window.control._remember(window.control.selected)
+    window.device_box.setCurrentText("无人机")
+    assert window.control.recent == []
+    window.device_box.setCurrentText("机器狗")
+    assert [r["method"] for r in window.control.recent] == ["take_photo"]
+
+
 def test_all_control_modules_have_templates(window):
     modules = {window.control.commands.item(i).data(0x0100)["module"]
                for i in range(window.control.commands.count()) if window.control.commands.item(i).data(0x0100)}

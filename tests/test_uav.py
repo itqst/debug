@@ -881,3 +881,24 @@ def test_map_card_lists_maps_and_sends_map_commands(window, monkeypatch):
     window.uav.route.profile.set_index(1)
     window.uav._send_route()
     assert sent()["profile"] == "online_navigation" and "map_id" not in sent()["data"]
+
+
+def test_key_telemetry_card_shared_by_dog_and_uav(window):
+    """总览顶上的关键遥测卡：狗按设备 OSD、无人机按 VFC OSD 显示数字；没报的“—”不当 0；姿态角没报就不出格子"""
+    tiles = lambda: {key: value.text() for key, (tile, value) in window.status.telemetry.tiles.items() if not tile.isHidden()}
+    # 狗的实时 OSD 只认活动连接，这里直接交给 scene，等同连着时收到
+    window.scene.telemetry(Event("tta/robotdog/TEST_DOG_001/osd", {"batteryRemain": 80, "speed": 0.25, "heading": 90, "x": 1, "y": 2},
+                                 sn="TEST_DOG_001", session="s1"))
+    window.status.telemetry.update("dog")
+    shown = tiles()
+    assert shown["batteryRemain"] == "80%" and shown["speed"] == "0.25 m/s" and shown["position"] == "1.00, 2.00"
+    assert shown["temperature"] == "—" and "pitch" not in shown and "z" not in shown
+    assert window.status.telemetry.state.text() == "OSD 实时"
+    window.device_box.setCurrentText("无人机")
+    # 无人机卡片只认活动连接的消息：给一条当前会话的实时 OSD
+    window._ingest(Event("local/uav/vfc/osd", {"sn": "", "data": {"z": 1.2, "speed": "fast", "heading": 81, "pitch": 3}},
+                         sn="", session=window.mqtt.session, source="mqtt"))
+    window.status.telemetry.update("uav")
+    shown = tiles()
+    assert shown["z"] == "1.20 m" and shown["speed"] == "—" and shown["heading"] == "81°" and shown["pitch"] == "3°"
+    assert "roll" not in shown and "temperature" not in shown

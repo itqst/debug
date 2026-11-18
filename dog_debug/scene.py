@@ -19,7 +19,9 @@ LIVE_SECONDS = 3.0
 FRAME_MS = 33
 # 动作指令对应的演示姿态，未列出的指令不改姿态
 COMMAND_POSES = {"stand_up": "站立", "lie_down": "半蹲", "passive": "趴下"}
-OSD_FIELDS = ("x", "y", "z", "heading", "speed", "batteryRemain", "functionMode", "controller", "temperature", "flyingTime")
+# pitch、roll 协议里暂时没有，设备报了就在关键遥测卡里显示
+OSD_FIELDS = ("x", "y", "z", "heading", "speed", "batteryRemain", "functionMode", "controller", "temperature", "flyingTime",
+              "pitch", "roll")
 
 
 def osd_fields(event):

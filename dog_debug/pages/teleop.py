@@ -339,6 +339,8 @@ class TeleopPage:
         sv.setSpacing(12)
         self.app._page_header(sv, "机器狗 · 遥控与载荷", "按住方向键或 WASD / QE 移动，松手、切走页面或窗口、断线都会补发零速；空格急停")
         self.side_tabs = Segmented(["遥控", "模型"])
+        # “模型”一栏是 3D 模型的姿态和关节设置，3D 不显示时先藏起来
+        self.side_tabs.setVisible(bool(self.app.OBSERVED))
         sv.addWidget(self.side_tabs)
         self.side_stack = QStackedWidget()
         self.side_tabs.changed.connect(lambda i: fade_to(self.side_stack, i))

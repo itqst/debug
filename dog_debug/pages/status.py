@@ -19,6 +19,7 @@ from ..player import hide_password, StreamWindow
 from ..registry import find, MODULES
 from ..trace_view import Step, TraceView
 from ..uav import MODULES as UAV_MODULES
+from .telemetry import TelemetryCard
 from ..ui import (
     BLUE, button, CAMERAS, card, COLUMN_WIDTHS, DEVICES, dot, FlowGrid, FRESH_SECONDS, glyph_icon, GRAY, GREEN, HTTP_PLAY,
     label, method_label, MODULE_COLORS, ModuleMessageModel, ORANGE, PillDelegate, RED, scroller, Segmented, settings,
@@ -100,12 +101,22 @@ class StatusPage:
         layout_left = QVBoxLayout(left)
         layout_left.setContentsMargins(0, 0, 0, 0)
         self.status_grid = FlowGrid(cards, 3, 300)
-        layout_left.addWidget(scroller(self.status_grid), 1)
+        # 关键遥测放在模块卡片上方，狗和无人机共用一张，按各自 OSD 显示
+        self.telemetry = TelemetryCard(self.app)
+        layout_left.addWidget(self.telemetry.frame)
+        layout_left.addSpacing(10)
         # 无人机多出来的：保留指令告警放顶上，VFC 告警、关键变化、指令时间线在卡片下面（和狗的直播一个位置）
+        # 卡片和这块之间可以上下拖，时间线要多看几行就往上拖
         layout.insertWidget(layout.count() - 1, self.app.uav.banner_widget())
         self.uav_extras = self.app.uav.extras_widget()
-        layout_left.addSpacing(10)
-        layout_left.addWidget(self.uav_extras)
+        rows = QSplitter(Qt.Vertical)
+        rows.setHandleWidth(10)
+        rows.setChildrenCollapsible(False)
+        rows.addWidget(scroller(self.status_grid))
+        rows.addWidget(self.uav_extras)
+        rows.setStretchFactor(0, 3)
+        rows.setStretchFactor(1, 2)
+        layout_left.addWidget(rows, 1)
         split.addWidget(left)
         split.addWidget(self._module_detail())
         split.setStretchFactor(0, 3)
@@ -185,6 +196,7 @@ class StatusPage:
         if self.detail_module and self.detail_module not in self.modules():
             self._open_module(None)
         self.status_drawn = None
+        self.telemetry.update(self._device())
         self._apply_status_filter()
 
     def _room_follow(self):
@@ -965,6 +977,7 @@ class StatusPage:
         return text if len(text) <= 300 else text[:297] + "…"
 
     def shown(self):
+        self.telemetry.update(self._device())
         self._refresh_status()
         self._zlm_poll()
 
@@ -972,6 +985,7 @@ class StatusPage:
         """状态页可见时事件队列每轮调用，卡片时效每秒更新一次"""
         if now - self.status_aged >= 1:
             self._status_ages()
+        self.telemetry.update(self._device())
 
     def refresh_if_changed(self):
         """没有新状态、设备没换就不重读状态；详情里的指令与回复由它自己按模块消息数判断"""

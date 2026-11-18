@@ -31,7 +31,8 @@ class ControlPage:
         self.uav_catalog = uav_entries()
         self.form_key = "data"
         self.selected = None
-        self.recent = []
+        # 最近发过的按设备各记一份，换设备时换成那种设备的，不混着显示
+        self.recent, self.recent_by, self.recent_device = [], {}, None
         self.form_syncing = False
         self.watch, self.watch_size = None, 0
 
@@ -72,6 +73,8 @@ class ControlPage:
         recent = QWidget()
         recent.setLayout(self.recent_row)
         lv.addWidget(recent)
+        # 侧栏（设备选择）先于本页建好，这里记下当前设备，换设备时才知道最近列表归谁
+        self.recent_device = self.app.device_box.currentText()
         self._show_recent()
         catalog.setMinimumWidth(260)
         columns.addWidget(catalog)
@@ -246,6 +249,10 @@ class ControlPage:
         """换设备类型：指令目录换成那种设备的，未发出的草稿作废（报文格式不同）"""
         self.selected = None
         self.app.drafts.clear()
+        device = self.app.device_box.currentText()
+        self.recent_by[self.recent_device] = self.recent
+        self.recent, self.recent_device = self.recent_by.get(device, []), device
+        self._show_recent()
         # 上一种设备的本次结果不留在新设备的页面上
         self.watch, self.watch_size = None, 0
         self.result_title.setText("本次结果 · 证据链")

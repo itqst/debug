@@ -59,7 +59,8 @@ class Studio(QMainWindow):
     NAV = dict.fromkeys(("dog", "uav"), list(zip(TITLES, range(5))))
     PAGES = list(TITLES)
     # 3D 观察区只在总览页左边（狗），其余页整宽
-    OBSERVED = (OVERVIEW,)
+    # 显示 3D 观察区的页；先都不显示：模型姿态和真狗对不上，没实际用处（11-18 定）。观察区代码保留，要用时把页加回这里
+    OBSERVED = ()
 
     def __init__(self, db_path=None):
         super().__init__()
@@ -223,7 +224,7 @@ class Studio(QMainWindow):
         brand.addWidget(label("MQTT → GW → 模块 统一调试台", "appSub"))
         row.addLayout(brand)
         # 设备切换就是连接卡里设备的另一个入口：连上后锁住，断开才能换
-        self.device_seg = Segmented(["机器狗 L2", "无人机 UAV"])
+        self.device_seg = Segmented(["机器狗 DOG", "无人机 UAV"])
         self.device_seg.set_index(list(DEVICES).index(self.device_box.currentText()))
         self.device_seg.changed.connect(lambda index: self.device_box.setCurrentText(list(DEVICES)[index]))
         row.addWidget(self.device_seg)
@@ -312,11 +313,15 @@ class Studio(QMainWindow):
         self.device_meta = label("", "caption", True)
         dl.addWidget(self.device_name)
         dl.addWidget(self.device_meta)
-        replay = QHBoxLayout()
+        # OSD 轨迹回放画在 3D 观察区里，观察区不显示时这一行也先藏起来
+        self.replay_row = QWidget()
+        replay = QHBoxLayout(self.replay_row)
+        replay.setContentsMargins(0, 0, 0, 0)
         replay.addWidget(label("会话回放", "caption"))
         replay.addStretch()
         replay.addWidget(button("OSD 轨迹回放", lambda: self.scene3d._replay_scan(), "link"))
-        dl.addLayout(replay)
+        self.replay_row.setVisible(bool(self.OBSERVED))
+        dl.addWidget(self.replay_row)
         layout.addWidget(device)
         layout.addWidget(button("●  演示一次故障定位", lambda: self.control._demo()))
 
@@ -950,9 +955,18 @@ def self_check(window, folder):
     # 以隐藏方式启动时第一次 show 会沿用隐藏标志，这里再显式显示一次，OpenGL 才会真正出帧
     window.showNormal()
     window.raise_()
-    # 3D 观察区只在狗的总览页显示，上次配置是无人机时先换过来
     window.device_box.setCurrentText("机器狗")
     window._go(window.OVERVIEW)
+    if not window.OBSERVED:
+        # 界面上不显示 3D 时不检查渲染，只截一张整窗图
+        def skip():
+            window.grab().save(str(folder / "self_check_window.png"))
+            lines.append("3D 渲染：界面不显示 3D，跳过；整窗截图 self_check_window.png")
+            (folder / "self_check.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+            window.close()
+            QApplication.instance().exit(1 if failures else 0)
+        QTimer.singleShot(1500, skip)
+        return
     deadline = time.monotonic() + 30
     # 窗口刚显示时布局还在调整，此时截图里 3D 区是空白的；视图尺寸和上一次检查相同才算稳定
     last_size = [None]

@@ -95,7 +95,8 @@ class UavPage:
         self.table.cellDoubleClicked.connect(self._open_row)
         tv.addWidget(self.table, 1)
         pages.addWidget(timeline)
-        pages.setFixedHeight(140)
+        # 高度由总览里卡片和这块之间的分隔条决定，拖下来能多看几行时间线
+        pages.setMinimumHeight(90)
         ev.addWidget(pages)
         self.rows = []
         return extras
