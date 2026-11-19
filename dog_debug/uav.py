@@ -15,8 +15,8 @@ VFC = "local/uav/vfc/"
 COMMAND_TOPICS = (VFC + "command", BRIDGE + "command")
 
 # 开始新任务的 VFC 指令：bid 新生成（按钮是“换新 bid”）；其他 VFC 指令带当前任务的 bid
-# 返航、降落也是新任务（VFC 994c1ae：原任务报 Cancelled，再用新 bid 报 Active）
-NEW_TASK = ("start_multi_nav_by_points", "start_mapping", "start_nav_return_home", "land")
+# 返航、降落也是新任务（VFC 994c1ae：原任务报 Cancelled，再用新 bid 报 Active）；录制航线起录制环境，也是新任务（第六轮）
+NEW_TASK = ("start_multi_nav_by_points", "start_mapping", "start_nav_return_home", "land", "start_record")
 
 # 状态：键 → (名称, 多久没新消息算过期（秒，None 为不按时效判断）)；键的顺序就是模块卡片里各行的顺序
 # Bridge 各领域没变化也至少每秒重发一次；VFC 的 subsystem_status 每 2 s 一次，nav_status、mapping_status、loc_status、
@@ -39,6 +39,8 @@ DOMAINS = {
     "loc_status": ("定位", 3),
     "map_status": ("地图", 3),
     "vfc_osd": ("OSD", 3),
+    # 第六轮：飞行状态，变化立即发、每秒一次；Bridge 离线或飞控数据不新鲜时不发
+    "flyState": ("飞行状态", 3),
 }
 # 无人机状态总览的模块（tta_vfc 11-17 按《室内巡检无人机-软件系统设计》答复）：MQTT 域的 GW、VTC（气体传感器和补光灯）、VFC、
 # VISION、PTZ，桥接层 Bridge，支持服务 FSVR；现在实际在跑的是 Bridge、VFC、FSVR，其余没接时按通用格式看
@@ -166,6 +168,12 @@ def reading(event):
         if flags:
             extra += " · " + " · ".join(flags)
         return f"电量 {value('batteryRemain', '%')}", f"x {value('x')}　y {value('y')}　z {value('z')}（米）", 2 if bad else 0, extra
+    if key == "flyState":
+        # flightState 1 飞行中、0 未飞行；ctrlMode 0 姿态、1 定高、2 定点、3 offboard；mode 是飞控原样的模式（AUTO.LAND 这类只有 mode）
+        info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+        flying = {1: "飞行中", 0: "未飞行"}.get(info.get("flightState"), "—")
+        ctrl = CTRL_MODES.get(info.get("ctrlMode"), "—" if info.get("ctrlMode") is None else str(info.get("ctrlMode")))
+        return flying, f"控制模式 {ctrl}", 0, f"飞控模式 {info.get('mode') or '—'}"
     if key == "subsystem_status":
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         return "在线" if data.get("state") == 1 else f"state {data.get('state')}", f"v{data.get('version', '?')}", 0, ""
@@ -255,8 +263,11 @@ def _yes(value):
 # VFC OSD 里的测量值
 OSD_KEYS = ("x", "y", "z", "speed", "heading", "batteryRemain")
 # OSD 里飞控的状态（VFC 1.0.0）
-OSD_FLAGS = (("flightState", "飞行中"), ("flightMode", "模式"), ("armed", "解锁"), ("landed", "落地"), ("takeoffComplete", "起飞完成"),
+# 第六轮起 flightState 挪到 flyState，OSD 里不再看
+OSD_FLAGS = (("flightMode", "模式"), ("armed", "解锁"), ("landed", "落地"), ("takeoffComplete", "起飞完成"),
              ("mapId", "地图"), ("batteryVoltage", "电压"))
+# flyState 的控制模式
+CTRL_MODES = {0: "姿态", 1: "定高", 2: "定点", 3: "offboard"}
 # nav_status 取消原因
 REASONS = {"stop": "结束航线", "return_home": "返航", "land": "降落"}
 # 到点放行要醒目：航点完成等待放行、控制桥转向完成可以放行
@@ -280,7 +291,14 @@ def changes(before, event):
         if key == "nav_status_progress":
             out.append((f"航点进度 {word}：{msg}", True))
         elif not old or (word, msg) != old[:2]:
-            out.append((f"VFC 任务 {word}：{msg}", "已到达" in msg))
+            # 第六轮航线收尾全自动：“航线完成”后还要自动返航、降落、停环境，都还是 Active，最后 Succeeded 才结束
+            out.append((f"VFC 任务 {word}：{msg}", "已到达" in msg or "航线完成" in msg or "返航完成" in msg or word == "Succeeded"))
+        return out
+    if key == "flyState":
+        mode = reading(event)[3]
+        if not old or (word, msg, mode) != (old[0], old[1], old[3]):
+            # 起飞、落地醒目，控制模式和飞控模式的变化照记
+            out.append((f"飞行状态 {word} · {msg} · {mode}", bool(old) and word != old[0]))
         return out
     if key in ("subsystem_status", "pose", "vfc_osd"):
         return out

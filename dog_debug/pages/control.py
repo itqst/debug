@@ -517,8 +517,13 @@ class ControlPage:
                 payload["bid"] = self._vfc_bid(payload)
                 # 已知地图航线的 map_id 要等于当前选用的图，查过地图列表就用选用的那张
                 chosen = self.app.uav.selected_map()
-                if chosen and isinstance(payload.get("data"), dict) and "map_id" in payload["data"]:
-                    payload["data"]["map_id"] = chosen
+                data = payload.get("data")
+                if self.selected["method"] == "start_record":
+                    # 有图录制的 map_id 是只有一项的数组，默认当前加载的那张；没加载过就留空数组（无图录制）
+                    loaded = getattr(self.app.uav, "loaded_map", "")
+                    data["map_id"] = [loaded] if loaded else []
+                elif chosen and isinstance(data, dict) and "map_id" in data:
+                    data["map_id"] = chosen
                 if self.app.uav_cloud():
                     cloud_command(payload)
             self.editor.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2))

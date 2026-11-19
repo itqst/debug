@@ -31,13 +31,12 @@
        "actions": []
       }
      ]
-    },
-    "profile": "known_navigation"
+    }
    },
    "title": "开始航线",
-   "summary": "模拟 GW 下发航线：VFC 写航点文件、启动任务环境（Bridge system.start）；ack 只表示受理，进度看 nav_status。按航向角编辑航点用“航线任务”页",
-   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；顶层 profile 选环境：known_navigation 已知地图（默认，map_id 要是当前选用的地图，可以不填）或 online_navigation 未知环境边建图边飞（落地停环境时自动保存）；orientation 是四元数，只绕 z 轴转时 z=sin(yaw/2)、w=cos(yaw/2)，不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；带航点动作照飞，到点报 nav_action_progress（本期全部 skipped）"
+   "summary": "下发航线：模式由 map_id 定，带 map_id 是已知地图（要带，默认填选用的那张；和板上选的不同 VFC 会先自动选这张），不带是未知环境；ack 只表示受理。收尾全自动：末点后自动返航、自动降落、落地停环境，全程 Active，最后才报 Succeeded，“航线完成”不是结束。按航向角编辑航点用“航线任务”页",
+   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
+   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；顶层 profile 第六轮起 VFC 不看了；orientation 是四元数，只绕 z 轴转（z=sin(yaw/2)、w=cos(yaw/2)），不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；航点动作照飞、到点报 skipped；起飞要飞手解锁、切 OFFBOARD"
   },
   {
    "id": "uav.vfc.pause_nav",
@@ -209,10 +208,50 @@
      "map_id": ""
     }
    },
-   "title": "选用定位地图",
-   "summary": "转 Bridge map.select：已知地图航线要用当前选中的图；环境运行、地图忙时 Bridge 会拒（ENV_RUNNING、JOB_ACTIVE）",
-   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "title": "加载地图",
+   "summary": "选图 → 起已知地图环境 → 地面重定位，定位就绪才回 ack（最长约 450 s，按 600 s 等）；等待中进度看 nav_status 的 msg；成功回 0“地图 X 已加载，定位就绪”，失败 msg 写卡在哪一步；起来的环境用“停止录制”结束",
+   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
    "unverified": "map_id 必填"
+  },
+  {
+   "id": "uav.vfc.start_record",
+   "method": "start_record",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · start_record",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "start_record",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "map_id": []
+    }
+   },
+   "title": "开始录制航线",
+   "summary": "无图录制 data.map_id 为空数组（或不带）；有图录制 map_id 是只有一项的数组，默认填当前加载的图，要先“加载地图”且 ack 回 0；没加载回 1“请先加载地图”，图不同回“录制地图 X 和已加载的地图 Y 不一致”。录制期间看 osd 位置和 flyState",
+   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
+   "unverified": "录制环境没停就发新任务，VFC 回“上一个任务的环境还没停：录制环境请先发 stop_record”"
+  },
+  {
+   "id": "uav.vfc.stop_record",
+   "method": "stop_record",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · stop_record",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "stop_record",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "停止录制",
+   "summary": "停本次录制（无图录制不保存、有图录制按默认）以及“加载地图”起的环境；没有录制回“没有进行中的录制”，停完回 StandBy",
+   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
+   "unverified": ""
   },
   {
    "id": "uav.vfc.build_map",

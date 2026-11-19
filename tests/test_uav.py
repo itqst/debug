@@ -377,6 +377,11 @@ def test_route_editor_converts_yaw_and_actions(window):
         {"id": "a3", "action": "gimbal_action", "param": [1, 1]}]
     editor = window.uav.route
     editor._add(("2", "3", "1.5", "180", "take_photo"))
+    # 已知地图一定要带 map_id（第六轮模式由 map_id 定）
+    editor.map_id.setText("")
+    with pytest.raises(ValueError):
+        editor.route()
+    editor.map_id.setText("M1")
     data, bid = editor.route()
     assert len(data["points"]) == 2 and data["points"][1]["position"] == {"x": 2.0, "y": 3.0, "z": 1.5}
     assert data["points"][1]["orientation"]["w"] == 0.0 and data["points"][1]["orientation"]["z"] == 1.0 and bid
@@ -896,14 +901,14 @@ def test_map_card_lists_maps_and_sends_map_commands(window, monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
     window.uav._delete_map()
     assert sent()["method"] == "remove_map_by_id" and sent()["data"] == {"map_ids": ["M10"]}
-    # 航线用这张图：已知地图、map_id 填上，发出时顶层带 profile
+    # 航线用这张图：已知地图带 map_id；第六轮模式由 map_id 定，顶层不再带 profile，未知环境不带 map_id
     window.uav._route_map()
     window.uav._send_route()
     route = sent()
-    assert route["method"] == "start_multi_nav_by_points" and route["profile"] == "known_navigation" and route["data"]["map_id"] == "M10"
+    assert route["method"] == "start_multi_nav_by_points" and "profile" not in route and route["data"]["map_id"] == "M10"
     window.uav.route.profile.set_index(1)
     window.uav._send_route()
-    assert sent()["profile"] == "online_navigation" and "map_id" not in sent()["data"]
+    assert "profile" not in sent() and "map_id" not in sent()["data"]
 
 
 def test_key_telemetry_card_shared_by_dog_and_uav(window):
@@ -1120,3 +1125,66 @@ def test_cloud_reports_show_on_cards_and_timeline(window):
     window.store.flush()
     assert not window.store.query(kind="状态", live=True, device="dog")
     assert window.store.query(kind="状态", live=True, device="uav")
+
+
+
+def test_record_route_and_load_map_wait(window):
+    """第六轮录制航线：无图 data {}；有图 map_id 是一项的数组，默认用加载成功的那张；加载地图 600 s 内算加载中；新 bid"""
+    client = window.mqtt.client
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.uav_send.setChecked(True)
+    sent = lambda: json.loads(client.sent[-1][1])
+    live = dict(session=window.mqtt.session, source="mqtt", sn="")
+    window.uav._start_record(False)
+    assert sent()["method"] == "start_record" and sent()["data"] == {} and sent()["bid"]
+    count = len(client.sent)
+    window.uav._start_record(True)
+    assert len(client.sent) == count
+    # 加载地图：发出（Broker 回显）后在等，回执 0 后记成已加载
+    window._ingest(Event("local/uav/vfc/command", {"method": "loc_load_map", "tid": "L1", "bid": "b", "data": {"map_id": "M7"}}, **live))
+    assert any("加载地图 M7 中" in line for line in window.uav._loading_lines())
+    window.uav.render()
+    window.uav._render_timeline()
+    from dog_debug.uav import outcome
+    row = next(r for r in window.uav.rows if r["action"] == "loc_load_map")
+    assert window.uav.table.item(window.uav.rows.index(row), 5).text().startswith("加载中")
+    window._ingest(Event("local/uav/vfc/ack", {"method": "loc_load_map", "tid": "L1", "result": 0, "msg": "地图 M7 已加载，定位就绪"}, **live))
+    assert window.uav.loaded() == "M7" and not window.uav.loading
+    window.uav._start_record(True)
+    assert sent()["data"] == {"map_id": ["M7"]}
+    window.control._open_command("start_record")
+    assert json.loads(window.control.editor.toPlainText())["data"] == {"map_id": ["M7"]}
+    window.uav._stop_record()
+    assert sent()["method"] == "stop_record" and sent()["data"] == {}
+
+
+def test_fly_state_card_and_osd_without_flight_state(window):
+    """第六轮 flyState：VFC 卡片一行、关键遥测三格；字段没有显示“—”（AUTO.LAND 只有 mode）；云端 method+data 也认；OSD 不再看 flightState"""
+    from dog_debug.uav import domain, reading
+    window.device_box.setCurrentText("无人机")
+    live = dict(session=window.mqtt.session, source="mqtt", sn="")
+    fly = Event("local/uav/vfc/state", {"type": "flyState", "info": {"sn": "", "flightState": 1, "ctrlMode": 3, "mode": "OFFBOARD"}}, **live)
+    assert domain(fly) == "flyState" and reading(fly) == ("飞行中", "控制模式 offboard", 0, "飞控模式 OFFBOARD")
+    land = Event("local/uav/vfc/state", {"type": "flyState", "info": {"flightState": 1, "mode": "AUTO.LAND"}})
+    assert reading(land)[1] == "控制模式 —"
+    cloud = Event(f"tta/uav/{SN}/state", {"method": "flyState", "data": {"flightState": 0, "ctrlMode": 2}})
+    assert reading(cloud)[:2] == ("未飞行", "控制模式 定点")
+    window._ingest(fly)
+    window._ingest(Event("local/uav/vfc/osd", {"data": {"z": 1.0, "flightState": 0}}, **live))
+    window.status.telemetry.update("uav")
+    tiles = {k: v.text() for k, (t, v) in window.status.telemetry.tiles.items()}
+    assert tiles["flying"] == "飞行中" and tiles["ctrlMode"] == "offboard" and tiles["mode"] == "OFFBOARD"
+    assert "飞行中" not in reading(Event("local/uav/vfc/osd", {"data": {"flightState": 1, "z": 1}}))[3]
+    body = card_text(window, "vfc")[0]
+    assert "flyState" in body
+
+
+
+def test_vfc_rejection_noted_as_is(window):
+    """门槛提示照实显示：VFC 拒绝的回执原文进关键变化（醒目）"""
+    window.device_box.setCurrentText("无人机")
+    live = dict(session=window.mqtt.session, source="mqtt", sn="")
+    msg = "上一个任务的环境还没停：录制环境请先发 stop_record"
+    window._ingest(Event("local/uav/vfc/ack", {"method": "start_multi_nav_by_points", "tid": "r1", "result": 1, "msg": msg}, **live))
+    assert window.uav.log[0][1] == f"VFC 拒绝 start_multi_nav_by_points：{msg}" and window.uav.log[0][2]

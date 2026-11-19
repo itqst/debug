@@ -13,7 +13,11 @@ DOG_TILES = (("batteryRemain", "电量"), ("speed", "速度"), ("heading", "航�
              ("pitch", "Pitch"), ("roll", "Roll"), ("functionMode", "模式"), ("controller", "控制权"),
              ("temperature", "温度"), ("flyingTime", "运行"))
 UAV_TILES = (("batteryRemain", "电量"), ("speed", "速度"), ("heading", "航向 Yaw"), ("z", "高度 z"),
-             ("position", "位置 x, y"), ("pitch", "Pitch"), ("roll", "Roll"))
+             ("position", "位置 x, y"), ("flying", "飞行"), ("ctrlMode", "控制模式"), ("mode", "飞控模式"),
+             ("pitch", "Pitch"), ("roll", "Roll"))
+# 无人机飞行状态那三格来自 flyState（第六轮，local/uav/vfc/state type=flyState），不是 OSD
+FLY_KEYS = ("flying", "ctrlMode", "mode")
+CTRL_MODES = {0: "姿态", 1: "定高", 2: "定点", 3: "offboard"}
 # 协议里目前狗和无人机都没报姿态角，有了才出格子，不占位
 OPTIONAL = ("pitch", "roll")
 SPARKS = {"batteryRemain": "#34C759", "speed": "#007AFF", "heading": "#AF52DE", "z": "#FF9500"}
@@ -31,6 +35,13 @@ def number(data, key):
 
 def text_of(data, key):
     """一格显示的文字；没报的是“—”，不当成 0"""
+    if key == "flying":
+        return {1: "飞行中", 0: "未飞行"}.get(number(data, "flightState"), "—")
+    if key == "ctrlMode":
+        value = number(data, "ctrlMode")
+        return "—" if value is None else CTRL_MODES.get(value, str(value))
+    if key == "mode":
+        return str(data["mode"]) if isinstance(data.get("mode"), str) and data["mode"] else "—"
     if key == "position":
         x, y = number(data, "x"), number(data, "y")
         return f"{x:.2f}, {y:.2f}" if x is not None and y is not None else "—"
@@ -112,23 +123,29 @@ class TelemetryCard:
         self.placed = tuple(shown)
 
     def _reading(self, device):
-        """(数据, 是否实时, 来源说明)"""
+        """(数据, 是否实时, 来源说明, 有没有收到过 OSD)；无人机只收到 flyState 时数据里只有飞行那三格"""
         mqtt = self.app.mqtt
         if device == "uav":
             # 只看本次连接的；连了新的还没收到第一条时不显示上一次连接的数
-            event = self.app.uav.latest.get("vfc_osd") if self.app.uav.session == mqtt.session else None
+            current = self.app.uav.session == mqtt.session
+            event = self.app.uav.latest.get("vfc_osd") if current else None
+            data = event.payload.get("data") if event and isinstance(event.payload.get("data"), dict) else {}
+            data = {k: v for k, v in data.items() if k not in ("flightState", "mode")}
+            # 飞行状态取 flyState：OSD 里第六轮起不带 flightState；没收到（GW 还没转）时这三格是“—”
+            fly = self.app.uav.latest.get("flyState") if current else None
+            if fly and isinstance(fly.payload.get("info"), dict):
+                data.update({k: fly.payload["info"].get(k) for k in ("flightState", "ctrlMode", "mode")})
             if not event:
-                return {}, False, "local/uav/vfc/osd"
-            data = event.payload.get("data") if isinstance(event.payload.get("data"), dict) else {}
+                return data, False, "local/uav/vfc/osd", False
             # 断开后立刻标“已停”，不等时效过期
             live = mqtt.connected and time.time() - event.timestamp < LIVE_SECONDS
             # 模拟云端时是 GW 转的 OSD：GW 只取固定的几个字段，VFC 没发的它补 0，这里的 0 不一定是真值
             source = "GW 转的 OSD（VFC 没发的字段 GW 补 0）" if mqtt.cloud_sn else "VFC OSD"
-            return data, live, f"{source} · {time.strftime('%H:%M:%S', time.localtime(event.timestamp))} 收到"
+            return data, live, f"{source} · {time.strftime('%H:%M:%S', time.localtime(event.timestamp))} 收到", True
         scene = self.app.scene
         if scene.osd and not scene.osd_time:
-            return scene.osd, False, "回放中的历史 OSD"
-        return scene.osd, scene.live and mqtt.connected, "设备 OSD"
+            return scene.osd, False, "回放中的历史 OSD", True
+        return scene.osd, scene.live and mqtt.connected, "设备 OSD", bool(scene.osd)
 
     def update(self, device):
         """每轮事件队列调用；内容没变就不碰控件"""
@@ -141,9 +158,9 @@ class TelemetryCard:
             for spark in self.sparks.values():
                 spark.points = []
                 spark.update()
-        data, live, source = self._reading(device)
+        data, live, source, received = self._reading(device)
         texts = tuple(text_of(data, key) for key in self.tiles)
-        state = ("OSD 实时", GREEN) if live else ("OSD 已停", ORANGE) if data else ("未收到 OSD", GRAY)
+        state = ("OSD 实时", GREEN) if live else ("OSD 已停", ORANGE) if received else ("未收到 OSD", GRAY)
         if (texts, state, source) != self.drawn:
             self.drawn = (texts, state, source)
             for (key, (_, value)), text in zip(self.tiles.items(), texts):

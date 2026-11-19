@@ -16,9 +16,12 @@ from PySide6.QtWidgets import (
 
 from ..core import BRIDGE
 from ..registry import make_command
-from ..uav import alarm_of, changes, domain, freshness, link, local_view, NEW_TASK, outcome, quality, reading, retained_command
+from ..uav import VFC, alarm_of, changes, domain, freshness, link, local_view, NEW_TASK, outcome, quality, reading, retained_command
 from ..ui import BLUE, button, card, GRAY, GREEN, label, ORANGE, RED, scroller, Segmented, tint
 
+# 加载地图要起环境、做地面重定位才回 ack，最长约 450 s；等到 600 s 才算没回执
+LOAD_WAIT = 600
+VFC_COMMAND, VFC_ACK = VFC + "command", VFC + "ack"
 QUALITY_COLORS = {"正常": GREEN, "失败": RED, "未知": ORANGE, "不适用": GRAY}
 RESULT_COLORS = {0: GREEN, 1: RED, 2: ORANGE}
 LEVEL_COLORS = {"critical": RED, "error": RED, "warning": ORANGE, "info": BLUE}
@@ -135,6 +138,7 @@ class UavPage:
         if event.session != self.session:
             self.session, self.latest, self.alerts, self.log = event.session, {}, {}, []
             self.since, self.history, self.alarms, self.maps = event.timestamp, {}, {}, None
+            self.loading, self.loaded_map = {}, ""
         self._answer(event)
         if retained_command(event):
             # 记原始主题：清除时要往它实际所在的主题发
@@ -156,6 +160,16 @@ class UavPage:
             # 同一个码按最新一次算：raise 的留着，clear 的标成已解除，按时间新的在前
             self.alarms[alarm["code"]] = (event, raised)
             self._note(event, f"告警{'' if raised else '解除'} {alarm['code']} {alarm.get('title', '')}", True)
+        elif event.topic == VFC_COMMAND and event.payload.get("method") == "loc_load_map":
+            # 加载地图要等环境起来、重定位就绪才回 ack（最长约 450 s），记下在等哪张图
+            data = event.payload.get("data") if isinstance(event.payload.get("data"), dict) else {}
+            self.loading[event.tid] = (str(data.get("map_id") or ""), event.timestamp)
+        elif event.topic == VFC_ACK and event.payload.get("method") == "loc_load_map":
+            map_id, _ = self.loading.pop(event.tid, ("", 0))
+            ok = event.payload.get("result") == 0
+            if ok and map_id:
+                self.loaded_map = map_id
+            self._note(event, f"加载地图{'完成' if ok else '失败'}：{event.payload.get('msg', '')}", True)
         elif event.topic == "local/uav/vfc/ack" and event.payload.get("method") == "get_map_list" and isinstance(event.payload.get("data"), list):
             self.maps = (event, event.payload["data"])
             self._follow_selected()
@@ -166,6 +180,9 @@ class UavPage:
             self._note(event, f"Bridge 把 {event.payload.get('action')}（id {event.payload.get('id')}）当重复请求，回了旧的缓存结果，这次没有执行", True)
         elif event.topic == BRIDGE + "command" and event.payload.get("action") == "navigation.next":
             self._note(event, f"发出 navigation.next（{event.payload.get('client') or '未写 client'}，id {event.payload.get('id')}）", True)
+        if event.topic == VFC_ACK and event.payload.get("result") not in (0, None) and event.payload.get("method") != "loc_load_map":
+            # VFC 拒绝的原样醒目记一条（比如“上一个任务的环境还没停：录制环境请先发 stop_record”）
+            self._note(event, f"VFC 拒绝 {event.payload.get('method')}：{event.payload.get('msg', '')}", True)
 
     def _answer(self, event):
         """模拟云端时替云端回 GW：上线（共用主题，按 sn 认是不是这台）回 online_reply，心跳回 heartbeat_reply（seq 原样带回）"""
@@ -272,17 +289,14 @@ class UavPage:
         """当前任务的 bid；还没有任务时新生成一个"""
         return self.current_task() or str(uuid.uuid4())
 
-    def _command(self, method, data=None, bid=None, profile=None):
+    def _command(self, method, data=None, bid=None):
         """按无人机目录生成一条 VFC 指令（新 tid、ts），模拟 GW 发出；开关没开时由 MQTT 出口拒绝并提示"""
         item = next(entry for entry in self.app.control.uav_catalog if entry["method"] == method)
         payload = make_command(item)
-        # 开始航线、建图、返航、降落是新任务，bid 新生成；其他带当前任务的
+        # 开始航线、建图、录制、返航、降落是新任务，bid 新生成；其他带当前任务的
         payload["bid"] = bid or (str(uuid.uuid4()) if method in NEW_TASK else self._task_bid())
         if data is not None:
             payload["data"] = data
-        if profile:
-            # 航线的环境放在指令顶层
-            payload["profile"] = profile
         # 模拟云端时改发 tta/uav/{sn}/services 并带 target
         topic, payload = self.app.uav_wire(payload, item["topic"])
         return self.app._emit(payload, json.dumps(payload, ensure_ascii=False), topic, "vfc")
@@ -391,6 +405,8 @@ class UavPage:
         mv.addLayout(row)
         layout.addWidget(mapping)
         layout.addSpacing(10)
+        layout.addWidget(self._record_card())
+        layout.addSpacing(10)
         layout.addWidget(self._maps_card())
         layout.addSpacing(10)
         route, rv = card(8, 16)
@@ -432,7 +448,7 @@ class UavPage:
         mv.addWidget(self.map_table)
         row = QHBoxLayout()
         row.setSpacing(6)
-        for text, slot in (("选用为定位地图", self._select_map), ("生成地图资产", self._build_map), ("改名…", self._rename_map),
+        for text, slot in (("加载地图", self._select_map), ("生成地图资产", self._build_map), ("改名…", self._rename_map),
                            ("航线用这张图", self._route_map), ("删除…", self._delete_map)):
             row.addWidget(button(text, slot))
         row.addStretch()
@@ -445,6 +461,42 @@ class UavPage:
         if self._command(method, data, str(uuid.uuid4())):
             self.app.notify(f"已发出 {method}，结果看指令时间线和地图状态")
 
+    def _record_card(self):
+        """录制航线（第六轮）：无图录制直接开始；有图录制要先在地图卡里“加载地图”、等回执 0，再开始；结束都用停止录制"""
+        record, rv = card(8, 16)
+        rv.addWidget(label("录制航线", "sectionTitle"))
+        self.record_line = label("", "caption", True)
+        rv.addWidget(self.record_line)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.addWidget(button("开始无图录制", lambda: self._start_record(False)))
+        row.addWidget(button("开始有图录制", lambda: self._start_record(True)))
+        row.addSpacing(12)
+        row.addWidget(button("停止录制", self._stop_record))
+        row.addStretch()
+        rv.addLayout(row)
+        return record
+
+    def loaded(self):
+        """有图录制用的图：这次连接里加载成功的那张，没有就用地图列表里选用的"""
+        return getattr(self, "loaded_map", "") or self.selected_map()
+
+    def _start_record(self, with_map):
+        if not with_map:
+            if self._command("start_record", {}):
+                self.app.notify("已发出开始无图录制，录制期间看关键遥测的位置和飞行状态；结束点“停止录制”")
+            return
+        map_id = self.loaded()
+        if not map_id:
+            self.app.notify("有图录制要先在地图卡里选一张图点“加载地图”，等回执 0 再开始")
+            return
+        if self._command("start_record", {"map_id": [map_id]}):
+            self.app.notify(f"已发出开始有图录制（地图 {map_id}）；没加载或图不一致 VFC 会回 1 并写明")
+
+    def _stop_record(self):
+        if self._command("stop_record", {}):
+            self.app.notify("已发出停止录制；“加载地图”起来的环境也用它停")
+
     def _chosen_map(self):
         row = self.map_table.currentRow()
         maps = self.maps[1] if self.maps else []
@@ -456,7 +508,9 @@ class UavPage:
     def _select_map(self):
         chosen = self._chosen_map()
         if chosen:
+            # 第六轮：选图、起已知地图环境、地面重定位，定位就绪才回 ack，最长约 450 s
             self._map_command("loc_load_map", {"map_id": chosen.get("map_id")})
+            self.app.notify("已发出加载地图：要起环境、做地面重定位，最长约 450 s 才回执，进度看地图卡")
 
     def _build_map(self):
         # build_map 按建图会话生成资产，会话号就是地图列表里的 map_id
@@ -510,6 +564,7 @@ class UavPage:
                 color = QUALITY_COLORS[quality(e)]
                 parts.append(f"<b>{'地图' if key == 'map_status' else '定位'}</b>　<b style='color:{color}'>{html.escape(word or '—')}</b>"
                              f"　{html.escape('　'.join(p for p in (note, extra) if p))}")
+        parts += self._loading_lines()
         listed = f"列表 {time.strftime('%H:%M:%S', time.localtime(self.maps[0].timestamp))} 查的，共 {len(self.maps[1])} 张" if self.maps else "还没查过地图列表"
         if self.maps:
             # get_map_list 回执顶层的 quota（已用和上限，字节）和 selection_error（选用的图有问题）
@@ -576,8 +631,24 @@ class UavPage:
         self.route.error.setText("")
         if any(point["actions"] for point in data["points"]):
             self.app.notify("VFC 本期不执行航点动作：照飞，到点报 nav_action_progress，动作全部 skipped")
-        if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4()), self.route.profile_name()):
+        if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4())):
             self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 卡片和关键变化")
+
+    def _loading_lines(self):
+        """在等回执的加载地图：已等多久，进度按 nav_status 的 msg；600 s 还没回执才算没回"""
+        lines, now = [], time.time()
+        state = self.latest.get("nav_status")
+        progress = reading(state)[1] if state else ""
+        for map_id, at in getattr(self, "loading", {}).values():
+            waited = int(now - at)
+            if waited > LOAD_WAIT:
+                lines.append(f"<b style='color:{RED}'>加载地图 {html.escape(map_id)} 超过 {LOAD_WAIT} s 没回执</b>")
+            else:
+                lines.append(f"<b style='color:{ORANGE}'>加载地图 {html.escape(map_id)} 中</b>　已等 {waited} s（最长约 450 s）"
+                             + (f"　{html.escape(progress)}" if progress else ""))
+        if getattr(self, "loaded_map", ""):
+            lines.append(f"已加载 {html.escape(self.loaded_map)}，定位就绪；有图录制默认用这张")
+        return lines
 
     def _render_task(self):
         mapping = self.latest.get("mapping_status")
@@ -586,12 +657,17 @@ class UavPage:
             self.mapping_line.setText(f"<b>{html.escape(word)}</b>　{html.escape(msg)}　{html.escape(extra)}")
         else:
             self.mapping_line.setText("还没有收到 VFC 的建图状态（旧版 VFC 没有建图功能时也是这样）")
+        if hasattr(self, "record_line"):
+            self.record_line.setText(f"有图录制默认用：{self.loaded() or '还没有加载的图'}　录制期间看关键遥测的位置和飞行状态")
         state, progress = self.latest.get("nav_status"), self.latest.get("nav_status_progress")
         if not state:
             self.task_line.setText("还没有收到 VFC 的任务状态（VFC 没在跑或没连上 Broker 时就是这样）")
             return
         word, msg, _, extra = reading(state)
         text = f"<b>{html.escape(word)}</b>　{html.escape(msg)}　{html.escape(extra)}"
+        if word == "Active" and msg.startswith(("航线完成", "返航完成")):
+            # 第六轮收尾全自动：航线完成后还要自动返航、降落、停环境，最后报 Succeeded 才算结束
+            text += f"　<span style='color:{ORANGE}'>自动收尾中，报 Succeeded 才算结束</span>"
         if progress:
             text += f"　航点 {html.escape(reading(progress)[0])}"
         self.task_line.setText(text)
@@ -646,8 +722,13 @@ class UavPage:
             ordered += sorted((r for r in rows if r["parent"] == row["key"]), key=lambda r: r["at"])
         self.rows = ordered[:200]
         self.table.setRowCount(len(self.rows))
+        now = time.time()
         for index, row in enumerate(self.rows):
             text, result = outcome(row)
+            waited = int(now - row["at"])
+            if row["action"] == "loc_load_map" and text == "没收到回执" and waited <= LOAD_WAIT:
+                # 加载地图最长约 450 s 才回执，600 s 内不算没回
+                text = f"加载中，已等 {waited} s（最长约 450 s）"
             related = row["origin"] + ("　已对上" if row["confirmed"] else "")
             cells = (time.strftime("%H:%M:%S", time.localtime(row["at"])), row["source"],
                      ("　└ " if row["parent"] else "") + row["action"], row["key"][2].removeprefix("bridge:"), related, text)
@@ -783,8 +864,8 @@ class RouteEditor(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        # 环境：已知地图（map_id 要是当前选用的地图，不一致 VFC 回 1“不是当前选用的地图”）或未知环境边建图边飞
-        self.profile = Segmented(["已知地图 known_navigation", "未知环境 online_navigation"])
+        # 环境由 map_id 定（第六轮 VFC 不看 profile）：已知地图一定带 map_id（和板上选的不同 VFC 会先自动选这张），未知环境不带
+        self.profile = Segmented(["已知地图（带 map_id）", "未知环境（不带 map_id）"])
         env = QHBoxLayout()
         env.addWidget(label("环境", "caption"))
         env.addWidget(self.profile)
@@ -792,7 +873,7 @@ class RouteEditor(QWidget):
         layout.addLayout(env)
         top = QHBoxLayout()
         self.map_id, self.task_name = QLineEdit(), QLineEdit("test_route")
-        self.map_id.setPlaceholderText("要和当前选用的地图一致；查过地图列表会自动填上")
+        self.map_id.setPlaceholderText("已知地图必填；查过地图列表会自动填上选用的那张")
         self.bid = QLineEdit(str(uuid.uuid4()))
         for text, field in (("map_id", self.map_id), ("task_name", self.task_name), ("bid（任务 ID）", self.bid)):
             top.addWidget(label(text, "caption"))
@@ -804,12 +885,11 @@ class RouteEditor(QWidget):
         self.table, self.error, self._add = self.points.table, self.points.error, self.points._add
         layout.addWidget(self.points, 1)
 
-    def profile_name(self):
-        return ("known_navigation", "online_navigation")[self.profile.index()]
-
     def route(self):
-        """(data, bid)；填得不对时抛 ValueError，文字说明是哪一行；map_id 空着不带，未知环境也不带"""
+        """(data, bid)；填得不对时抛 ValueError，文字说明是哪一行；已知地图要带 map_id，未知环境不带"""
         data = {"task_name": self.task_name.text().strip(), "points": self.points.points()}
-        if self.map_id.text().strip() and self.profile_name() == "known_navigation":
+        if self.profile.index() == 0:
+            if not self.map_id.text().strip():
+                raise ValueError("已知地图要填 map_id（先在上面刷新地图列表，会自动填选用的那张）；不用地图就选“未知环境”")
             data = {"map_id": self.map_id.text().strip(), **data}
         return data, self.bid.text().strip()
