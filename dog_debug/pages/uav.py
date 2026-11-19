@@ -456,10 +456,10 @@ class UavPage:
         self.maps_drawn = None
         return maps
 
-    def _map_command(self, method, data):
-        # 地图指令不属于哪个任务，bid 每次新生成
+    def _map_command(self, method, data, note=""):
+        """地图指令不属于哪个任务，bid 每次新生成；发出了才提示（没发出时出口的拦截提示留着）"""
         if self._command(method, data, str(uuid.uuid4())):
-            self.app.notify(f"已发出 {method}，结果看指令时间线和地图状态")
+            self.app.notify(note or f"已发出 {method}，结果看指令时间线和地图状态")
 
     def _record_card(self):
         """录制航线（第六轮）：无图录制直接开始；有图录制要先在地图卡里“加载地图”、等回执 0，再开始；结束都用停止录制"""
@@ -509,8 +509,8 @@ class UavPage:
         chosen = self._chosen_map()
         if chosen:
             # 第六轮：选图、起已知地图环境、地面重定位，定位就绪才回 ack，最长约 450 s
-            self._map_command("loc_load_map", {"map_id": chosen.get("map_id")})
-            self.app.notify("已发出加载地图：要起环境、做地面重定位，最长约 450 s 才回执，进度看地图卡")
+            self._map_command("loc_load_map", {"map_id": chosen.get("map_id")},
+                              "已发出加载地图：要起环境、做地面重定位，最长约 450 s 才回执，进度看地图卡")
 
     def _build_map(self):
         # build_map 按建图会话生成资产，会话号就是地图列表里的 map_id

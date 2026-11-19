@@ -1188,3 +1188,18 @@ def test_vfc_rejection_noted_as_is(window):
     msg = "上一个任务的环境还没停：录制环境请先发 stop_record"
     window._ingest(Event("local/uav/vfc/ack", {"method": "start_multi_nav_by_points", "tid": "r1", "result": 1, "msg": msg}, **live))
     assert window.uav.log[0][1] == f"VFC 拒绝 start_multi_nav_by_points：{msg}" and window.uav.log[0][2]
+
+
+def test_load_map_read_only_keeps_gate_notice(window, monkeypatch):
+    """只读时点“加载地图”：出口拦下，只留拦截提示，不再接着报“已发出”（GPT e71ea30 实测）"""
+    window.device_box.setCurrentText("无人机")
+    window.mode_box.setCurrentText("直连模块")
+    window.uav_send.setChecked(False)
+    window.uav.maps = (Event("local/uav/vfc/ack", {}), [{"map_id": "M1", "selected": True}])
+    window.uav._render_maps()
+    window.uav.map_table.setCurrentCell(0, 0)
+    notes = []
+    monkeypatch.setattr(window, "notify", notes.append)
+    count = len(window.mqtt.client.sent)
+    window.uav._select_map()
+    assert len(window.mqtt.client.sent) == count and notes and not any(n.startswith("已发出") for n in notes)
