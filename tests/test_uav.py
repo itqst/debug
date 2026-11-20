@@ -838,7 +838,7 @@ def test_vfc_loc_map_and_action_states_on_vfc_card(window):
     loud = {text for _, text, flag in window.uav.log if flag}
     assert "VFC 定位 Init → LocLost：定位丢失" in loud and "VFC 地图 MAP_ASSETS_READY：地图资产已就绪" in loud
     from dog_debug.uav import quality, reading
-    assert quality(window.uav.latest["nav_action_progress"]) == "未知" and "take_photo skipped" in reading(window.uav.latest["nav_action_progress"])[3]
+    assert quality(window.uav.latest["nav_action_progress"]) == "未知" and "take_photo 跳过" in reading(window.uav.latest["nav_action_progress"])[3]
 
 
 def test_vfc_alarms_raise_and_clear(window):
@@ -1165,7 +1165,7 @@ def test_fly_state_card_and_osd_without_flight_state(window):
     window.device_box.setCurrentText("无人机")
     live = dict(session=window.mqtt.session, source="mqtt", sn="")
     fly = Event("local/uav/vfc/state", {"type": "flyState", "info": {"sn": "", "flightState": 1, "ctrlMode": 3, "mode": "OFFBOARD"}}, **live)
-    assert domain(fly) == "flyState" and reading(fly) == ("飞行中", "控制模式 offboard", 0, "飞控模式 OFFBOARD")
+    assert domain(fly) == "flyState" and reading(fly) == ("飞行中", "控制模式 offboard", 0, "飞控模式 OFFBOARD · 已飞 —")
     land = Event("local/uav/vfc/state", {"type": "flyState", "info": {"flightState": 1, "mode": "AUTO.LAND"}})
     assert reading(land)[1] == "控制模式 —"
     cloud = Event(f"tta/uav/{SN}/state", {"method": "flyState", "data": {"flightState": 0, "ctrlMode": 2}})
@@ -1203,3 +1203,43 @@ def test_load_map_read_only_keeps_gate_notice(window, monkeypatch):
     count = len(window.mqtt.client.sent)
     window.uav._select_map()
     assert len(window.mqtt.client.sent) == count and notes and not any(n.startswith("已发出") for n in notes)
+
+
+
+def test_round7_fly_time_actions_and_auto_takeoff(window):
+    """第七轮：flyState 的 flyingTime 显示“已飞 mm:ss”（地面 0、没有是“—”）；航点动作进度带状态和用时，停留按秒走、
+    只有状态变了才记关键变化；自动起飞 Initializing 的 msg 照实显示，被人工打断醒目"""
+    from dog_debug.uav import reading
+    window.device_box.setCurrentText("无人机")
+    live = dict(session=window.mqtt.session, source="mqtt", sn="")
+    fly = Event("local/uav/vfc/state", {"type": "flyState", "info": {"flightState": 1, "ctrlMode": 3, "mode": "OFFBOARD", "flyingTime": 75}}, **live)
+    assert reading(fly)[3] == "飞控模式 OFFBOARD · 已飞 01:15"
+    ground = Event(f"tta/uav/{SN}/state", {"method": "flyState", "data": {"flightState": 0, "flyingTime": 0}})
+    assert reading(ground)[3].endswith("已飞 00:00")
+    window._ingest(fly)
+    window.status.telemetry.update("uav")
+    assert window.status.telemetry.tiles["flyTime"][1].text() == "01:15"
+    # 自动起飞：全程 Initializing，按 msg 显示；被人工打断醒目
+    state = lambda msg: Event("local/uav/vfc/state", {"type": "nav_status", "info": {"result": 0, "msg": msg, "data": "Initializing",
+                                                                                     "flight_id": "F7"}}, **live)
+    for msg in ("等待控制桥就绪后自动起飞", "自动解锁中", "已解锁，正在切 OFFBOARD", "自动起飞中"):
+        window._ingest(state(msg))
+    window._ingest(state("自动起飞已被人工操作打断，等待飞手接管"))
+    texts = [(text, loud) for _, text, loud in window.uav.log]
+    assert ("VFC 任务 Initializing：自动解锁中", False) in texts and ("VFC 任务 Initializing：自动起飞已被人工操作打断，等待飞手接管", True) in texts
+    window.uav._render_task()
+    assert "看 msg 走到哪一步" in window.uav.task_line.text()
+    # 航点动作：停留每秒一次，状态没变不刷关键变化；载荷 skipped
+    progress = lambda elapsed, state, photo="pending": Event("local/uav/vfc/state", {"type": "nav_action_progress", "info": {
+        "flight_id": "F7", "result": 0, "msg": "", "data": {"point_index": 0, "actions": [
+            {"action": "pause", "param": [5], "state": state, "elapsed_ms": elapsed},
+            {"action": "take_photo", "param": [], "state": photo, "elapsed_ms": 0}]}}}, **live)
+    before = len(window.uav.log)
+    for elapsed in (1000, 2000, 3000):
+        window._ingest(progress(elapsed, "running"))
+    assert len(window.uav.log) == before + 1
+    assert reading(progress(3000, "running"))[:1] == ("第 1 个航点",) and "停留 3/5 s 进行中" in reading(progress(3000, "running"))[3]
+    window._ingest(progress(5000, "done", "skipped"))
+    assert len(window.uav.log) == before + 2 and "take_photo 跳过" in window.uav.log[0][1]
+    window.uav._render_task()
+    assert "停留 5/5 s 完成" in window.uav.task_line.text()

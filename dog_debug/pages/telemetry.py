@@ -13,10 +13,9 @@ DOG_TILES = (("batteryRemain", "电量"), ("speed", "速度"), ("heading", "航�
              ("pitch", "Pitch"), ("roll", "Roll"), ("functionMode", "模式"), ("controller", "控制权"),
              ("temperature", "温度"), ("flyingTime", "运行"))
 UAV_TILES = (("batteryRemain", "电量"), ("speed", "速度"), ("heading", "航向 Yaw"), ("z", "高度 z"),
-             ("position", "位置 x, y"), ("flying", "飞行"), ("ctrlMode", "控制模式"), ("mode", "飞控模式"),
+             ("position", "位置 x, y"), ("flying", "飞行"), ("ctrlMode", "控制模式"), ("mode", "飞控模式"), ("flyTime", "已飞"),
              ("pitch", "Pitch"), ("roll", "Roll"))
-# 无人机飞行状态那三格来自 flyState（第六轮，local/uav/vfc/state type=flyState），不是 OSD
-FLY_KEYS = ("flying", "ctrlMode", "mode")
+# 无人机的飞行、控制模式、飞控模式、已飞来自 flyState（第六、七轮，local/uav/vfc/state type=flyState），不是 OSD
 CTRL_MODES = {0: "姿态", 1: "定高", 2: "定点", 3: "offboard"}
 # 协议里目前狗和无人机都没报姿态角，有了才出格子，不占位
 OPTIONAL = ("pitch", "roll")
@@ -40,6 +39,9 @@ def text_of(data, key):
     if key == "ctrlMode":
         value = number(data, "ctrlMode")
         return "—" if value is None else CTRL_MODES.get(value, str(value))
+    if key == "flyTime":
+        value = number(data, "flyTime")
+        return "—" if value is None else f"{int(value) // 60:02d}:{int(value) % 60:02d}"
     if key == "mode":
         return str(data["mode"]) if isinstance(data.get("mode"), str) and data["mode"] else "—"
     if key == "position":
@@ -135,6 +137,8 @@ class TelemetryCard:
             fly = self.app.uav.latest.get("flyState") if current else None
             if fly and isinstance(fly.payload.get("info"), dict):
                 data.update({k: fly.payload["info"].get(k) for k in ("flightState", "ctrlMode", "mode")})
+                # 已飞时长（第七轮，VFC 按离地时刻算，地面是 0）取 flyState 的；GW 转的 OSD 里的 flyingTime 是补的 0，不用
+                data["flyTime"] = fly.payload["info"].get("flyingTime")
             if not event:
                 return data, False, "local/uav/vfc/osd", False
             # 断开后立刻标“已停”，不等时效过期

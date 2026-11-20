@@ -630,7 +630,7 @@ class UavPage:
             return
         self.route.error.setText("")
         if any(point["actions"] for point in data["points"]):
-            self.app.notify("VFC 本期不执行航点动作：照飞，到点报 nav_action_progress，动作全部 skipped")
+            self.app.notify("航点动作：停留（pause N）到点照做，拍照、云台这些载荷动作现在报 skipped；进度看当前任务")
         if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4())):
             self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 卡片和关键变化")
 
@@ -665,11 +665,19 @@ class UavPage:
             return
         word, msg, _, extra = reading(state)
         text = f"<b>{html.escape(word)}</b>　{html.escape(msg)}　{html.escape(extra)}"
+        if word == "Initializing" and msg:
+            # 第七轮自动起飞全程 Initializing，按 msg 看到哪一步，不是卡住
+            text += f"　<span style='color:{GRAY}'>启动 / 自动起飞中，看 msg 走到哪一步</span>"
         if word == "Active" and msg.startswith(("航线完成", "返航完成")):
             # 第六轮收尾全自动：航线完成后还要自动返航、降落、停环境，最后报 Succeeded 才算结束
             text += f"　<span style='color:{ORANGE}'>自动收尾中，报 Succeeded 才算结束</span>"
         if progress:
             text += f"　航点 {html.escape(reading(progress)[0])}"
+        action = self.latest.get("nav_action_progress")
+        if action and (action.payload.get("info") or {}).get("flight_id") == (state.payload.get("info") or {}).get("flight_id"):
+            # 当前任务的航点动作：每个动作的状态和用时，停留按秒走
+            where, note, _, detail = reading(action)
+            text += f"<br>航点动作　{html.escape(where)}　{html.escape(detail.split(' · 任务')[0])}" + (f"　{html.escape(note)}" if note else "")
         self.task_line.setText(text)
 
     def _export(self):
@@ -782,7 +790,7 @@ class PointsTable(QWidget):
     """航点表格：每个航点填 x、y、z（米，z 相对起飞点）、航向角 yaw（度）和动作；不显示四元数，取值时换算。
     航线任务页和控制调试页的开始航线共用；表格改了发 changed"""
 
-    COLUMNS = ["x", "y", "z", "航向角 yaw（°）", "动作（本期不执行）"]
+    COLUMNS = ["x", "y", "z", "航向角 yaw（°）", "动作（如 pause 5）"]
     changed = Signal()
 
     def __init__(self):
@@ -790,7 +798,7 @@ class PointsTable(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；航向角发出时换成四元数（x=0、y=0、z=sin(yaw/2)、w=cos(yaw/2)）。"
-                               "动作写法如“pause 5; take_photo”；VFC 本期不执行动作，照飞，到点报 nav_action_progress 全部 skipped", "caption", True))
+                               "动作写法如“pause 5”（到点停留 5 秒，做完才放行下一点），多个用分号隔开；拍照、云台这些载荷动作现在报 skipped；进度看 nav_action_progress", "caption", True))
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.horizontalHeader().setStretchLastSection(True)

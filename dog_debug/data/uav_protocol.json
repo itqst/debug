@@ -36,7 +36,7 @@
    "title": "开始航线",
    "summary": "下发航线：模式由 map_id 定，带 map_id 是已知地图（要带，默认填选用的那张；和板上选的不同 VFC 会先自动选这张），不带是未知环境；ack 只表示受理。收尾全自动：末点后自动返航、自动降落、落地停环境，全程 Active，最后才报 Succeeded，“航线完成”不是结束。按航向角编辑航点用“航线任务”页",
    "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
-   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；顶层 profile 第六轮起 VFC 不看了；orientation 是四元数，只绕 z 轴转（z=sin(yaw/2)、w=cos(yaw/2)），不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；航点动作照飞、到点报 skipped；起飞要飞手解锁、切 OFFBOARD"
+   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；顶层 profile 第六轮起 VFC 不看了；orientation 是四元数，只绕 z 轴转（z=sin(yaw/2)、w=cos(yaw/2)），不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；航点动作：pause 到点停留 N 秒（{\"action\":\"pause\",\"param\":[N]}），载荷动作报 skipped；起飞：机载开了 MQTT 起飞时 VFC 自动解锁、切 OFFBOARD（全程 Initializing，看 msg），没开就等飞手"
   },
   {
    "id": "uav.vfc.pause_nav",

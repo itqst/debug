@@ -173,7 +173,7 @@ def reading(event):
         info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
         flying = {1: "飞行中", 0: "未飞行"}.get(info.get("flightState"), "—")
         ctrl = CTRL_MODES.get(info.get("ctrlMode"), "—" if info.get("ctrlMode") is None else str(info.get("ctrlMode")))
-        return flying, f"控制模式 {ctrl}", 0, f"飞控模式 {info.get('mode') or '—'}"
+        return flying, f"控制模式 {ctrl}", 0, f"飞控模式 {info.get('mode') or '—'} · 已飞 {fly_time(info.get('flyingTime'))}"
     if key == "subsystem_status":
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         return "在线" if data.get("state") == 1 else f"state {data.get('state')}", f"v{data.get('version', '?')}", 0, ""
@@ -210,10 +210,14 @@ def reading(event):
                  "已清掉原选中的同名地图" if info.get("selection_cleared") else ""]
         return str(info.get("data", "")), msg, result, " · ".join(p for p in parts if p)
     if key == "nav_action_progress":
+        # 第七轮：到点报一次（全 pending），每个动作开始、结束各一次，停留中每秒一次；载荷动作都报 skipped；中断时没做完的 skipped
         data = info.get("data") if isinstance(info.get("data"), dict) else {}
         actions = data.get("actions") if isinstance(data.get("actions"), list) else []
-        done = "、".join(f"{a.get('action', '?')} {a.get('state', '')}".strip() for a in actions if isinstance(a, dict))
-        return f"第 {data.get('point_index', '?')} 点", msg, result, (done or "没有动作") + f" · 任务 {info.get('flight_id') or '—'}"
+        done = "、".join(action_text(a) for a in actions if isinstance(a, dict))
+        index = data.get("point_index")
+        # point_index 从 0 起，显示成第几个航点（和航点进度的 current_index 一样从 1 起）
+        where = f"第 {index + 1} 个航点" if isinstance(index, int) and not isinstance(index, bool) else "第 ? 个航点"
+        return where, msg, result, (done or "没有动作") + f" · 任务 {info.get('flight_id') or '—'}"
     if ":" in str(key):
         return _generic_reading(payload)
     detail = info.get("detail") if isinstance(info.get("detail"), dict) else {}
@@ -241,6 +245,27 @@ def reading(event):
     return str(info.get("data", "")), msg, result, extra
 
 
+def fly_time(value):
+    """flyingTime（秒，VFC 按离地时刻算，在地面是 0）显示成 mm:ss；没有这个字段是“—”"""
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+        return "—"
+    return f"{int(value) // 60:02d}:{int(value) % 60:02d}"
+
+
+def action_text(action):
+    """一个航点动作：名字、状态（中文）、用时；停留（pause）写成“停留 已过/共 s”"""
+    name, state = str(action.get("action", "?")), str(action.get("state", ""))
+    word = ACTION_STATES.get(state, state)
+    elapsed = action.get("elapsed_ms")
+    seconds = elapsed / 1000 if isinstance(elapsed, (int, float)) and not isinstance(elapsed, bool) else None
+    param = action.get("param") if isinstance(action.get("param"), list) else []
+    if name == "pause":
+        total = param[0] if param and isinstance(param[0], (int, float)) and not isinstance(param[0], bool) else None
+        clock = f"{seconds:.0f}" if seconds is not None else "—"
+        return f"停留 {clock}/{total if total is not None else '?'} s {word}"
+    return f"{name} {word}" + (f" {seconds:.1f} s" if seconds else "")
+
+
 def _generic_reading(payload):
     """还没专门解读的模块状态：在线消息看 data.state，其余取 info / data 里的 data、state、result、msg，再摘几个字段"""
     kind = payload.get("type") or payload.get("method")
@@ -266,6 +291,8 @@ OSD_KEYS = ("x", "y", "z", "speed", "heading", "batteryRemain")
 # 第六轮起 flightState 挪到 flyState，OSD 里不再看
 OSD_FLAGS = (("flightMode", "模式"), ("armed", "解锁"), ("landed", "落地"), ("takeoffComplete", "起飞完成"),
              ("mapId", "地图"), ("batteryVoltage", "电压"))
+# 航点动作的状态
+ACTION_STATES = {"pending": "待做", "running": "进行中", "done": "完成", "failed": "失败", "skipped": "跳过"}
 # flyState 的控制模式
 CTRL_MODES = {0: "姿态", 1: "定高", 2: "定点", 3: "offboard"}
 # nav_status 取消原因
@@ -292,7 +319,9 @@ def changes(before, event):
             out.append((f"航点进度 {word}：{msg}", True))
         elif not old or (word, msg) != old[:2]:
             # 第六轮航线收尾全自动：“航线完成”后还要自动返航、降落、停环境，都还是 Active，最后 Succeeded 才结束
-            out.append((f"VFC 任务 {word}：{msg}", "已到达" in msg or "航线完成" in msg or "返航完成" in msg or word == "Succeeded"))
+            # 第七轮自动起飞全程 Initializing，msg 一步步变（等待控制桥、自动解锁、切 OFFBOARD、自动起飞中），被人工打断要醒目
+            loud = "已到达" in msg or "航线完成" in msg or "返航完成" in msg or "打断" in msg or word in ("Succeeded", "Failed")
+            out.append((f"VFC 任务 {word}：{msg}", loud))
         return out
     if key == "flyState":
         mode = reading(event)[3]
@@ -316,7 +345,12 @@ def changes(before, event):
             out.append((f"VFC 地图 {word}" + (f"：{msg}" if msg else ""), word not in ("IDLE", "BUILDING", "MAP_AUTO_BUILD_WAITING")))
         return out
     if key == "nav_action_progress":
-        out.append((f"航点动作 {word}：{msg or ''} {reading(event)[3]}".strip(), False))
+        # 停留中每秒报一次，只有哪个动作的状态变了才记，每秒的计时不刷屏
+        states = lambda e: [(a.get("action"), a.get("state")) for a in
+                            ((((e.payload.get("info") or {}).get("data") or {}).get("actions")) or []) if isinstance(a, dict)]
+        if not old or (word, states(event)) != (old[0], states(before)):
+            failed = any(state == "failed" for _, state in states(event))
+            out.append((f"航点动作 {word}：{msg or ''} {reading(event)[3]}".strip(), failed))
         return out
     if ":" in str(key):
         if old and word != old[0]:
@@ -354,6 +388,7 @@ def freshness(event, now):
 
 def quality(event):
     """数据本身：“正常” / “失败” / “未知” / “不适用”；Bridge 的 DISABLED 是这一领域当前不适用，不算未知"""
+    event = local_view(event)
     word, _, result, _ = reading(event)
     if domain(event) == "mapping_status":
         # 建图状态的 result 是协议码，按词判断
@@ -365,7 +400,11 @@ def quality(event):
         if verdict:
             return verdict
     if domain(event) == "nav_action_progress":
-        # 本期 VFC 不执行航点动作，全部报 skipped（result 1），是提醒不是失败
+        # 动作 failed 算失败；载荷动作还没有，报 skipped（result 1）是提醒不是失败
+        info = event.payload.get("info") if isinstance(event.payload.get("info"), dict) else {}
+        actions = ((info.get("data") or {}) if isinstance(info.get("data"), dict) else {}).get("actions") or []
+        if any(isinstance(a, dict) and a.get("state") == "failed" for a in actions):
+            return "失败"
         return "正常" if result == 0 else "未知"
     if word == "DISABLED":
         return "不适用"
