@@ -19,7 +19,7 @@ class MqttTransport:
         self.inbox = inbox
         self.client = None
         self.connected = False
-        self.host = ""
+        self.host, self.port = "", 0
         self.sn = ""
         self.session = ""
         self.device = "dog"
@@ -42,7 +42,7 @@ class MqttTransport:
         import paho.mqtt.client as mqtt
         self.close()
         # 无人机的主题不带 SN，连接卡里隐藏着的狗 SN 不能记到无人机的消息上，否则狗的状态总览按 SN 查会混进来
-        self.host, self.sn, self.session, self.device = host, "" if device == "uav" else sn, str(uuid.uuid4()), device
+        self.host, self.port, self.sn, self.session, self.device = host, port, "" if device == "uav" else sn, str(uuid.uuid4()), device
         # 每次新连接都回到只读
         self.uav_send = False
         self.cloud_sn = cloud_sn if device == "uav" else ""
@@ -69,6 +69,8 @@ class MqttTransport:
         if client is not self.client:
             return
         self.connected = reason == 0
+        # 连上的时刻：模拟云端时据此判断多久没收到 GW 的上线和心跳
+        self.connected_at = time.time()
         self._offer(("connection", "已连接，只读" if self.connected else "连接失败 " + str(reason)))
         if self.connected:
             if self.device == "uav" and self.cloud_sn:

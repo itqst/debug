@@ -1243,3 +1243,36 @@ def test_round7_fly_time_actions_and_auto_takeoff(window):
     assert len(window.uav.log) == before + 2 and "take_photo 跳过" in window.uav.log[0][1]
     window.uav._render_task()
     assert "停留 5/5 s 完成" in window.uav.task_line.text()
+
+
+def test_cloud_online_belongs_to_gw():
+    """GW 往云端报的上线：算 GW 的状态（GW 卡片里能看到），method 记 online，不记到 VFC 名下"""
+    from dog_debug.core import infer_module
+    online = Event("tta/uav/status/online", {"sn": SN, "type": "uav", "data": [], "ts": 1})
+    assert online.kind == "状态" and online.method == "online" and infer_module(online.topic, online.payload) == "gw"
+
+
+def test_cloud_warns_when_gw_not_on_this_broker(window, monkeypatch):
+    """模拟云端连上 Broker 过了 GW_WAIT 秒还没收到本机 SN 的上线和心跳：明确提示 GW 没连到这个 Broker（GatewayOnlineInfo.cfg），
+    别的 SN 在上线时提醒 SN 可能填错；收到后提示撤掉、连接状态恢复"""
+    import time as clock
+    from dog_debug.pages import uav as page
+    cloud(window)
+    notes = []
+    monkeypatch.setattr(window, "notify", notes.append)
+    window.mqtt.port, window.mqtt.connected_at = 1883, clock.time()
+    assert window.uav.gw_missing() == ""
+    window.mqtt.connected_at = clock.time() - page.GW_WAIT - 1
+    live = dict(session=window.mqtt.session, source="mqtt", sn="")
+    window._ingest(Event("tta/uav/status/online", {"sn": "OTHER-SN", "type": "uav"}, **live))
+    text = window.uav.gw_missing()
+    assert "GatewayOnlineInfo.cfg" in text and "192.168.1.230:1883" in text and "OTHER-SN" in text
+    window.uav.check_gw()
+    window.uav.check_gw()
+    assert len([n for n in notes if "没收到 GW" in n]) == 1 and "GatewayOnlineInfo" in window.link.text()
+    window.uav.render()
+    assert "GatewayOnlineInfo" in window.uav.link_note.text()
+    window._ingest(Event(f"tta/uav/{SN}/heartbeat", {"seq": 1, "ts": 1}, **live))
+    assert window.uav.gw_missing() == ""
+    window.uav.check_gw()
+    assert "GatewayOnlineInfo" not in window.link.text()

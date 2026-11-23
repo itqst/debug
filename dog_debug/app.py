@@ -443,7 +443,8 @@ class Studio(QMainWindow):
         cloud.setSpacing(4)
         cloud.addWidget(label("无人机 SN（板上 db/deviceInfo.cfg）", "caption"))
         cloud.addWidget(self.uav_sn)
-        cloud.addWidget(label("Broker 要和板上 GW 云端那一侧的一致（db/accessServer.cfg），否则收不到上报", "caption", True))
+        cloud.addWidget(label("Broker 要和板上 GW 云端那一侧连的一致：db/GatewayOnlineInfo.cfg 里 OnlineType=Offline 时的 Mqtt_Ip、Mqtt_Port，"
+                              "否则收不到上报", "caption", True))
         cloud.addLayout(self._switch_row(self.cloud_answer, "扮演云端应答上线和心跳", "不回的话 GW 一直显示离线"))
         form.addWidget(self.cloud_box)
         account = QHBoxLayout()
@@ -853,6 +854,7 @@ class Studio(QMainWindow):
             self.rate_label.setText(f"{self.rate_count / (now - self.rate_at):.0f} msg/s" if self.mqtt.connected else "")
             self.rate_count, self.rate_at = 0, now
             self._update_pill()
+            self.uav.check_gw()
         self.scene3d.tick(now)
         if self.stack.currentIndex() == self.OVERVIEW:
             self.status.tick(now)

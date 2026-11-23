@@ -19,6 +19,8 @@ from ..registry import make_command
 from ..uav import VFC, alarm_of, changes, domain, freshness, link, local_view, NEW_TASK, outcome, quality, reading, retained_command
 from ..ui import BLUE, button, card, GRAY, GREEN, label, ORANGE, RED, scroller, Segmented, tint
 
+# 模拟云端连上 Broker 后等 GW 上线或心跳的秒数（GW 心跳 1 Hz、没应答时一直重发上线），过了还没有就提示
+GW_WAIT = 10
 # 加载地图要起环境、做地面重定位才回 ack，最长约 450 s；等到 600 s 才算没回执
 LOAD_WAIT = 600
 VFC_COMMAND, VFC_ACK = VFC + "command", VFC + "ack"
@@ -35,6 +37,8 @@ class UavPage:
     def __init__(self, app):
         self.app = app
         self.session, self.latest, self.alerts, self.log, self.since = "", {}, {}, [], 0.0
+        # 模拟云端：按连接会话记最近一次收到本机 SN 的 GW 上线或心跳的时刻，和别的 SN 发来的上线（多半是 SN 填错了）
+        self.gw_seen, self.other_sns, self.gw_warned = {}, {}, set()
         # 这次连接里各领域收到的消息（新的在后），卡片详情里比对字段、列变化用
         self.history, self.detail_key, self.detail_drawn, self.detail_row = {}, None, None, None
         # VFC 告警（码 → (最新一条, 是否还在)）、最近一次 get_map_list 的回执（(事件, 地图列表)）
@@ -140,6 +144,7 @@ class UavPage:
             self.since, self.history, self.alarms, self.maps = event.timestamp, {}, {}, None
             self.loading, self.loaded_map = {}, ""
         self._answer(event)
+        self._gw_alive(event)
         if retained_command(event):
             # 记原始主题：清除时要往它实际所在的主题发
             self.alerts[event.topic] = event
@@ -184,6 +189,45 @@ class UavPage:
             # VFC 拒绝的原样醒目记一条（比如“上一个任务的环境还没停：录制环境请先发 stop_record”）
             self._note(event, f"VFC 拒绝 {event.payload.get('method')}：{event.payload.get('msg', '')}", True)
 
+    def _gw_alive(self, event):
+        """模拟云端时看 GW 有没有连到这个 Broker：收到本机 SN 的上线、心跳或任何 tta/uav/{sn}/ 上报就算连着"""
+        sn = self.app.mqtt.cloud_sn
+        if not sn or event.direction == "发送":
+            return
+        if event.topic == "tta/uav/status/online":
+            other = str(event.payload.get("sn", ""))
+            if other and other != sn:
+                self.other_sns.setdefault(event.session, set()).add(other)
+                return
+        if event.topic == "tta/uav/status/online" or event.topic.startswith(f"tta/uav/{sn}/") and not event.topic.endswith("_reply"):
+            self.gw_seen[event.session] = event.timestamp
+
+    def gw_missing(self):
+        """模拟云端连上 Broker 超过 GW_WAIT 秒还没收到本机 SN 的 GW 上报时，返回提示文字；否则为空"""
+        mqtt = self.app.mqtt
+        if not (mqtt.cloud_sn and mqtt.connected) or mqtt.session in self.gw_seen:
+            return ""
+        if time.time() - getattr(mqtt, "connected_at", time.time()) < GW_WAIT:
+            return ""
+        text = (f"连上 {mqtt.host} 已经 {GW_WAIT} s 多，还没收到 SN {mqtt.cloud_sn} 的 GW 上线和心跳：板上 GW 云端那一侧没连到这个 Broker。"
+                f"检查板上 db/GatewayOnlineInfo.cfg（OnlineType=Offline 时的 Mqtt_Ip、Mqtt_Port）是不是指向 {mqtt.host}:{mqtt.port}")
+        others = self.other_sns.get(mqtt.session)
+        if others:
+            text += f"；这个 Broker 上有别的 SN 在上线（{'、'.join(sorted(others))}），是不是 SN 填错了"
+        return text
+
+    def check_gw(self):
+        """每秒一次（在哪个页都查）：模拟云端一直收不到 GW 上报时，连接状态写明原因，每次连接弹一次提示"""
+        missing, session = self.gw_missing(), self.app.mqtt.session
+        if missing and session not in self.gw_warned:
+            self.gw_warned.add(session)
+            self.app.connection._set_link(missing, ORANGE)
+            self.app.notify("没收到 GW 的上线和心跳：GW 云端那一侧没连到这个 Broker，详情看连接设置或状态总览")
+        elif not missing and session in self.gw_warned and session in self.gw_seen:
+            # 后来 GW 连上来了，连接状态回到正常的说法
+            self.gw_warned.discard(session)
+            self.app.connection._connection_hint()
+
     def _answer(self, event):
         """模拟云端时替云端回 GW：上线（共用主题，按 sn 认是不是这台）回 online_reply，心跳回 heartbeat_reply（seq 原样带回）"""
         sn = self.app.mqtt.cloud_sn
@@ -216,7 +260,12 @@ class UavPage:
 
     def render(self):
         self.drawn_at = time.monotonic()
-        if self.app.mqtt.device == "uav" and self.app.mqtt.client:
+        missing = self.gw_missing()
+        if missing:
+            # 看起来像“连上了但没消息”的情况要说清楚是 GW 没连到这个 Broker
+            self.link_note.setText(missing)
+            self.link_note.setStyleSheet(f"color:{RED}")
+        elif self.app.mqtt.device == "uav" and self.app.mqtt.client:
             sending = "已打开“允许向无人机发送”，控制调试页发的指令会真的发到板上" if self.app.mqtt.uav_send else "只读，不会发送任何消息"
             self.link_note.setText(f"{'已连接' if self.app.mqtt.connected else '连接中或已断开'} {self.app.mqtt.host}，{sending}")
             self.link_note.setStyleSheet(f"color:{RED}" if self.app.mqtt.uav_send else "")
@@ -682,7 +731,9 @@ class UavPage:
 
     def _export(self):
         """把这次无人机连接收发的全部报文导出成 jsonl，一行一条：本机时间、Topic、retain、报文"""
-        if not self.session:
+        # 一条都没收到时（比如 GW 没连到这个 Broker）也能导出本机发的
+        session = self.session or (self.app.mqtt.session if self.app.mqtt.device == "uav" else "")
+        if not session:
             self.app.notify("这次还没有连无人机，没有报文可导出")
             return
         path, _ = QFileDialog.getSaveFileName(self.app, "导出本次报文", time.strftime("uav_%Y%m%d_%H%M%S.jsonl"), "JSONL (*.jsonl)")
@@ -690,7 +741,7 @@ class UavPage:
             return
         count = 0
         with open(path, "w", encoding="utf-8") as out:
-            for e in self.app.store.session_events(self.session):
+            for e in self.app.store.session_events(session):
                 out.write(json.dumps({"t": round(e.timestamp, 3), "wall": time.strftime("%H:%M:%S", time.localtime(e.timestamp)),
                                       "direction": e.direction, "topic": e.topic, "retain": e.retained,
                                       "body": e.payload if e.payload else e.raw}, ensure_ascii=False) + "\n")

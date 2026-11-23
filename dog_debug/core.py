@@ -86,6 +86,9 @@ class Event:
         # 无人机 Bridge 的指令和回执用 action 指明动作，状态和事件用 type
         if self.topic.startswith(BRIDGE):
             return str(self.payload.get("action") or self.payload.get("type") or "未解析")
+        # 无人机 GW 往云端报的上线没有 method，type 是设备类型（uav），不是消息类型
+        if self.topic == "tta/uav/status/online":
+            return "online"
         value = self.payload.get("method") or self.payload.get("type")
         # 内部抓拍回复的契约不要求带 method，按所在 Topic 归到它回复的请求
         if not value and self.topic.endswith("/detect/ack"):
@@ -116,6 +119,9 @@ class Event:
             return "指令"
         if self.topic.endswith("/events"):
             return "事件"
+        # 无人机 GW 往云端报的上线（tta/uav/status/online）当 GW 的状态看，GW 卡片和详情里能看到；狗的不动
+        if self.topic == "tta/uav/status/online":
+            return "状态"
         # Bridge 的状态分领域发在 state/<领域> 下
         if self.topic.endswith(("/state", "/heartbeat", "/data", "/osd")) or self.topic.startswith(BRIDGE + "state/"):
             return "状态"
@@ -161,15 +167,16 @@ def infer_module(topic, payload):
     match = re.search(r"local/(?:robotdog|uav)/(\w+)/", topic)
     if match:
         return match[1]
-    # 无人机云端主题（GW 转过的）：指令和回执看 target，状态和 OSD 是 VFC 的，上线和心跳是 GW 自己的
+    # 无人机云端主题（GW 转过的）：指令和回执看 target，状态和 OSD 是 VFC 的，上线和心跳是 GW 自己的；
+    # 上线 tta/uav/status/online 先认，不然 status 会被当成 SN、上线记到 VFC 名下
+    if topic.startswith("tta/uav/status/"):
+        return "gw"
     match = re.match(r"tta/uav/[^/]+/(\w+)$", topic)
     if match:
         if match[1] in ("services", "services_reply"):
             return str(payload.get("target") or "vfc")
         # storage_status 是 GW 自己报的（磁盘容量、待传文件数），其余状态和 OSD 是 VFC 经 GW 转的
         return "gw" if match[1].startswith("heartbeat") or payload.get("method") == "storage_status" else "vfc"
-    if topic.startswith("tta/uav/status/"):
-        return "gw"
     data = payload.get("data", {})
     name = payload.get("name") or (data.get("name") if isinstance(data, dict) else "")
     return str(name or payload.get("target") or (find(payload.get("method")) or {}).get("module") or "unknown")

@@ -140,7 +140,7 @@ class TelemetryCard:
                 # 已飞时长（第七轮，VFC 按离地时刻算，地面是 0）取 flyState 的；GW 转的 OSD 里的 flyingTime 是补的 0，不用
                 data["flyTime"] = fly.payload["info"].get("flyingTime")
             if not event:
-                return data, False, "local/uav/vfc/osd", False
+                return data, False, f"tta/uav/{mqtt.cloud_sn}/osd" if mqtt.cloud_sn else "local/uav/vfc/osd", False
             # 断开后立刻标“已停”，不等时效过期
             live = mqtt.connected and time.time() - event.timestamp < LIVE_SECONDS
             # 模拟云端时是 GW 转的 OSD：GW 只取固定的几个字段，VFC 没发的它补 0，这里的 0 不一定是真值
