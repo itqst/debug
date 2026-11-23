@@ -1,0 +1,2033 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TTA Debug Studio — 统一设备调试台 (iOS 风格旗舰原型)</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-app: #F3F4F8;
+      --bg-ambient: radial-gradient(1100px 500px at 15% -5%, rgba(0, 122, 255, 0.07), transparent 70%),
+                    radial-gradient(900px 450px at 85% 0%, rgba(175, 82, 222, 0.05), transparent 70%);
+      --bg-sidebar: rgba(255, 255, 255, 0.76);
+      --bg-card: rgba(255, 255, 255, 0.90);
+      --bg-card-solid: #FFFFFF;
+      --bg-elevated: #F7F7FA;
+      --bg-segment: rgba(118, 118, 128, 0.11);
+      --bg-hover: rgba(0, 122, 255, 0.07);
+      --border-hairline: rgba(60, 60, 67, 0.09);
+      --border-strong: rgba(60, 60, 67, 0.18);
+      --inner-shine: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+      --text-primary: #1C1C1E;
+      --text-secondary: #545458;
+      --text-tertiary: #8E8E93;
+      --ios-blue: #007AFF;
+      --ios-green: #34C759;
+      --ios-orange: #FF9500;
+      --ios-red: #FF3B30;
+      --ios-purple: #AF52DE;
+      --ios-teal: #30B0C7;
+      --shadow-card: 0 2px 10px rgba(15, 23, 42, 0.035), 0 10px 28px rgba(15, 23, 42, 0.03), 0 0 1px rgba(0, 0, 0, 0.08);
+      --shadow-pop: 0 22px 54px rgba(15, 23, 42, 0.18), 0 0 1px rgba(0, 0, 0, 0.12);
+    }
+    .dark {
+      --bg-app: #09090B;
+      --bg-ambient: radial-gradient(1100px 500px at 15% -5%, rgba(10, 132, 255, 0.12), transparent 70%),
+                    radial-gradient(900px 450px at 85% 0%, rgba(191, 90, 242, 0.08), transparent 70%);
+      --bg-sidebar: rgba(24, 24, 27, 0.78);
+      --bg-card: rgba(28, 28, 31, 0.88);
+      --bg-card-solid: #1C1C1F;
+      --bg-elevated: #27272B;
+      --bg-segment: rgba(118, 118, 128, 0.24);
+      --bg-hover: rgba(10, 132, 255, 0.16);
+      --border-hairline: rgba(255, 255, 255, 0.09);
+      --border-strong: rgba(255, 255, 255, 0.20);
+      --inner-shine: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      --text-primary: #F4F4F6;
+      --text-secondary: #A1A1AA;
+      --text-tertiary: #71717A;
+      --ios-blue: #0A84FF;
+      --ios-green: #30D158;
+      --ios-orange: #FF9F0A;
+      --ios-red: #FF453A;
+      --ios-purple: #BF5AF2;
+      --ios-teal: #40CBE0;
+      --shadow-card: 0 6px 20px rgba(0, 0, 0, 0.42), 0 0 1px rgba(255, 255, 255, 0.08);
+      --shadow-pop: 0 24px 60px rgba(0, 0, 0, 0.72), 0 0 1px rgba(255, 255, 255, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background-color: var(--bg-app);
+      background-image: var(--bg-ambient);
+      color: var(--text-primary);
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.25s ease, color 0.25s ease;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .glass {
+      background: var(--bg-sidebar);
+      backdrop-filter: blur(26px) saturate(190%);
+      -webkit-backdrop-filter: blur(26px) saturate(190%);
+    }
+    .ios-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-hairline);
+      border-radius: 18px;
+      box-shadow: var(--shadow-card), var(--inner-shine);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .ios-card-interactive:hover {
+      border-color: var(--border-strong);
+      transform: translateY(-1.5px);
+    }
+    .ios-card-interactive:active {
+      transform: scale(0.99);
+    }
+    .ios-segment {
+      background: var(--bg-segment);
+      padding: 3px;
+      border-radius: 11px;
+      display: inline-flex;
+      gap: 2px;
+      border: 1px solid var(--border-hairline);
+    }
+    .ios-segment-btn {
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      white-space: nowrap;
+    }
+    .ios-segment-btn:hover { color: var(--text-primary); }
+    .ios-segment-btn.active {
+      background: var(--bg-card-solid);
+      color: var(--text-primary);
+      font-weight: 600;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.09), 0 0 1px rgba(0,0,0,0.08);
+    }
+    .ios-btn {
+      border-radius: 11px;
+      font-weight: 500;
+      font-size: 12.5px;
+      padding: 7px 13px;
+      transition: all 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border: 1px solid transparent;
+    }
+    .ios-btn:active { transform: scale(0.96); }
+    .ios-btn-primary {
+      background: linear-gradient(180deg, #1A88FF 0%, var(--ios-blue) 100%);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25), inset 0 1px 0 rgba(255,255,255,0.25);
+    }
+    .ios-btn-primary:hover { filter: brightness(1.06); }
+    .ios-btn-secondary {
+      background: var(--bg-segment);
+      color: var(--text-primary);
+      border-color: var(--border-hairline);
+    }
+    .ios-btn-secondary:hover {
+      background: var(--bg-hover);
+      color: var(--ios-blue);
+      border-color: rgba(0, 122, 255, 0.25);
+    }
+    .ios-btn-danger {
+      background: rgba(255, 59, 48, 0.13);
+      color: var(--ios-red);
+      border-color: rgba(255, 59, 48, 0.22);
+    }
+    .ios-btn-danger:hover { background: rgba(255, 59, 48, 0.22); }
+
+    /* iOS Toggle Switch */
+    .ios-switch {
+      width: 44px; height: 26px; border-radius: 999px;
+      background: var(--bg-segment); position: relative; cursor: pointer;
+      transition: background-color 0.22s ease; flex-shrink: 0; border: 1px solid var(--border-hairline);
+    }
+    .ios-switch.on { background: var(--ios-green); border-color: transparent; }
+    .ios-switch.on.warn { background: var(--ios-orange); border-color: transparent; }
+    .ios-switch::after {
+      content: ""; position: absolute; top: 2px; left: 2px;
+      width: 20px; height: 20px; border-radius: 50%; background: #fff;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.22);
+      transition: transform 0.22s cubic-bezier(0.3, 1.3, 0.5, 1);
+    }
+    .ios-switch.on::after { transform: translateX(18px); }
+
+    .nav-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 9px 11px; border-radius: 12px;
+      font-size: 13px; font-weight: 500;
+      color: var(--text-secondary); cursor: pointer;
+      transition: all 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+      border: 1px solid transparent; background: transparent; width: 100%; text-align: left;
+    }
+    .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .nav-item.active {
+      background: linear-gradient(180deg, #1987FF 0%, var(--ios-blue) 100%);
+      color: #fff;
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(0, 122, 255, 0.30), inset 0 1px 0 rgba(255,255,255,0.22);
+    }
+    .nav-item.active svg { stroke: #fff; }
+    .nav-item.active .nav-kbd {
+      background: rgba(255,255,255,0.22);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    /* PCB 90-degree bus node styling */
+    .pcb-node {
+      transition: all 0.18s ease;
+      cursor: pointer;
+    }
+    .pcb-node:hover {
+      filter: drop-shadow(0 4px 10px rgba(0, 122, 255, 0.25));
+    }
+
+    /* Custom subtle scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(142, 142, 147, 0.32); border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(142, 142, 147, 0.55); }
+
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
+    }
+    .pulse-live { animation: pulse-dot 2s infinite ease-in-out; }
+
+    @keyframes slide-in-right {
+      from { transform: translateX(100%); opacity: 0.5; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .drawer-enter { animation: slide-in-right 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+  </style>
+</head>
+<body class="h-screen overflow-hidden flex flex-col select-none">
+
+  <!-- TOP UNIFIED BAR (Dynamic Island Style + Seamless Vehicle Switcher) -->
+  <header class="glass border-b border-[var(--border-hairline)] px-4 py-2 flex items-center justify-between gap-3 z-30 shrink-0">
+    <!-- Left: App Brand + Unified Device Switcher -->
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-[10px] bg-gradient-to-br from-[#007AFF] via-[#3A6FF8] to-[#5856D6] flex items-center justify-center text-white shadow-sm shrink-0">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="hidden sm:block leading-tight">
+          <div class="flex items-center gap-1.5">
+            <span class="text-[13.5px] font-semibold tracking-tight">TTA Debug Studio</span>
+            <span class="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-[#007AFF]/12 text-[var(--ios-blue)]">v2.4</span>
+          </div>
+          <div class="text-[11px] text-[var(--text-tertiary)]">MQTT → GW → Module 统一架构调试台</div>
+        </div>
+      </div>
+
+      <div class="h-5 w-px bg-[var(--border-hairline)] hidden sm:block"></div>
+
+      <!-- Device Switcher: Same console, just switch vehicle profile -->
+      <div class="ios-segment" role="tablist" aria-label="切换设备">
+        <button id="btn-dev-dog" class="ios-segment-btn active flex items-center gap-1.5" onclick="switchDevice('dog')">
+          <span>🐕</span><span>机器狗 L2</span>
+        </button>
+        <button id="btn-dev-uav" class="ios-segment-btn flex items-center gap-1.5" onclick="switchDevice('uav')">
+          <span>🚁</span><span>无人机 UAV</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Center: Dynamic Island Style Live Connection & Last ACK Pill -->
+    <div class="flex items-center gap-2 min-w-0">
+      <button onclick="openConnModal()" class="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-[var(--bg-card-solid)] border border-[var(--border-hairline)] shadow-sm hover:border-[var(--ios-blue)] transition cursor-pointer max-w-full">
+        <span id="conn-dot" class="w-2.5 h-2.5 rounded-full bg-[var(--ios-green)] pulse-live shrink-0"></span>
+        <span id="conn-pill-text" class="text-[12.5px] font-medium truncate">
+          <span class="text-[var(--text-primary)]">云端 MQTT</span>
+          <span class="text-[var(--text-tertiary)] mx-1">·</span>
+          <span class="mono text-[12px] text-[var(--text-secondary)]">TEST_DOG_001</span>
+        </span>
+        <span id="conn-rate" class="hidden md:inline-flex text-[11px] mono px-1.5 py-0.5 rounded-md bg-[var(--bg-segment)] text-[var(--text-secondary)]">42 msg/s</span>
+        <svg class="w-3.5 h-3.5 text-[var(--text-tertiary)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+      </button>
+
+      <!-- Quick Last-Command Status Capsule (Click to inspect trace) -->
+      <button id="last-ack-pill" onclick="switchTab('commands')" class="hidden xl:flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#34C759]/12 border border-[#34C759]/25 text-[12px] cursor-pointer hover:brightness-95 transition" title="点击定位到 4 跳证据链">
+        <span id="last-ack-dot" class="w-2 h-2 rounded-full bg-[var(--ios-green)]"></span>
+        <span id="last-ack-text" class="font-medium text-[var(--text-primary)]">stand_up · ACK 成功 (38ms)</span>
+      </button>
+    </div>
+
+    <!-- Right: Command Palette + Safety Lock + Theme -->
+    <div class="flex items-center gap-2 shrink-0">
+      <!-- UAV Safety Lock (Only visible when UAV active, right in top bar!) -->
+      <div id="uav-safety-wrap" class="hidden items-center gap-2 px-2.5 py-1 rounded-full bg-[var(--bg-segment)] border border-[var(--border-hairline)]">
+        <span class="text-[11.5px] font-medium text-[var(--text-secondary)]">允许下发</span>
+        <button id="uav-send-switch" class="ios-switch warn" onclick="toggleUavSend()" title="无人机默认只读，打开后才向 VFC/Bridge 发送指令"></button>
+      </div>
+
+      <button onclick="openCmdPalette()" class="ios-btn ios-btn-secondary !px-2.5 !py-1.5 text-[12px]" title="快速指令目录 (⌘K / Ctrl+K)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <span class="hidden md:inline">指令</span>
+        <kbd class="hidden md:inline text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-card-solid)] text-[var(--text-tertiary)] border border-[var(--border-hairline)]">⌘K</kbd>
+      </button>
+
+      <button onclick="toggleTheme()" class="ios-btn ios-btn-secondary !p-2" title="切换浅色 / 深色外观">
+        <svg id="theme-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN SHELL: Slim Unified Sidebar + Fluid Workspace -->
+  <div class="flex flex-1 min-h-0 overflow-hidden">
+
+    <!-- SLIM SIDEBAR (Same 5 unified tabs for BOTH Dog and UAV!) -->
+    <aside class="glass border-r border-[var(--border-hairline)] w-52 lg:w-56 shrink-0 flex flex-col justify-between p-3 hidden md:flex">
+      <div class="space-y-1">
+        <div class="px-2.5 py-1.5 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+          <span>统一工作台</span>
+          <span>快捷键</span>
+        </div>
+        <button class="nav-item active" data-tab="overview" onclick="switchTab('overview')">
+          <span class="flex items-center gap-2.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>
+            <span>总览与遥测</span>
+          </span>
+          <kbd class="nav-kbd text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--text-tertiary)]">1</kbd>
+        </button>
+        <button class="nav-item" data-tab="teleop" onclick="switchTab('teleop')">
+          <span class="flex items-center gap-2.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="4"/><path d="M6 12h4"/><path d="M8 10v4"/><circle cx="15.5" cy="11.5" r="1"/><circle cx="17.5" cy="13.5" r="1"/></svg>
+            <span>遥控与载荷</span>
+          </span>
+          <kbd class="nav-kbd text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--text-tertiary)]">2</kbd>
+        </button>
+        <button class="nav-item" data-tab="commands" onclick="switchTab('commands')">
+          <span class="flex items-center gap-2.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>指令与链路</span>
+          </span>
+          <kbd class="nav-kbd text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--text-tertiary)]">3</kbd>
+        </button>
+        <button class="nav-item" data-tab="mission" onclick="switchTab('mission')">
+          <span class="flex items-center gap-2.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+            <span>任务与文件</span>
+          </span>
+          <kbd class="nav-kbd text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--text-tertiary)]">4</kbd>
+        </button>
+        <button class="nav-item" data-tab="logs" onclick="switchTab('logs')">
+          <span class="flex items-center gap-2.5">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span>日志与配置</span>
+          </span>
+          <kbd class="nav-kbd text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--text-tertiary)]">5</kbd>
+        </button>
+      </div>
+
+      <!-- Bottom: Compact Architecture & Profile Summary Card -->
+      <div class="space-y-2.5">
+        <div class="ios-card !rounded-[14px] p-3 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-semibold text-[var(--text-tertiary)]">当前设备档案</span>
+            <span id="side-badge" class="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-[#007AFF]/15 text-[var(--ios-blue)]">L2 机器狗</span>
+          </div>
+          <div id="side-meta" class="text-[12px] text-[var(--text-secondary)] leading-snug">
+            固件 v3.1.4 · 电量 84%<br/>
+            <span class="mono text-[11px] text-[var(--text-tertiary)]">tta/robotdog/...</span>
+          </div>
+          <div class="pt-1.5 border-t border-[var(--border-hairline)] flex items-center justify-between text-[11px]">
+            <span class="text-[var(--text-tertiary)]">会话回放</span>
+            <button onclick="toggleReplayBar()" class="text-[var(--ios-blue)] font-medium hover:underline cursor-pointer">OSD 轨迹回放</button>
+          </div>
+        </div>
+
+        <button onclick="simulateFault()" class="ios-btn ios-btn-secondary w-full !justify-start !text-[12px] !py-2">
+          <span class="w-2 h-2 rounded-full bg-[var(--ios-orange)]"></span>
+          <span>演示一次故障定位</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="flex-1 overflow-y-auto p-4 md:p-6 pb-20 md:pb-6 relative">
+      <div class="max-w-7xl mx-auto space-y-5">
+
+        <!-- OPTIONAL OSD REPLAY SCRUBBER BAR (Toggled from sidebar or 3D card) -->
+        <div id="replay-bar" class="hidden ios-card px-4 py-2.5 items-center justify-between gap-4 border-[#007AFF]/30 bg-[#007AFF]/5">
+          <div class="flex items-center gap-2.5">
+            <span class="px-2 py-0.5 rounded-md bg-[var(--ios-blue)] text-white text-[11px] font-semibold">OSD 历史回放</span>
+            <span class="mono text-[12px] text-[var(--text-secondary)]" id="replay-timestamp">14:20:15.400 (帧 128 / 400)</span>
+          </div>
+          <input id="replay-slider" type="range" min="1" max="400" value="128" class="flex-1 max-w-md accent-[var(--ios-blue)]" oninput="scrubReplay(this.value)" />
+          <div class="flex items-center gap-2">
+            <button onclick="stepReplay(-10)" class="ios-btn ios-btn-secondary !px-2 !py-1 !text-[11px]">-1s</button>
+            <button onclick="stepReplay(10)" class="ios-btn ios-btn-secondary !px-2 !py-1 !text-[11px]">+1s</button>
+            <button onclick="toggleReplayBar()" class="ios-btn ios-btn-secondary !px-2.5 !py-1 !text-[11px]">退出回放</button>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 1: OVERVIEW & TELEMETRY ==================== -->
+        <section id="tab-overview" class="tab-view space-y-5">
+          <!-- Page Header -->
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold tracking-tight" id="ov-title">机器狗 · 状态总览与遥测</h1>
+              <p class="text-[13px] text-[var(--text-secondary)] mt-0.5" id="ov-subtitle">所有模块共用统一健康度模型：绿色表示 5 秒内有活跃心跳/状态，点击任意模块卡片可打开右侧实时检查器</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="ios-segment">
+                <button class="ios-segment-btn active" onclick="filterModules('all', this)">全部模块</button>
+                <button class="ios-segment-btn" onclick="filterModules('core', this)">核心控制</button>
+                <button class="ios-segment-btn" onclick="filterModules('payload', this)">载荷与媒体</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- COLLAPSIBLE PCB 90-DEGREE ORTHOGONAL ARCHITECTURE BUS TOPOLOGY (Hidden by default to avoid redundancy with Module Grid!) -->
+          <div class="ios-card px-4 py-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2.5">
+                <span class="w-2 h-2 rounded-full bg-[var(--ios-blue)]"></span>
+                <span class="text-[13px] font-semibold">总线路由：Console → MQTT → GW → 模块</span>
+                <span class="mono text-[11.5px] text-[var(--text-secondary)]" id="topology-hint">tta/robotdog/TEST_DOG_001/*</span>
+              </div>
+              <button onclick="toggleTopoDiagram()" id="topo-toggle-btn" class="ios-btn ios-btn-secondary !py-1 !px-2.5 !text-[11.5px]">展开架构图 ▾</button>
+            </div>
+            <div id="topo-diagram-wrap" class="hidden w-full overflow-x-auto pt-3 mt-2.5 border-t border-[var(--border-hairline)]">
+              <svg id="pcb-topology-svg" viewBox="0 0 920 132" class="w-full min-w-[680px] h-32"></svg>
+            </div>
+          </div>
+
+          <!-- Top Split: Live Telemetry / 3D Attitude + Pipeline Health -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <!-- Left 5 cols: Unified 3D / Attitude & Vital Telemetry Card -->
+            <div class="lg:col-span-5 ios-card p-4 flex flex-col justify-between gap-3.5">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" id="viz-title">3D 实时姿态与点云</span>
+                  <span class="text-[11px] px-2 py-0.5 rounded-full bg-[#34C759]/15 text-[var(--ios-green)] font-medium">60 FPS</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button onclick="toggleReplayBar()" class="ios-btn ios-btn-secondary !px-2.5 !py-1 !text-[11.5px]">回放</button>
+                  <button onclick="toggleVizMode()" id="viz-mode-btn" class="ios-btn ios-btn-secondary !px-2.5 !py-1 !text-[11.5px]">切换点云</button>
+                </div>
+              </div>
+
+              <!-- Interactive 3D/Attitude Canvas (Supports Mouse Drag to Orbit!) -->
+              <div class="relative rounded-[14px] bg-gradient-to-b from-[#1A1B1E] to-[#101114] h-56 overflow-hidden flex items-center justify-center border border-white/10 cursor-grab active:cursor-grabbing"
+                   onmousedown="startOrbitDrag(event)" onmousemove="moveOrbitDrag(event)" onmouseup="endOrbitDrag()" onmouseleave="endOrbitDrag()">
+                <canvas id="telemetry-canvas" class="w-full h-full"></canvas>
+                <div class="absolute top-3 left-3 flex flex-col gap-1 pointer-events-none">
+                  <span id="viz-pose-tag" class="mono text-[11px] px-2 py-0.5 rounded-md bg-black/55 text-white/90 backdrop-blur">姿态: 站立 · Pitch +1.2° · Roll -0.4°</span>
+                  <span id="viz-extra-tag" class="mono text-[11px] px-2 py-0.5 rounded-md bg-black/55 text-emerald-300 backdrop-blur">LiDAR: 14,820 pts · 2.0 Hz</span>
+                </div>
+                <!-- Camera Preset Pills -->
+                <div class="absolute bottom-3 left-3 flex gap-1">
+                  <button onclick="setOrbitPreset(0.4, 0.25); event.stopPropagation()" class="px-2 py-0.5 rounded bg-white/12 hover:bg-white/25 text-white/85 text-[10.5px] backdrop-blur cursor-pointer">等轴</button>
+                  <button onclick="setOrbitPreset(0, 0.05); event.stopPropagation()" class="px-2 py-0.5 rounded bg-white/12 hover:bg-white/25 text-white/85 text-[10.5px] backdrop-blur cursor-pointer">正视</button>
+                  <button onclick="setOrbitPreset(1.57, 1.2); event.stopPropagation()" class="px-2 py-0.5 rounded bg-white/12 hover:bg-white/25 text-white/85 text-[10.5px] backdrop-blur cursor-pointer">俯视</button>
+                </div>
+                <div class="absolute bottom-3 right-3 flex gap-1.5 pointer-events-none">
+                  <span class="mono text-[10.5px] px-2 py-0.5 rounded bg-white/10 text-white/75" id="viz-topic-badge">拖拽旋转视角</span>
+                </div>
+              </div>
+
+              <!-- 4 Key Vital Metrics with Sparklines (Shared layout for Dog & UAV) -->
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5" id="vital-metrics"></div>
+            </div>
+
+            <!-- Right 7 cols: Unified Module Health Grid (GW -> Modules) -->
+            <div class="lg:col-span-7 ios-card p-4 flex flex-col gap-3.5">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h2 class="text-[14px] font-semibold">模块健康矩阵 (点击卡片查看最近报文与字段 Diff)</h2>
+                  <p class="text-[12px] text-[var(--text-secondary)]">机器狗与无人机共用同一套模块状态卡片与时效监控</p>
+                </div>
+                <span class="text-[11.5px] mono px-2.5 py-0.5 rounded-full bg-[#34C759]/12 text-[var(--ios-green)] font-semibold" id="bus-summary">7/7 在线</span>
+              </div>
+
+              <div id="module-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5"></div>
+
+              <!-- Unified Stream / Media Card -->
+              <div class="mt-auto rounded-[14px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-3 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-[10px] bg-[#AF52DE]/15 text-[var(--ios-purple)] flex items-center justify-center shrink-0">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                  </div>
+                  <div>
+                    <div class="text-[13px] font-semibold">ZLM 实时视频流 · <span class="text-[var(--ios-green)] font-medium">stream_status = 1 (活跃)</span></div>
+                    <div class="text-[11.5px] text-[var(--text-secondary)] mono" id="stream-meta">rtsp://127.0.0.1:8554/live/front · H.264 1080p · 1,640 kbps</div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="fireQuickCmd('camera_livestream', 'media')" class="ios-btn ios-btn-secondary !text-[12px]">推流开关</button>
+                  <button onclick="openStreamPreview()" class="ios-btn ios-btn-primary !text-[12px]">预览画面</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Unified Request Traces -->
+          <div class="ios-card p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-[14px] font-semibold">最近请求追踪 (按 tid / bridge:id 自动聚合)</h2>
+                <p class="text-[12px] text-[var(--text-secondary)]">失败与无 ACK 请求自动置顶，点击任意一行展开 4 跳证据链</p>
+              </div>
+              <button onclick="switchTab('commands')" class="ios-btn ios-btn-secondary !text-[12px]">进入指令台 →</button>
+            </div>
+            <div id="overview-traces" class="divide-y divide-[var(--border-hairline)]"></div>
+          </div>
+        </section>
+
+        <!-- ==================== TAB 2: TELEOP & PAYLOAD ==================== -->
+        <section id="tab-teleop" class="tab-view hidden space-y-5">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold tracking-tight" id="teleop-title">机器狗 · 遥控与载荷</h1>
+              <p class="text-[13px] text-[var(--text-secondary)] mt-0.5">支持鼠标或键盘 WASD / QE 实时操控（松开即自动补发零速停帧），右侧集成云台、图传、红外测温与喊话</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="mono text-[11.5px] px-2.5 py-1 rounded-lg bg-[var(--bg-segment)] text-[var(--text-secondary)]">键盘快捷键已就绪: W A S D / Q E / Space</span>
+              <button onclick="emergencyStop()" class="ios-btn ios-btn-danger">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>
+                <span>急停 / 悬停 (Space)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <!-- Motion / Flight Control Pad -->
+            <div class="lg:col-span-5 ios-card p-5 space-y-4">
+              <div class="flex items-center justify-between">
+                <span class="text-[14px] font-semibold" id="teleop-pad-title">运动控制 (VFC)</span>
+                <span class="mono text-[11.5px] px-2 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--ios-blue)] font-medium" id="teleop-vel">vx: 0.00 · vy: 0.00 · wz: 0.00</span>
+              </div>
+
+              <!-- Speed Gear Selector -->
+              <div class="flex items-center justify-between text-[12px]">
+                <span class="text-[var(--text-secondary)] font-medium">最大速度档位</span>
+                <div class="ios-segment">
+                  <button class="ios-segment-btn" onclick="setSpeedGear('慢速 0.4m/s', this)">慢速</button>
+                  <button class="ios-segment-btn active" onclick="setSpeedGear('标准 1.0m/s', this)">标准</button>
+                  <button class="ios-segment-btn" onclick="setSpeedGear('高速 1.8m/s', this)">高速</button>
+                </div>
+              </div>
+
+              <!-- Virtual D-Pad -->
+              <div class="flex items-center justify-center py-2">
+                <div class="grid grid-cols-3 gap-2.5 w-56">
+                  <button id="key-q" onclick="sendTeleop('左前/左旋', 0, 0, 0.6)" class="ios-btn ios-btn-secondary h-14 text-[12px]">↖</button>
+                  <button id="key-w" onclick="sendTeleop('前进', 0.8, 0, 0)" class="ios-btn ios-btn-secondary h-14 text-[15px] font-bold">↑ W</button>
+                  <button id="key-e" onclick="sendTeleop('右前/右旋', 0, 0, -0.6)" class="ios-btn ios-btn-secondary h-14 text-[12px]">↗</button>
+                  <button id="key-a" onclick="sendTeleop('左移', 0, 0.5, 0)" class="ios-btn ios-btn-secondary h-14 text-[15px] font-bold">← A</button>
+                  <button id="key-space" onclick="emergencyStop()" class="ios-btn ios-btn-danger h-14 text-[12.5px] font-bold">STOP</button>
+                  <button id="key-d" onclick="sendTeleop('右移', 0, -0.5, 0)" class="ios-btn ios-btn-secondary h-14 text-[15px] font-bold">D →</button>
+                  <button onclick="sendTeleop('左转', 0, 0, 0.6)" class="ios-btn ios-btn-secondary h-14 text-[13px]">⟲ Q</button>
+                  <button id="key-s" onclick="sendTeleop('后退', -0.6, 0, 0)" class="ios-btn ios-btn-secondary h-14 text-[15px] font-bold">↓ S</button>
+                  <button onclick="sendTeleop('右转', 0, 0, -0.6)" class="ios-btn ios-btn-secondary h-14 text-[13px]">E ⟳</button>
+                </div>
+              </div>
+
+              <!-- Device-specific quick actions (Same button grid!) -->
+              <div class="pt-3 border-t border-[var(--border-hairline)] space-y-2">
+                <div class="text-[12px] font-semibold text-[var(--text-secondary)]">姿态与模式快捷指令</div>
+                <div id="teleop-actions" class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
+              </div>
+            </div>
+
+            <!-- Right: PTZ Gimbal + Camera/Media + Thermal & Megaphone -->
+            <div class="lg:col-span-7 space-y-4">
+              <!-- Live FPV + PTZ Control -->
+              <div class="ios-card p-5 space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[14px] font-semibold">云台 PTZ 与双光载荷</span>
+                    <div class="ios-segment">
+                      <button class="ios-segment-btn active !py-0.5 !px-2 !text-[11.5px]" onclick="switchCamLens('可见光 1080p', this)">可见光</button>
+                      <button class="ios-segment-btn !py-0.5 !px-2 !text-[11.5px]" onclick="switchCamLens('红外热成像', this)">红外测温</button>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button onclick="fireQuickCmd('take_photo', 'media')" class="ios-btn ios-btn-primary !py-1.5 !text-[12px]">📷 拍照</button>
+                    <button onclick="fireQuickCmd('camera_recording', 'media')" class="ios-btn ios-btn-secondary !py-1.5 !text-[12px]">⏺ 录像</button>
+                    <button onclick="fireQuickCmd('capture_detection', 'vision')" class="ios-btn ios-btn-secondary !py-1.5 !text-[12px]">🎯 识别抓拍</button>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                  <div class="sm:col-span-7 rounded-[14px] bg-[#141417] h-48 flex flex-col items-center justify-center text-white/80 border border-white/10 relative overflow-hidden">
+                    <div id="fpv-bg-glow" class="absolute inset-0 opacity-25 bg-[radial-gradient(circle_at_center,#007AFF_0%,transparent_70%)]"></div>
+                    <!-- Crosshair & OSD overlay -->
+                    <div class="absolute top-2.5 left-3 right-3 flex justify-between text-[10.5px] mono text-white/70">
+                      <span id="fpv-lens-tag">LIVE · 可见光 1080p</span>
+                      <span class="text-emerald-400">MAX 68.4°C · MIN 24.1°C</span>
+                    </div>
+                    <div class="w-10 h-10 rounded-full border border-white/25 flex items-center justify-center mb-1.5">
+                      <div class="w-1.5 h-1.5 rounded-full bg-[#30D158]"></div>
+                    </div>
+                    <div class="mono text-[11px] text-white/55" id="teleop-stream-url">live/front · 1080p · 30fps</div>
+                    <button onclick="openStreamPreview()" class="mt-2.5 px-3 py-1 rounded-full bg-white/15 hover:bg-white/25 text-[11.5px] transition cursor-pointer">放大播放窗口</button>
+                  </div>
+                  <div class="sm:col-span-5 space-y-3">
+                    <div class="text-[12px] font-semibold text-[var(--text-secondary)]">云台角度微调 (PTZ)</div>
+                    <div class="space-y-2.5">
+                      <div>
+                        <div class="flex justify-between text-[11.5px] mb-1"><span>俯仰 Pitch</span><span id="ptz-pitch-val" class="mono">-15°</span></div>
+                        <input id="ptz-pitch-slider" type="range" min="-90" max="30" value="-15" class="w-full accent-[var(--ios-blue)]" oninput="updatePtz('pitch', this.value)" />
+                      </div>
+                      <div>
+                        <div class="flex justify-between text-[11.5px] mb-1"><span>偏航 Yaw</span><span id="ptz-yaw-val" class="mono">0°</span></div>
+                        <input id="ptz-yaw-slider" type="range" min="-180" max="180" value="0" class="w-full accent-[var(--ios-blue)]" oninput="updatePtz('yaw', this.value)" />
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <button onclick="resetPtz()" class="ios-btn ios-btn-secondary !text-[12px]">云台回中</button>
+                      <button onclick="fireQuickCmd('speaker_play_start', 'media')" class="ios-btn ios-btn-secondary !text-[12px]">🔊 远程喊话</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Unified Quick Feedback Banner -->
+              <div class="ios-card p-4 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <span class="w-2.5 h-2.5 rounded-full bg-[var(--ios-green)] shrink-0"></span>
+                  <div class="min-w-0">
+                    <div class="text-[12.5px] font-semibold truncate" id="teleop-feedback-title">最近遥控指令已确认</div>
+                    <div class="text-[11.5px] text-[var(--text-secondary)] mono truncate" id="teleop-feedback-detail">GW 转发 → VFC 返回 result: 0 (36 ms)</div>
+                  </div>
+                </div>
+                <button onclick="switchTab('commands')" class="ios-btn ios-btn-secondary !text-[12px] shrink-0">看完整证据链</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== TAB 3: COMMANDS & TRACE PIPELINE ==================== -->
+        <section id="tab-commands" class="tab-view hidden space-y-5">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold tracking-tight">控制调试 · 统一指令与链路追踪</h1>
+              <p class="text-[13px] text-[var(--text-secondary)] mt-0.5">支持「智能表单 + JSON 双向同步」与沙盒故障注入模拟，右侧实时观测 MQTT → GW → 模块 → ACK 四跳证据链</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- Sandbox Fault Injection Selector (From original SCENARIOS!) -->
+              <div class="flex items-center gap-1.5 bg-[var(--bg-segment)] px-2.5 py-1 rounded-[11px] border border-[var(--border-hairline)]">
+                <span class="text-[11.5px] text-[var(--text-secondary)] font-medium">模拟场景:</span>
+                <select id="fault-scenario" onchange="setScenario(this.value)" class="bg-transparent text-[12px] font-semibold outline-none cursor-pointer text-[var(--text-primary)]">
+                  <option value="ok">正常返回 (ACK=0)</option>
+                  <option value="busy">模块返回失败 (result=-12)</option>
+                  <option value="timeout">模块无响应 (无 ACK 超时)</option>
+                  <option value="duplicate">重复投递 (双份 ACK)</option>
+                </select>
+              </div>
+              <button onclick="refreshPayloadIds()" class="ios-btn ios-btn-secondary !text-[12px]">刷新 tid / ts</button>
+              <button onclick="sendCurrentCommand()" class="ios-btn ios-btn-primary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                <span>发送指令</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <!-- Left 4 cols: Protocol Catalog -->
+            <div class="lg:col-span-4 ios-card p-3.5 flex flex-col gap-3 max-h-[600px]">
+              <input id="cmd-search" type="text" placeholder="搜索 method、模块或中文名称…" oninput="renderCmdCatalog()"
+                     class="w-full px-3 py-2 rounded-[10px] bg-[var(--bg-segment)] text-[13px] outline-none border border-transparent focus:border-[var(--ios-blue)]" />
+              <div id="cmd-module-pills" class="flex flex-wrap gap-1.5"></div>
+              <div id="cmd-list" class="flex-1 overflow-y-auto space-y-1 pr-1"></div>
+            </div>
+
+            <!-- Middle 4 cols: Dual-Mode Parameter Form + JSON Payload Editor -->
+            <div class="lg:col-span-4 ios-card p-4 flex flex-col gap-3">
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-[11.5px] font-semibold text-[var(--text-tertiary)]">目标 Topic (随连接模式自动切换)</span>
+                  <span id="cmd-target-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-[#007AFF]/12 text-[var(--ios-blue)] font-medium">target: vfc</span>
+                </div>
+                <div id="cmd-topic" class="mono text-[12px] px-3 py-2 rounded-[10px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] break-all text-[var(--ios-blue)]"></div>
+              </div>
+
+              <!-- Segmented Switch: Form Mode vs Raw JSON Mode (No duplicate stacked views!) -->
+              <div class="flex items-center justify-between">
+                <div class="ios-segment">
+                  <button id="mode-btn-form" class="ios-segment-btn active !py-1 !px-2.5 !text-[12px]" onclick="setPayloadEditMode('form')">快捷参数</button>
+                  <button id="mode-btn-json" class="ios-segment-btn !py-1 !px-2.5 !text-[12px]" onclick="setPayloadEditMode('json')">原始 JSON</button>
+                </div>
+                <button onclick="copyJsonPayload()" class="text-[11.5px] text-[var(--ios-blue)] hover:underline cursor-pointer">复制报文</button>
+              </div>
+
+              <!-- View A: Clean Form Mode (Default) -->
+              <div id="payload-form-wrap" class="rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-3.5 space-y-2.5 flex-1">
+                <div class="text-[11px] text-[var(--text-tertiary)]">直接修改业务参数，底层自动组装 tid / ts 与完整 JSON</div>
+                <div id="cmd-quick-fields" class="space-y-2.5 pt-1"></div>
+              </div>
+
+              <!-- View B: Raw JSON Editor (On demand) -->
+              <textarea id="cmd-json" oninput="syncJsonToForm()" class="hidden mono text-[12px] leading-relaxed flex-1 min-h-[280px] w-full p-3 rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] outline-none focus:border-[var(--ios-blue)] resize-none"></textarea>
+            </div>
+
+            <!-- Right 4 cols: 4-Hop Visual Trace Pipeline + Diagnosis Card -->
+            <div class="lg:col-span-4 ios-card p-4 flex flex-col gap-3">
+              <div class="flex items-center justify-between">
+                <span class="text-[14px] font-semibold">4 跳链路证据链</span>
+                <span id="trace-badge" class="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-[#34C759]/15 text-[var(--ios-green)]">操作成功 · 38ms</span>
+              </div>
+              <div id="trace-pipeline" class="space-y-2.5 flex-1 overflow-y-auto"></div>
+
+              <!-- Smart Diagnosis & Troubleshooting Note Box -->
+              <div id="trace-diag-box" class="rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-3 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11.5px] font-semibold text-[var(--text-secondary)]">自动诊断建议</span>
+                  <button onclick="jumpLogsByTrace()" class="text-[11px] text-[var(--ios-blue)] font-medium hover:underline cursor-pointer">查前后日志 →</button>
+                </div>
+                <div id="trace-diag-text" class="text-[12px] text-[var(--text-secondary)] leading-relaxed">链路全通：GW 已正常转发且模块明确返回 result=0。</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== TAB 4: MISSION & FILES ==================== -->
+        <section id="tab-mission" class="tab-view hidden space-y-5">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold tracking-tight" id="mission-title">机器狗 · 航点导航与文件同步</h1>
+              <p class="text-[13px] text-[var(--text-secondary)] mt-0.5" id="mission-subtitle">统一任务调度模型：支持直接在画布上点击添加新航点，右侧查看 FSVR / Bridge 文件回传与回归测试套件</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="resetWaypoints()" class="ios-btn ios-btn-secondary">重置航点</button>
+              <button onclick="fireQuickCmd('start_nav', 'vfc')" class="ios-btn ios-btn-primary">▶ 下发任务</button>
+              <button onclick="fireQuickCmd('pause_nav', 'vfc')" class="ios-btn ios-btn-secondary">⏸ 暂停</button>
+              <button onclick="fireQuickCmd('return_home', 'vfc')" class="ios-btn ios-btn-secondary">⌂ 返航/回充</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <!-- Left 7 cols: Interactive Route / Map Canvas + Waypoints -->
+            <div class="lg:col-span-7 ios-card p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-[14px] font-semibold" id="mission-map-label">SLAM 建图与航点轨迹</span>
+                  <span class="text-[11px] px-2 py-0.5 rounded-full bg-[#007AFF]/12 text-[var(--ios-blue)]">点击画布任意位置添加航点</span>
+                </div>
+                <span class="mono text-[11.5px] text-[var(--text-secondary)]" id="mission-progress">共 4 个航点 · 状态: 巡检中</span>
+              </div>
+              <div class="rounded-[14px] bg-[#141518] border border-white/10 h-64 relative overflow-hidden p-2 flex items-center justify-center cursor-crosshair" onclick="addCanvasWaypoint(event)">
+                <svg id="mission-svg" viewBox="0 0 500 220" class="w-full h-full pointer-events-none"></svg>
+              </div>
+              <div id="waypoint-chips" class="grid grid-cols-2 sm:grid-cols-4 gap-2"></div>
+            </div>
+
+            <!-- Right 5 cols: File Sync (FSVR) + Automated Regression Suite -->
+            <div class="lg:col-span-5 space-y-4">
+              <div class="ios-card p-4 space-y-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-[14px] font-semibold">文件同步与上传状态 (FSVR)</span>
+                  <button onclick="fireQuickCmd('sync_media_file', 'fsvr')" class="ios-btn ios-btn-secondary !py-1 !text-[11.5px]">同步最新文件</button>
+                </div>
+                <div id="file-sync-list" class="space-y-2"></div>
+              </div>
+
+              <!-- Collapsible Regression Test Suite (Clean single-line summary by default) -->
+              <div class="ios-card p-4 space-y-3">
+                <div class="flex items-center justify-between gap-2">
+                  <div>
+                    <div class="text-[13.5px] font-semibold">模块契约回归测试 (6/6 通过)</div>
+                    <div class="text-[11.5px] text-[var(--text-secondary)]">沙盒自动化验证 GW · VFC · PTZ · Media · Vision · FSVR</div>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <button onclick="toggleSuiteDetails()" id="suite-toggle-btn" class="ios-btn ios-btn-secondary !py-1.5 !px-2.5 !text-[11.5px]">详情 ▾</button>
+                    <button onclick="runRegressionSuite()" id="suite-run-btn" class="ios-btn ios-btn-primary !py-1.5 !text-[12px]">▶ 运行全部</button>
+                  </div>
+                </div>
+                <div id="suite-list" class="hidden grid-cols-2 gap-2 pt-2 border-t border-[var(--border-hairline)]"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== TAB 5: LOGS & CONFIG ==================== -->
+        <section id="tab-logs" class="tab-view hidden space-y-5">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold tracking-tight">日志排障与设备配置</h1>
+              <p class="text-[13px] text-[var(--text-secondary)] mt-0.5">实时跟随 (tail -F)、点击任意日志行关联整条 tid 请求或查看原文前后 16KB，右侧只读浏览远程配置</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="toggleLiveFollow()" id="live-follow-btn" class="ios-btn ios-btn-secondary">● 实时跟随: 开</button>
+              <button onclick="exportDiagZip()" class="ios-btn ios-btn-primary">导出诊断包 (.zip)</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <!-- Logs Viewer -->
+            <div class="lg:col-span-8 ios-card p-4 space-y-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <input id="log-search" type="text" placeholder="搜索日志文本、tid 或错误码…" oninput="renderLogs()"
+                       class="flex-1 min-w-[180px] px-3 py-1.5 rounded-[10px] bg-[var(--bg-segment)] text-[13px] outline-none border border-transparent focus:border-[var(--ios-blue)]" />
+                <div class="ios-segment">
+                  <button class="ios-segment-btn active" onclick="setLogFilter('all', this)">全部</button>
+                  <button class="ios-segment-btn" onclick="setLogFilter('error', this)">只看异常</button>
+                  <button class="ios-segment-btn" onclick="setLogFilter('ack', this)">只看 ACK</button>
+                </div>
+              </div>
+              <div id="log-rows" class="mono text-[12px] space-y-1.5 max-h-[430px] overflow-y-auto pr-1"></div>
+            </div>
+
+            <!-- Read-Only Remote Config Viewer -->
+            <div class="lg:col-span-4 ios-card p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="text-[14px] font-semibold">设备配置 (SSH 只读)</span>
+                <span class="text-[11px] text-[var(--text-tertiary)]">/oem/ttaviation/gateway/db</span>
+              </div>
+              <div class="flex flex-wrap gap-1.5" id="cfg-tabs">
+                <button class="ios-btn ios-btn-primary !py-1 !px-2.5 !text-[11.5px]" onclick="showCfg('mqttBroker.cfg', this)">mqttBroker.cfg</button>
+                <button class="ios-btn ios-btn-secondary !py-1 !px-2.5 !text-[11.5px]" onclick="showCfg('media.cfg', this)">media.cfg</button>
+                <button class="ios-btn ios-btn-secondary !py-1 !px-2.5 !text-[11.5px]" onclick="showCfg('gateway.cfg', this)">gateway.cfg</button>
+              </div>
+              <pre id="cfg-content" class="mono text-[11.5px] leading-relaxed p-3 rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] overflow-x-auto max-h-[360px]"></pre>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- RIGHT SLIDE-OVER MODULE INSPECTOR DRAWER (Shows live JSON + Field Diff when clicking any module!) -->
+  <div id="module-drawer-backdrop" class="fixed inset-0 bg-black/30 backdrop-blur-[2px] hidden z-40" onclick="closeModuleDrawer()">
+    <aside class="glass border-l border-[var(--border-strong)] w-full max-w-md h-full ml-auto p-5 flex flex-col justify-between shadow-2xl drawer-enter" onclick="event.stopPropagation()">
+      <div class="space-y-4 overflow-y-auto pr-1">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-[var(--ios-green)]"></span>
+            <h3 id="drawer-mod-title" class="text-[16px] font-bold">VFC 运控模块 · 实时检查器</h3>
+          </div>
+          <button onclick="closeModuleDrawer()" class="ios-btn ios-btn-secondary !px-2.5 !py-1 !text-[12px]">关闭</button>
+        </div>
+
+        <div class="rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-3 space-y-1">
+          <div class="text-[11px] font-semibold text-[var(--text-tertiary)]">最近上报 Topic</div>
+          <div id="drawer-mod-topic" class="mono text-[12px] text-[var(--ios-blue)] break-all">local/robotdog/vfc/state</div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[12.5px] font-semibold">与上一帧字段变化对比 (payload_diff)</span>
+            <span class="text-[11px] text-[var(--text-tertiary)]">已忽略 ts / seq / tid</span>
+          </div>
+          <div id="drawer-mod-diff" class="space-y-1.5 mono text-[11.5px]"></div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="text-[12.5px] font-semibold">最新状态报文 (JSON)</div>
+          <pre id="drawer-mod-json" class="mono text-[11.5px] leading-relaxed p-3 rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] overflow-x-auto"></pre>
+        </div>
+      </div>
+
+      <div class="pt-3 border-t border-[var(--border-hairline)] flex gap-2">
+        <button id="drawer-jump-cmd" class="ios-btn ios-btn-primary flex-1">调试该模块指令</button>
+        <button onclick="closeModuleDrawer(); switchTab('logs')" class="ios-btn ios-btn-secondary flex-1">查看模块日志</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- MOBILE BOTTOM TAB BAR -->
+  <nav class="md:hidden glass border-t border-[var(--border-hairline)] fixed bottom-0 inset-x-0 flex justify-around py-1.5 z-30">
+    <button class="flex flex-col items-center text-[10.5px] text-[var(--ios-blue)] font-medium" onclick="switchTab('overview')"><span>总览</span></button>
+    <button class="flex flex-col items-center text-[10.5px] text-[var(--text-secondary)]" onclick="switchTab('teleop')"><span>遥控</span></button>
+    <button class="flex flex-col items-center text-[10.5px] text-[var(--text-secondary)]" onclick="switchTab('commands')"><span>指令</span></button>
+    <button class="flex flex-col items-center text-[10.5px] text-[var(--text-secondary)]" onclick="switchTab('mission')"><span>任务</span></button>
+    <button class="flex flex-col items-center text-[10.5px] text-[var(--text-secondary)]" onclick="switchTab('logs')"><span>日志</span></button>
+  </nav>
+
+  <!-- CONNECTION POPOVER / SHEET MODAL -->
+  <div id="conn-modal" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-center justify-center p-4 z-50" onclick="if(event.target===this) closeConnModal()">
+    <div class="ios-card !bg-[var(--bg-card-solid)] w-full max-w-md p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-[16px] font-bold">连接与通道设置</h3>
+        <button onclick="closeConnModal()" class="ios-btn ios-btn-secondary !px-2.5 !py-1 text-[12px]">完成</button>
+      </div>
+
+      <div class="space-y-3 text-[13px]">
+        <!-- Saved Profiles Selector -->
+        <div>
+          <label class="block text-[11.5px] font-semibold text-[var(--text-tertiary)] mb-1">预设连接配置 (一键填入)</label>
+          <div class="grid grid-cols-3 gap-1.5">
+            <button onclick="loadPresetProfile('cloud_dog')" class="ios-btn ios-btn-secondary !py-1.5 !text-[11.5px]">云端测试狗</button>
+            <button onclick="loadPresetProfile('lan_dog')" class="ios-btn ios-btn-secondary !py-1.5 !text-[11.5px]">局域网直连狗</button>
+            <button onclick="loadPresetProfile('lan_uav')" class="ios-btn ios-btn-secondary !py-1.5 !text-[11.5px]">无人机 Bridge</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[11.5px] font-semibold text-[var(--text-tertiary)] mb-1">接入模式</label>
+          <div class="ios-segment w-full grid grid-cols-4">
+            <button class="ios-segment-btn active" onclick="setConnMode('cloud', this)">云端 MQTT</button>
+            <button class="ios-segment-btn" onclick="setConnMode('direct', this)">局域网直连</button>
+            <button class="ios-segment-btn" onclick="setConnMode('sandbox', this)">沙盒模拟</button>
+            <button class="ios-segment-btn" onclick="setConnMode('offline', this)">离线分析</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="block text-[11.5px] font-semibold text-[var(--text-tertiary)] mb-1">Broker 地址</label>
+            <input id="inp-host" type="text" value="124.126.230.115" class="w-full px-3 py-2 rounded-[10px] bg-[var(--bg-segment)] outline-none mono text-[12.5px]" />
+          </div>
+          <div>
+            <label class="block text-[11.5px] font-semibold text-[var(--text-tertiary)] mb-1">端口</label>
+            <input id="inp-port" type="number" value="1883" class="w-full px-3 py-2 rounded-[10px] bg-[var(--bg-segment)] outline-none mono text-[12.5px]" />
+          </div>
+        </div>
+
+        <div id="sn-field-wrap">
+          <label class="block text-[11.5px] font-semibold text-[var(--text-tertiary)] mb-1">设备 SN (Topic 路由键)</label>
+          <input id="inp-sn" type="text" value="TEST_DOG_001" class="w-full px-3 py-2 rounded-[10px] bg-[var(--bg-segment)] outline-none mono text-[12.5px]" />
+        </div>
+
+        <div class="flex items-center justify-between py-1">
+          <div>
+            <div class="font-medium">经远程 FRP (SSH 端口转发)</div>
+            <div class="text-[11.5px] text-[var(--text-tertiary)]">将设备端 1883 与 ZLM 80 映射至本机</div>
+          </div>
+          <button id="frp-switch" class="ios-switch" onclick="this.classList.toggle('on')"></button>
+        </div>
+
+        <div class="flex items-center justify-between py-1">
+          <div>
+            <div class="font-medium">启用 TLS 加密传输</div>
+            <div class="text-[11.5px] text-[var(--text-tertiary)]">云端生产 Broker 建议开启</div>
+          </div>
+          <button id="tls-switch" class="ios-switch on" onclick="this.classList.toggle('on')"></button>
+        </div>
+      </div>
+
+      <div class="pt-2 flex justify-end gap-2">
+        <button onclick="applyConnection()" class="ios-btn ios-btn-primary w-full py-2.5">应用并重连</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- COMMAND PALETTE (Ctrl+K / Cmd+K) -->
+  <div id="cmd-palette" class="fixed inset-0 bg-black/40 backdrop-blur-sm hidden items-start justify-center pt-20 p-4 z-50" onclick="if(event.target===this) closeCmdPalette()">
+    <div class="ios-card !bg-[var(--bg-card-solid)] w-full max-w-lg p-3 space-y-2 shadow-2xl">
+      <input id="palette-input" type="text" placeholder="输入指令名 (如 stand_up, take_photo, takeoff)…" oninput="renderPalette()"
+             class="w-full px-3.5 py-2.5 rounded-[11px] bg-[var(--bg-segment)] text-[14px] outline-none" />
+      <div id="palette-results" class="max-h-72 overflow-y-auto space-y-1"></div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="ios-toast" class="fixed bottom-16 md:bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-full glass border border-[var(--border-strong)] shadow-lg text-[13px] font-medium opacity-0 pointer-events-none transition-all duration-200 z-50"></div>
+
+  <script>
+    // ==================== UNIFIED STATE MODEL ====================
+    const state = {
+      device: 'dog', // 'dog' | 'uav'
+      tab: 'overview',
+      connMode: 'cloud',
+      sn: 'TEST_DOG_001',
+      uavSend: false,
+      vizMode: '3d',
+      scenario: 'ok',
+      selectedModuleFilter: 'all',
+      selectedCmdModule: 'all',
+      selectedCmdMethod: 'stand_up',
+      logFilter: 'all',
+      liveFollow: true,
+      ptz: { pitch: -15, yaw: 0 },
+      orbit: { yaw: 0.35, pitch: 0.22, dragging: false, lastX: 0, lastY: 0 },
+      angleTick: 0
+    };
+
+    const SUITE_CASES = [
+      { id: 'c1', name: 'GW 路由连通性', mod: 'GW', status: '通过 (12ms)', ok: true },
+      { id: 'c2', name: 'VFC 站立与步态', mod: 'VFC', status: '通过 (34ms)', ok: true },
+      { id: 'c3', name: 'PTZ 云台俯仰回中', mod: 'PTZ', status: '通过 (28ms)', ok: true },
+      { id: 'c4', name: 'Media 拍照与推流', mod: 'MEDIA', status: '通过 (41ms)', ok: true },
+      { id: 'c5', name: 'Vision AI 抓拍', mod: 'VISION', status: '通过 (65ms)', ok: true },
+      { id: 'c6', name: 'FSVR 双重校验上传', mod: 'FSVR', status: '通过 (89ms)', ok: true }
+    ];
+
+    const DEVICE_DATA = {
+      dog: {
+        name: '机器狗 L2',
+        badge: 'L2 机器狗',
+        meta: '固件 v3.1.4 · 电量 84%',
+        topicPrefix: 'tta/robotdog/{sn}/...',
+        ovTitle: '机器狗 · 状态总览与遥测',
+        teleopTitle: '机器狗 · 遥控与载荷',
+        teleopPadTitle: '运动控制 (VFC · 步态与速度)',
+        missionTitle: '机器狗 · 航点导航与文件同步',
+        missionSubtitle: '统一任务调度模型：支持直接在画布上点击添加新航点，右侧查看 FSVR 文件同步与回归测试',
+        missionMapLabel: 'SLAM 建图与航点轨迹',
+        vizTitle: '3D 实时姿态与点云',
+        vizPose: '姿态: 站立 · Pitch +1.2° · Roll -0.4°',
+        vizExtra: 'LiDAR: 14,820 pts · 2.0 Hz',
+        streamUrl: 'rtsp://127.0.0.1:8554/live/front · H.264 1080p · 1,640 kbps',
+        vitals: [
+          { label: '电池电量', val: '84%', sub: '51.2V 正常', color: 'var(--ios-green)', spark: 'M2 16 L12 15 L22 14 L32 13 L42 11 L52 9' },
+          { label: '关节温度', val: '42°C', sub: '12 关节正常', color: 'var(--ios-blue)', spark: 'M2 14 L12 13 L22 15 L32 12 L42 13 L52 11' },
+          { label: '定位模式', val: 'SLAM', sub: '置信度 98%', color: 'var(--ios-teal)', spark: 'M2 12 L12 12 L22 10 L32 11 L42 9 L52 8' },
+          { label: 'GW 延迟', val: '18ms', sub: 'MQTT QoS 1', color: 'var(--ios-purple)', spark: 'M2 15 L12 10 L22 14 L32 9 L42 12 L52 10' }
+        ],
+        modules: [
+          { id: 'gw', name: 'GW 网关', role: '路由转发', status: '在线', age: '0.4s', group: 'core', msg: '转发率 100% · 0 丢包', topic: 'tta/robotdog/TEST_DOG_001/state', diff: [['data.rx_rate', '38 msg/s', '42 msg/s'], ['data.cloud_rtt_ms', '19', '18']], sample: { module: 'gw', uptime_s: 14280, rx_rate: 42, tx_rate: 41, cloud_rtt_ms: 18 } },
+          { id: 'vfc', name: 'VFC 运控', role: '运动与状态', status: '在线', age: '0.2s', group: 'core', msg: '模式: 站立平衡 · 速度 0.0 m/s', topic: 'local/robotdog/vfc/data', diff: [['data.pitch_deg', '1.0', '1.2'], ['data.battery_pct', '85', '84']], sample: { method: 'osd', mode: 'stand_balance', vx: 0.0, vy: 0.0, pitch_deg: 1.2, roll_deg: -0.4, battery_pct: 84 } },
+          { id: 'ptz', name: 'PTZ 云台', role: '双轴云台', status: '在线', age: '0.8s', group: 'payload', msg: 'Pitch -15° · Yaw 0°', topic: 'local/robotdog/ptz/state', diff: [['data.pitch', '-10.0', '-15.0']], sample: { method: 'ptz_state', pitch: -15.0, yaw: 0.0, zoom: 1.0 } },
+          { id: 'media', name: 'Media 媒体', role: '拍照/录像/推流', status: '在线', age: '1.1s', group: 'payload', msg: 'ZLM 推流中 · 30fps', topic: 'local/robotdog/media/state', diff: [['info.bitrate_kbps', '1580', '1640']], sample: { method: 'stream_status', info: { result: 1, msg: 'streaming', bitrate_kbps: 1640, fps: 30 } } },
+          { id: 'vision', name: 'Vision 视觉', role: 'RK3588 识别', status: '在线', age: '0.6s', group: 'payload', msg: 'InspireFace / YOLO 就绪', topic: 'local/robotdog/vision/state', diff: [['data.npu_load_pct', '24%', '28%']], sample: { method: 'vision_state', model: 'yolo11n_rk3588', npu_load_pct: 28, infer_ms: 11.4 } },
+          { id: 'fsvr', name: 'FSVR 文件', role: '日志/地图同步', status: '在线', age: '1.5s', group: 'payload', msg: 'SQLite 队列 0 待传', topic: 'local/robotdog/fsvr/state', diff: [['data.state', '"1"', '"0" (已完成)']], sample: { method: 'media_file_upload_status', data: { state: '0', sha256: 'verified', pending: 0 } } },
+          { id: 'ros2bridge', name: 'ROS2Bridge', role: '雷达点云/导航', status: '在线', age: '0.5s', group: 'core', msg: 'pcd 2.0 Hz · map 坐标系', topic: 'local/robotdog/ros2bridge/data', diff: [['data.count', '14690', '14820'], ['data.o_x', '1.02', '1.08']], sample: { data: { type: 'pointcloud', frame_id: 'map', count: 14820, scale: 0.002, leaf: 0.08, o_x: 1.08, o_y: 0.42 } } }
+        ],
+        actions: [
+          { label: '站立 (stand_up)', method: 'stand_up', mod: 'vfc' },
+          { label: '趴下 (lie_down)', method: 'lie_down', mod: 'vfc' },
+          { label: '阻尼模式', method: 'damping', mod: 'vfc' },
+          { label: '开启点云', method: 'pcd_switch', mod: 'ros2bridge' },
+          { label: '步态切换', method: 'gait_switch', mod: 'vfc' },
+          { label: '一键回充', method: 'return_home', mod: 'vfc' }
+        ],
+        waypoints: [
+          { name: 'WP1 起点桩', status: '已到达', x: 70, y: 150 },
+          { name: 'WP2 机房A区', status: '巡检中', x: 190, y: 80 },
+          { name: 'WP3 配电柜', status: '待执行', x: 320, y: 135 },
+          { name: 'WP4 充电桩', status: '待执行', x: 430, y: 70 }
+        ],
+        commands: [
+          { method: 'stand_up', title: '站立姿态', module: 'vfc', topic: 'tta/robotdog/{sn}/command', payload: { tid: 't-801a', ts: 1731801200000, target: 'vfc', method: 'stand_up', data: { height: 0.32, speed: 0.5 } } },
+          { method: 'start_nav', title: '启动多点导航', module: 'vfc', topic: 'tta/robotdog/{sn}/command', payload: { tid: 't-802b', ts: 1731801205000, target: 'vfc', method: 'start_nav', data: { map_name: 'lab_floor2', loop: 1 } } },
+          { method: 'pcd_switch', title: '雷达点云开关', module: 'ros2bridge', topic: 'local/robotdog/ros2bridge/command', payload: { tid: 't-803c', ts: 1731801210000, method: 'pcd_switch', data: { enable: 1, leaf: 0.08 } } },
+          { method: 'take_photo', title: '云台拍照', module: 'media', topic: 'tta/robotdog/{sn}/command', payload: { tid: 't-804d', ts: 1731801215000, target: 'vision', method: 'take_photo', data: { channel: 'front', quality: 95 } } },
+          { method: 'capture_detection', title: 'AI 识别抓拍', module: 'vision', topic: 'tta/robotdog/{sn}/command', payload: { tid: 't-805e', ts: 1731801220000, target: 'vision', method: 'capture_detection', data: { model: 'yolo11n', conf: 0.65 } } },
+          { method: 'sync_media_file', title: '同步媒体文件', module: 'fsvr', topic: 'tta/robotdog/{sn}/command', payload: { tid: 't-806f', ts: 1731801225000, target: 'gw', method: 'sync_media_file', data: { file_service: 'fsvr', task_id: 'sync_01' } } }
+        ]
+      },
+      uav: {
+        name: '无人机 UAV',
+        badge: 'UAV 无人机',
+        meta: '飞控 v4.2.0 · 电量 76%',
+        topicPrefix: 'local/uav/...',
+        ovTitle: '无人机 · 状态总览与遥测',
+        teleopTitle: '无人机 · 遥控与载荷',
+        teleopPadTitle: '飞行控制 (VFC · 姿态与航向)',
+        missionTitle: '无人机 · 航线任务与文件同步',
+        missionSubtitle: '统一任务调度模型：与机器狗共用同样的指令与回执追踪链路，支持点击画布新增航点',
+        missionMapLabel: '三维航线与航点轨迹',
+        vizTitle: '3D 飞行姿态与地平仪',
+        vizPose: '姿态: 悬停 · Alt 18.4m · Heading 124°',
+        vizExtra: 'RTK: FIX · 18 颗卫星 · 0.2 m/s',
+        streamUrl: 'rtsp://127.0.0.1:8554/live/fpv · H.265 1080p · 2,120 kbps',
+        vitals: [
+          { label: '电池电量', val: '76%', sub: '22.8V 6S', color: 'var(--ios-green)', spark: 'M2 15 L12 14 L22 13 L32 12 L42 10 L52 9' },
+          { label: '相对高度', val: '18.4m', sub: '气压+RTK', color: 'var(--ios-blue)', spark: 'M2 16 L12 13 L22 10 L32 10 L42 9 L52 9' },
+          { label: 'RTK 状态', val: 'FIX', sub: '18 颗卫星', color: 'var(--ios-teal)', spark: 'M2 11 L12 11 L22 10 L32 10 L42 9 L52 9' },
+          { label: 'GW 延迟', val: '15ms', sub: 'MQTT QoS 1', color: 'var(--ios-purple)', spark: 'M2 14 L12 11 L22 13 L32 9 L42 11 L52 9' }
+        ],
+        modules: [
+          { id: 'gw', name: 'GW 网关', role: '路由转发', status: '在线', age: '0.3s', group: 'core', msg: '转发率 100% · 0 丢包', topic: 'local/uav/gw/state', diff: [['data.rx_rate', '48 msg/s', '52 msg/s']], sample: { module: 'gw', uptime_s: 8420, rx_rate: 52, cloud_rtt_ms: 15 } },
+          { id: 'vfc', name: 'VFC 飞控', role: '飞控与告警', status: '在线', age: '0.1s', group: 'core', msg: '模式: 定点悬停 · 0 告警', topic: 'local/uav/vfc/osd', diff: [['data.alt_m', '18.2', '18.4'], ['data.yaw_deg', '123.5', '124.0']], sample: { method: 'osd', flight_mode: 'POSCTL_HOVER', alt_m: 18.4, yaw_deg: 124.0, rtk_sats: 18 } },
+          { id: 'bridge', name: 'UAV Bridge', role: 'MQTT↔ROS 桥', status: '在线', age: '0.3s', group: 'core', msg: 'accepted → final 正常', topic: 'local/uav/bridge/state/navigation', diff: [['status', 'accepted', 'succeeded (final=true)']], sample: { id: 'kunkun-9f2a1c', status: 'succeeded', final: true, info: { data: '0', msg: 'route active' } } },
+          { id: 'ptz', name: 'PTZ 云台', role: '三轴稳像', status: '在线', age: '0.7s', group: 'payload', msg: 'Pitch -30° · Yaw 0°', topic: 'local/uav/ptz/state', diff: [['data.pitch', '-28.0', '-30.0']], sample: { method: 'ptz_state', pitch: -30.0, yaw: 0.0, mode: 'follow' } },
+          { id: 'media', name: 'Media 媒体', role: '拍照/录像/推流', status: '在线', age: '0.9s', group: 'payload', msg: 'ZLM 推流中 · 30fps', topic: 'local/uav/media/state', diff: [['info.bitrate_kbps', '2050', '2120']], sample: { method: 'stream_status', info: { result: 1, codec: 'h265', bitrate_kbps: 2120 } } },
+          { id: 'vision', name: 'Vision 视觉', role: '机载目标跟踪', status: '在线', age: '0.5s', group: 'payload', msg: 'YOLOv11 + DeepSORT 就绪', topic: 'local/uav/vision/state', diff: [['data.tracked_objs', '2', '3']], sample: { method: 'vision_state', tracker: 'deepsort', tracked_objs: 3, infer_ms: 12.1 } },
+          { id: 'fsvr', name: 'FSVR 文件', role: '航片/日志同步', status: '在线', age: '1.2s', group: 'payload', msg: 'SHA256 双重校验就绪', topic: 'local/uav/fsvr/state', diff: [['data.state', '"1"', '"0"']], sample: { method: 'media_file_upload_status', data: { state: '0', sha256: 'verified' } } }
+        ],
+        actions: [
+          { label: '一键起飞 (takeoff)', method: 'takeoff', mod: 'bridge' },
+          { label: '原地降落 (land)', method: 'land', mod: 'bridge' },
+          { label: '悬停保持 (hover)', method: 'hover', mod: 'vfc' },
+          { label: '一键返航 (RTH)', method: 'return_home', mod: 'bridge' },
+          { label: '开启目标跟踪', method: 'track_switch', mod: 'vision' },
+          { label: '航向校准', method: 'yaw_align', mod: 'vfc' }
+        ],
+        waypoints: [
+          { name: 'H 起飞点', status: '已起飞', x: 65, y: 165 },
+          { name: 'WP1 塔基巡检', status: '飞往中', x: 185, y: 65 },
+          { name: 'WP2 鼓楼顶拍', status: '待执行', x: 325, y: 95 },
+          { name: 'WP3 自动返航', status: '待执行', x: 435, y: 155 }
+        ],
+        commands: [
+          { method: 'navigation.start', title: '启动航线任务', module: 'bridge', topic: 'local/uav/bridge/command', payload: { id: 'kunkun-9f2a1c', ts: 1731801200000, action: 'navigation.start', bid: 'bid-2026-01', params: { route_id: 'tower_inspect_01', speed: 4.5 } } },
+          { method: 'navigation.pause', title: '暂停当前航线', module: 'bridge', topic: 'local/uav/bridge/command', payload: { id: 'kunkun-9f2a1d', ts: 1731801205000, action: 'navigation.pause', bid: 'bid-2026-01', params: { hold_sec: 30 } } },
+          { method: 'takeoff', title: 'VFC 一键起飞', module: 'vfc', topic: 'local/uav/vfc/command', payload: { tid: 'u-301a', ts: 1731801210000, method: 'takeoff', data: { height: 15.0, climb_rate: 1.5 } } },
+          { method: 'take_photo', title: '云台拍照', module: 'media', topic: 'local/uav/media/command', payload: { tid: 'u-302b', ts: 1731801215000, method: 'take_photo', data: { channel: 'main', quality: 95 } } },
+          { method: 'capture_detection', title: '视觉目标抓拍', module: 'vision', topic: 'local/uav/vision/command', payload: { tid: 'u-303c', ts: 1731801220000, method: 'capture_detection', data: { model: 'yolov11_track', conf: 0.7 } } },
+          { method: 'sync_media_file', title: '同步航拍文件', module: 'fsvr', topic: 'local/uav/fsvr/command', payload: { tid: 'u-304d', ts: 1731801225000, method: 'sync_media_file', data: { file_service: 'fsvr', task_id: 'uav_sync_01' } } }
+        ]
+      }
+    };
+
+    const TRACES = [
+      { id: 't-801a', method: 'stand_up', module: 'vfc', status: '操作成功', latency: '38ms', time: '14:22:08', summary: 'VFC 已切换到站立平衡姿态', diag: '链路全通：GW 已正常转发且 VFC 明确返回 result=0。', steps: ['控制台下发 MQTT command', 'GW 校验 SN 并转发到 local/.../vfc/command', 'VFC 执行站立状态机', 'VFC 返回 ACK (result: 0)'] },
+      { id: 't-799x', method: 'camera_livestream', module: 'media', status: '失败', latency: '412ms', time: '14:19:44', summary: 'MEDIA：RTSP 推流通道被占用 (result: -12)', diag: '定位：MEDIA 模块明确返回错误码 -12。建议检查 ZLM 是否已有同流 ID 推流，或先发 stop 再开流。', steps: ['控制台下发 MQTT command', 'GW 按 VISION_TO_MEDIA 规则改投 Media', 'Media 尝试打开 ZLM 推流通道', 'Media 返回 ACK (result: -12, stream busy)'] },
+      { id: 't-795k', method: 'sync_media_file', module: 'fsvr', status: '完成', latency: '145ms', time: '14:15:11', summary: 'FSVR 双重 SHA256 校验通过，state=0', diag: '文件业务终态已确认：收到 media_file_upload_status 的 state="0"。', steps: ['控制台下发文件同步指令', 'GW 识别 file_service=fsvr 转发', 'FSVR 分块上传并校验', 'FSVR 上报 media_file_upload_status (state=0)'] }
+    ];
+
+    const FILES_LIST = [
+      { name: 'IMG_20261117_142012.jpg', size: '3.4 MB', mod: 'VISION', status: '已完成 (SHA256 ✓)', color: 'var(--ios-green)' },
+      { name: 'map_lab_floor2.pcd', size: '48.2 MB', mod: 'FSVR', status: '已完成 (state=0)', color: 'var(--ios-green)' },
+      { name: 'REC_20261117_1415.mp4', size: '126.0 MB', mod: 'MEDIA', status: '上传中 72%', color: 'var(--ios-blue)' }
+    ];
+
+    const LOGS_LIST = [
+      { ts: '14:22:08.112', mod: 'gw', tid: 't-801a', level: 'INFO', text: '[gw] route target=vfc method=stand_up tid=t-801a -> local/vfc/command' },
+      { ts: '14:22:08.150', mod: 'vfc', tid: 't-801a', level: 'ACK', text: '[vfc] ack tid=t-801a result=0 msg="stand_up ok" (38ms)' },
+      { ts: '14:19:44.520', mod: 'media', tid: 't-799x', level: 'ERROR', text: '[media] zlm_push_start failed: rtsp channel /live/front already active (result=-12) tid=t-799x' },
+      { ts: '14:18:10.004', mod: 'vision', tid: 't-795k', level: 'INFO', text: '[vision] rk3588 rga_pool=3 dma32 ok, inference=11.4ms' },
+      { ts: '14:15:11.890', mod: 'fsvr', tid: 't-795k', level: 'ACK', text: '[fsvr] media_file_upload_status tid=t-795k state="0" sha256=verified' }
+    ];
+
+    const CFG_FILES = {
+      'mqttBroker.cfg': `[broker]\nhost = 127.0.0.1\nport = 1883\nkeepalive = 30\ncloud_bridge = true\n\n[topics]\nuplink = tta/robotdog/\${SN}/state\ndownlink = tta/robotdog/\${SN}/command`,
+      'media.cfg': `[zlm]\nrtsp_port = 8554\nhttp_port = 80\nlow_latency = true\n\n[camera_front]\nwidth = 1920\nheight = 1080\nfps = 30\ncodec = h264`,
+      'gateway.cfg': `[routing]\nvision_to_media = take_photo,camera_recording,camera_livestream\nfile_service = fsvr\nack_timeout_ms = 5000`
+    };
+
+    // ==================== RENDERING FUNCTIONS ====================
+    function showToast(msg) {
+      const el = document.getElementById('ios-toast');
+      el.textContent = msg;
+      el.style.opacity = '1';
+      el.style.transform = 'translate(-50%, -6px)';
+      clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translate(-50%, 0)';
+      }, 2400);
+    }
+
+    function switchDevice(dev) {
+      state.device = dev;
+      document.getElementById('btn-dev-dog').classList.toggle('active', dev === 'dog');
+      document.getElementById('btn-dev-uav').classList.toggle('active', dev === 'uav');
+      const uavWrap = document.getElementById('uav-safety-wrap');
+      uavWrap.classList.toggle('hidden', dev !== 'uav');
+      uavWrap.classList.toggle('flex', dev === 'uav');
+
+      const d = DEVICE_DATA[dev];
+      state.sn = dev === 'dog' ? 'TEST_DOG_001' : 'UAV_BRIDGE';
+      state.selectedCmdMethod = d.commands[0].method;
+
+      document.getElementById('side-badge').textContent = d.badge;
+      document.getElementById('side-meta').innerHTML = `${d.meta}<br/><span class="mono text-[11px] text-[var(--text-tertiary)]">${d.topicPrefix}</span>`;
+      document.getElementById('conn-pill-text').innerHTML = `<span class="text-[var(--text-primary)]">${state.connMode === 'cloud' ? '云端 MQTT' : '局域网直连'}</span><span class="text-[var(--text-tertiary)] mx-1">·</span><span class="mono text-[12px] text-[var(--text-secondary)]">${state.sn}</span>`;
+      document.getElementById('topology-hint').textContent = dev === 'dog'
+        ? `当前路由: tta/robotdog/${state.sn}/* → GW 转发至各模块`
+        : `当前路由: local/uav/* → GW / Bridge 转发至飞控与载荷模块`;
+
+      renderAll();
+      showToast(`已切换至 ${d.name}（页面结构与操作逻辑保持一致）`);
+    }
+
+    function switchTab(tab) {
+      state.tab = tab;
+      document.querySelectorAll('.tab-view').forEach(el => el.classList.add('hidden'));
+      document.getElementById('tab-' + tab).classList.remove('hidden');
+      document.querySelectorAll('.nav-item').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+      });
+    }
+
+    function toggleTheme() {
+      document.documentElement.classList.toggle('dark');
+      const isDark = document.documentElement.classList.contains('dark');
+      renderPcbTopology(DEVICE_DATA[state.device]);
+      showToast(isDark ? '已切换至深色外观' : '已切换至浅色外观');
+    }
+
+    function toggleUavSend() {
+      state.uavSend = !state.uavSend;
+      document.getElementById('uav-send-switch').classList.toggle('on', state.uavSend);
+      showToast(state.uavSend ? '已解锁：允许向无人机发送指令' : '已锁定：无人机处于只读安全模式');
+    }
+
+    function renderAll() {
+      const d = DEVICE_DATA[state.device];
+      document.getElementById('ov-title').textContent = d.ovTitle;
+      document.getElementById('viz-title').textContent = d.vizTitle;
+      document.getElementById('viz-pose-tag').textContent = d.vizPose;
+      document.getElementById('viz-extra-tag').textContent = d.vizExtra;
+      document.getElementById('stream-meta').textContent = d.streamUrl;
+
+      document.getElementById('teleop-title').textContent = d.teleopTitle;
+      document.getElementById('teleop-pad-title').textContent = d.teleopPadTitle;
+      document.getElementById('teleop-stream-url').textContent = d.streamUrl;
+
+      document.getElementById('mission-title').textContent = d.missionTitle;
+      document.getElementById('mission-subtitle').textContent = d.missionSubtitle;
+      document.getElementById('mission-map-label').textContent = d.missionMapLabel;
+
+      renderPcbTopology(d);
+      renderVitals(d);
+      renderModules(d);
+      renderOverviewTraces();
+      renderTeleopActions(d);
+      renderCmdCatalog();
+      renderTracePipeline(TRACES[0]);
+      renderMission(d);
+      renderSuite();
+      renderLogs();
+      showCfg('mqttBroker.cfg');
+    }
+
+    // ==================== 90-DEGREE PCB ORTHOGONAL TOPOLOGY ====================
+    
+    function toggleTopoDiagram() {
+      const wrap = document.getElementById('topo-diagram-wrap');
+      const btn = document.getElementById('topo-toggle-btn');
+      const isHidden = wrap.classList.contains('hidden');
+      wrap.classList.toggle('hidden', !isHidden);
+      btn.textContent = isHidden ? '收起架构图 ▴' : '展开架构图 ▾';
+    }
+
+    function setPayloadEditMode(mode) {
+      const isForm = mode === 'form';
+      document.getElementById('mode-btn-form').classList.toggle('active', isForm);
+      document.getElementById('mode-btn-json').classList.toggle('active', !isForm);
+      document.getElementById('payload-form-wrap').classList.toggle('hidden', !isForm);
+      document.getElementById('cmd-json').classList.toggle('hidden', isForm);
+    }
+
+    function toggleSuiteDetails() {
+      const list = document.getElementById('suite-list');
+      const btn = document.getElementById('suite-toggle-btn');
+      const isHidden = list.classList.contains('hidden');
+      list.classList.toggle('hidden', !isHidden);
+      list.classList.toggle('grid', isHidden);
+      btn.textContent = isHidden ? '收起 ▴' : '详情 ▾';
+    }
+
+    function renderPcbTopology(d) {
+      const svg = document.getElementById('pcb-topology-svg');
+      if (!svg) return;
+      const isDark = document.documentElement.classList.contains('dark');
+      const strokeBus = isDark ? '#38BDF8' : '#007AFF';
+      const nodeBg = isDark ? '#1F1F23' : '#FFFFFF';
+      const nodeBorder = isDark ? 'rgba(255,255,255,0.16)' : 'rgba(60,60,67,0.16)';
+      const textMain = isDark ? '#F4F4F6' : '#1C1C1E';
+      const textSub = isDark ? '#A1A1AA' : '#636366';
+
+      const mods = d.modules.filter(m => m.id !== 'gw');
+      const startX = 330;
+      const gap = 96;
+
+      svg.innerHTML = `
+        <!-- Orthogonal Horizontal Main Bus Line: Console -> MQTT -> GW -> Trunk -->
+        <path d="M 95 44 L 285 44" fill="none" stroke="${strokeBus}" stroke-width="2.2" />
+        <!-- Orthogonal Trunk Spine at Y=44 across all downstream modules -->
+        <path d="M 285 44 L ${startX + (mods.length - 1) * gap} 44" fill="none" stroke="${strokeBus}" stroke-width="2.2" />
+
+        <!-- Upstream Nodes: Console & GW -->
+        <g class="pcb-node" onclick="openConnModal()">
+          <rect x="12" y="20" width="96" height="48" rx="10" fill="${nodeBg}" stroke="${strokeBus}" stroke-width="1.6"/>
+          <text x="60" y="41" text-anchor="middle" fill="${textMain}" font-size="11.5" font-weight="600">调试台 / 云端</text>
+          <text x="60" y="56" text-anchor="middle" fill="${textSub}" font-size="10" class="mono">MQTT Broker</text>
+        </g>
+
+        <g class="pcb-node" onclick="openModuleDrawer('gw')">
+          <rect x="158" y="20" width="106" height="48" rx="10" fill="${nodeBg}" stroke="#34C759" stroke-width="1.8"/>
+          <circle cx="172" cy="36" r="3.5" fill="#34C759"/>
+          <text x="215" y="41" text-anchor="middle" fill="${textMain}" font-size="11.5" font-weight="700">GW 网关转发</text>
+          <text x="211" y="56" text-anchor="middle" fill="${textSub}" font-size="10" class="mono">0.3s · 100%</text>
+        </g>
+
+        <!-- 90-degree Vertical Drop Taps to each Module -->
+        ${mods.map((m, i) => {
+          const cx = startX + i * gap;
+          return `
+            <g class="pcb-node" onclick="openModuleDrawer('${m.id}')">
+              <!-- Solder joint dot on bus -->
+              <circle cx="${cx}" cy="44" r="3.5" fill="${strokeBus}" />
+              <!-- 90-degree vertical tap line -->
+              <path d="M ${cx} 44 L ${cx} 74" fill="none" stroke="${strokeBus}" stroke-width="1.8" stroke-dasharray="3 2"/>
+              <rect x="${cx - 42}" y="74" width="84" height="48" rx="9" fill="${nodeBg}" stroke="${nodeBorder}" stroke-width="1.2"/>
+              <circle cx="${cx - 30}" cy="90" r="3" fill="#34C759"/>
+              <text x="${cx + 4}" y="94" text-anchor="middle" fill="${textMain}" font-size="11" font-weight="600">${m.name.split(' ')[0]}</text>
+              <text x="${cx}" y="110" text-anchor="middle" fill="${textSub}" font-size="9.5" class="mono">${m.role}</text>
+            </g>
+          `;
+        }).join('')}
+      `;
+    }
+
+    function renderVitals(d) {
+      document.getElementById('vital-metrics').innerHTML = d.vitals.map(v => `
+        <div class="rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-2.5 flex flex-col justify-between">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] text-[var(--text-tertiary)]">${v.label}</span>
+            <svg width="54" height="20" viewBox="0 0 54 20" class="overflow-visible">
+              <path d="${v.spark}" fill="none" stroke="${v.color}" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="text-[16px] font-bold mt-0.5" style="color:${v.color}">${v.val}</div>
+          <div class="text-[10.5px] text-[var(--text-secondary)] truncate">${v.sub}</div>
+        </div>
+      `).join('');
+    }
+
+    function filterModules(group, btn) {
+      state.selectedModuleFilter = group;
+      btn.parentElement.querySelectorAll('.ios-segment-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderModules(DEVICE_DATA[state.device]);
+    }
+
+    function renderModules(d) {
+      const list = d.modules.filter(m => state.selectedModuleFilter === 'all' || m.group === state.selectedModuleFilter);
+      document.getElementById('bus-summary').textContent = `${d.modules.length}/${d.modules.length} 在线`;
+      document.getElementById('module-grid').innerHTML = list.map(m => `
+        <button onclick="openModuleDrawer('${m.id}')" class="ios-card ios-card-interactive !rounded-[14px] p-3 text-left flex flex-col gap-1.5 cursor-pointer">
+          <div class="flex items-center justify-between w-full">
+            <span class="text-[13px] font-semibold">${m.name}</span>
+            <span class="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--ios-green)]">
+              <span class="w-2 h-2 rounded-full bg-[var(--ios-green)]"></span>${m.age}
+            </span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-[var(--text-tertiary)]">
+            <span>${m.role}</span>
+            <span class="text-[var(--ios-blue)]">详情 · Diff →</span>
+          </div>
+          <div class="text-[11.5px] text-[var(--text-secondary)] truncate pt-1 border-t border-[var(--border-hairline)]">${m.msg}</div>
+        </button>
+      `).join('');
+    }
+
+    // ==================== MODULE INSPECTOR DRAWER ====================
+    function openModuleDrawer(modId) {
+      const d = DEVICE_DATA[state.device];
+      const m = d.modules.find(x => x.id === modId) || d.modules[0];
+      document.getElementById('drawer-mod-title').textContent = `${m.name} · 实时状态检查器`;
+      document.getElementById('drawer-mod-topic').textContent = m.topic;
+      document.getElementById('drawer-mod-diff').innerHTML = (m.diff || []).map(([k, oldV, newV]) => `
+        <div class="px-2.5 py-1.5 rounded-[8px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] flex items-center justify-between">
+          <span class="text-[var(--text-secondary)]">${k}</span>
+          <span><del class="text-[var(--text-tertiary)] mr-1.5">${oldV}</del><b class="text-[var(--ios-blue)]">${newV}</b></span>
+        </div>
+      `).join('');
+      document.getElementById('drawer-mod-json').textContent = JSON.stringify(m.sample, null, 2);
+      document.getElementById('drawer-jump-cmd').onclick = () => {
+        closeModuleDrawer();
+        jumpToModule(m.id);
+      };
+      const el = document.getElementById('module-drawer-backdrop');
+      el.classList.remove('hidden');
+      el.classList.add('flex');
+    }
+
+    function closeModuleDrawer() {
+      const el = document.getElementById('module-drawer-backdrop');
+      el.classList.add('hidden');
+      el.classList.remove('flex');
+    }
+
+    function jumpToModule(modId) {
+      state.selectedCmdModule = modId;
+      switchTab('commands');
+      renderCmdCatalog();
+      showToast(`已定位到 ${modId.toUpperCase()} 模块指令`);
+    }
+
+    function renderOverviewTraces() {
+      document.getElementById('overview-traces').innerHTML = TRACES.map((t, idx) => {
+        const isErr = t.status === '失败' || t.status === '无 ACK';
+        const badgeColor = isErr ? 'var(--ios-red)' : 'var(--ios-green)';
+        const badgeBg = isErr ? 'rgba(255,59,48,0.12)' : 'rgba(52,199,89,0.14)';
+        return `
+          <div onclick="inspectTrace(${idx})" class="py-2.5 px-2 -mx-2 rounded-[10px] hover:bg-[var(--bg-hover)] flex flex-wrap items-center justify-between gap-2 cursor-pointer transition">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0" style="color:${badgeColor};background:${badgeBg}">${t.status}</span>
+              <span class="mono text-[12.5px] font-semibold">${t.method}</span>
+              <span class="text-[11px] px-1.5 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--text-secondary)] uppercase">${t.module}</span>
+              <span class="text-[12.5px] text-[var(--text-secondary)] truncate">${t.summary}</span>
+            </div>
+            <div class="flex items-center gap-3 text-[11.5px] mono text-[var(--text-tertiary)] shrink-0">
+              <span>tid=${t.id}</span>
+              <span>${t.latency}</span>
+              <span>${t.time}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function inspectTrace(idx) {
+      switchTab('commands');
+      renderTracePipeline(TRACES[idx]);
+    }
+
+    function renderTeleopActions(d) {
+      document.getElementById('teleop-actions').innerHTML = d.actions.map(a => `
+        <button onclick="fireQuickCmd('${a.method}', '${a.mod}')" class="ios-btn ios-btn-secondary !py-2.5 !text-[12px]">${a.label}</button>
+      `).join('');
+    }
+
+    function setSpeedGear(label, btn) {
+      btn.parentElement.querySelectorAll('.ios-segment-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      showToast(`已切换速度档位：${label}`);
+    }
+
+    function switchCamLens(lens, btn) {
+      btn.parentElement.querySelectorAll('.ios-segment-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('fpv-lens-tag').textContent = `LIVE · ${lens}`;
+      const glow = document.getElementById('fpv-bg-glow');
+      glow.style.background = lens.includes('红外')
+        ? 'radial-gradient(circle at center, #FF9500 0%, #FF3B30 45%, transparent 75%)'
+        : 'radial-gradient(circle at center, #007AFF 0%, transparent 70%)';
+      showToast(`已切换镜头通道：${lens}`);
+    }
+
+    function sendTeleop(dir, vx = 0.5, vy = 0, wz = 0) {
+      if (state.device === 'uav' && !state.uavSend) {
+        showToast('无人机处于只读安全模式，请先打开顶部「允许下发」开关');
+        return;
+      }
+      document.getElementById('teleop-vel').textContent = `vx: ${vx.toFixed(2)} · vy: ${vy.toFixed(2)} · wz: ${wz.toFixed(2)}`;
+      document.getElementById('teleop-feedback-title').textContent = `已发送 ${dir} 控制帧`;
+      document.getElementById('teleop-feedback-detail').textContent = `GW 转发 → VFC 实时响应 (18 ms)`;
+    }
+
+    function emergencyStop() {
+      document.getElementById('teleop-vel').textContent = 'vx: 0.00 · vy: 0.00 · wz: 0.00 (已急停)';
+      document.getElementById('teleop-feedback-title').textContent = '已触发紧急停止 / 悬停';
+      showToast('已发送急停指令！');
+    }
+
+    function updatePtz(axis, val) {
+      state.ptz[axis] = val;
+      document.getElementById(`ptz-${axis}-val`).textContent = `${val}°`;
+    }
+
+    function resetPtz() {
+      state.ptz = { pitch: 0, yaw: 0 };
+      document.getElementById('ptz-pitch-val').textContent = '0°';
+      document.getElementById('ptz-yaw-val').textContent = '0°';
+      document.getElementById('ptz-pitch-slider').value = 0;
+      document.getElementById('ptz-yaw-slider').value = 0;
+      showToast('云台已回中');
+    }
+
+    function setScenario(val) {
+      state.scenario = val;
+      const names = { ok: '正常返回 (ACK=0)', busy: '模块返回失败 (result=-12)', timeout: '模块无响应 (无 ACK 超时)', duplicate: '重复投递 (双份 ACK)' };
+      showToast(`沙盒模拟场景已设为：${names[val]}`);
+    }
+
+    function fireQuickCmd(method, mod) {
+      if (state.device === 'uav' && !state.uavSend) {
+        showToast('无人机处于只读安全模式，请先打开顶部「允许下发」开关');
+        return;
+      }
+      const sc = state.scenario;
+      const latency = sc === 'timeout' ? '—' : Math.floor(22 + Math.random() * 28) + 'ms';
+      let status = '操作成功';
+      let summary = `${mod.toUpperCase()} 返回 ACK (result: 0)`;
+      let diag = `链路全通：GW 已正常转发且 ${mod.toUpperCase()} 明确返回 result=0。`;
+      let steps = [
+        '控制台构造指令并注入 tid / ts',
+        `MQTT 发布至 ${state.device === 'dog' ? 'tta/robotdog' : 'local/uav'}`,
+        `GW 路由转发至目标模块 ${mod.toUpperCase()}`,
+        `${mod.toUpperCase()} 执行并返回 ACK (${latency})`
+      ];
+
+      if (sc === 'busy') {
+        status = '失败';
+        summary = `${mod.toUpperCase()}：设备忙或前置条件未满足 (result: -12)`;
+        diag = `定位：${mod.toUpperCase()} 返回明确失败码 -12。建议点击「查前后日志」核对该模块状态机。`;
+        steps[3] = `${mod.toUpperCase()} 返回明确失败 ACK (result: -12)`;
+      } else if (sc === 'timeout') {
+        status = '无 ACK';
+        summary = '指令已发出，未收到模块回复 (不等于设备执行失败)';
+        diag = `定位：未观测到 ${mod.toUpperCase()} 的 ACK。请检查模块进程是否在线或 Topic 订阅是否匹配。`;
+        steps[3] = `等待 ${mod.toUpperCase()} 回复超时 (未收到 ACK)`;
+      } else if (sc === 'duplicate') {
+        status = '操作成功';
+        summary = `${mod.toUpperCase()} 返回 ACK (同一通道收到 2 份回复，可能重投)`;
+        diag = '提示：同一回复通道观测到 2 份 ACK，可能是 QoS 重投或补发，不据此断言重复执行。';
+      }
+
+      const newTrace = {
+        id: 't-' + Math.random().toString(16).slice(2, 6),
+        method,
+        module: mod,
+        status,
+        latency,
+        time: new Date().toTimeString().slice(0, 8),
+        summary,
+        diag,
+        steps
+      };
+      TRACES.unshift(newTrace);
+      if (TRACES.length > 6) TRACES.pop();
+
+      const isErr = status === '失败' || status === '无 ACK';
+      document.getElementById('last-ack-text').textContent = `${method} · ${status} (${latency})`;
+      document.getElementById('last-ack-dot').style.background = isErr ? 'var(--ios-red)' : 'var(--ios-green)';
+      document.getElementById('teleop-feedback-title').textContent = `${method} · ${status}`;
+      document.getElementById('teleop-feedback-detail').textContent = summary;
+
+      renderOverviewTraces();
+      renderTracePipeline(newTrace);
+      showToast(`${method} 已发送 → ${status}`);
+    }
+
+    // ==================== DUAL-MODE SMART PARAMETER FORM + JSON ====================
+    function renderCmdCatalog() {
+      const d = DEVICE_DATA[state.device];
+      const mods = ['all', ...new Set(d.commands.map(c => c.module))];
+      document.getElementById('cmd-module-pills').innerHTML = mods.map(m => `
+        <button onclick="state.selectedCmdModule='${m}';renderCmdCatalog()"
+                class="px-2.5 py-1 rounded-full text-[11.5px] font-medium cursor-pointer transition ${state.selectedCmdModule === m ? 'bg-[var(--ios-blue)] text-white' : 'bg-[var(--bg-segment)] text-[var(--text-secondary)]'}">
+          ${m === 'all' ? '全部' : m.toUpperCase()}
+        </button>
+      `).join('');
+
+      const q = (document.getElementById('cmd-search').value || '').toLowerCase();
+      const filtered = d.commands.filter(c =>
+        (state.selectedCmdModule === 'all' || c.module === state.selectedCmdModule) &&
+        (!q || c.method.toLowerCase().includes(q) || c.title.includes(q) || c.module.includes(q))
+      );
+
+      document.getElementById('cmd-list').innerHTML = filtered.map(c => `
+        <button onclick="selectCmd('${c.method}')" class="w-full text-left px-3 py-2.5 rounded-[11px] cursor-pointer transition flex items-center justify-between ${state.selectedCmdMethod === c.method ? 'bg-[var(--bg-hover)] border border-[var(--ios-blue)]/40' : 'hover:bg-[var(--bg-segment)] border border-transparent'}">
+          <div class="min-w-0">
+            <div class="text-[13px] font-semibold truncate">${c.title}</div>
+            <div class="mono text-[11.5px] text-[var(--text-tertiary)] truncate">${c.method}</div>
+          </div>
+          <span class="text-[10.5px] font-semibold px-2 py-0.5 rounded bg-[var(--bg-segment)] text-[var(--text-secondary)] uppercase shrink-0">${c.module}</span>
+        </button>
+      `).join('');
+
+      const cur = d.commands.find(c => c.method === state.selectedCmdMethod) || d.commands[0];
+      if (cur) {
+        document.getElementById('cmd-topic').textContent = cur.topic.replace('{sn}', state.sn);
+        document.getElementById('cmd-target-badge').textContent = `target: ${cur.module}`;
+        document.getElementById('cmd-json').value = JSON.stringify(cur.payload, null, 2);
+        renderQuickFormFromPayload(cur.payload);
+      }
+    }
+
+    function renderQuickFormFromPayload(payload) {
+      const box = document.getElementById('cmd-quick-fields');
+      const paramsObj = payload.data || payload.params || {};
+      const keys = Object.keys(paramsObj);
+      if (!keys.length) {
+        box.innerHTML = `<div class="text-[11.5px] text-[var(--text-tertiary)]">该指令无附加业务参数</div>`;
+        return;
+      }
+      box.innerHTML = keys.map(k => {
+        const val = paramsObj[k];
+        return `
+          <div class="flex items-center justify-between gap-2 text-[12px]">
+            <label class="mono text-[var(--text-secondary)]">${k}</label>
+            <input type="${typeof val === 'number' ? 'number' : 'text'}" step="any" value="${val}"
+                   oninput="updatePayloadField('${k}', this.value, '${typeof val}')"
+                   class="w-36 px-2.5 py-1 rounded-[8px] bg-[var(--bg-card-solid)] border border-[var(--border-hairline)] mono text-[12px] text-right outline-none focus:border-[var(--ios-blue)]" />
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updatePayloadField(key, rawVal, type) {
+      try {
+        const obj = JSON.parse(document.getElementById('cmd-json').value);
+        const target = obj.data || obj.params;
+        if (target) {
+          target[key] = type === 'number' ? Number(rawVal) : rawVal;
+          document.getElementById('cmd-json').value = JSON.stringify(obj, null, 2);
+        }
+      } catch {}
+    }
+
+    function syncJsonToForm() {
+      try {
+        const obj = JSON.parse(document.getElementById('cmd-json').value);
+        renderQuickFormFromPayload(obj);
+      } catch {}
+    }
+
+    function copyJsonPayload() {
+      const el = document.getElementById('cmd-json');
+      el.select();
+      document.execCommand('copy');
+      showToast('已复制 JSON 报文到剪贴板');
+    }
+
+    function selectCmd(method) {
+      state.selectedCmdMethod = method;
+      renderCmdCatalog();
+    }
+
+    function refreshPayloadIds() {
+      try {
+        const obj = JSON.parse(document.getElementById('cmd-json').value);
+        if ('tid' in obj) obj.tid = 't-' + Math.random().toString(16).slice(2, 6);
+        if ('id' in obj) obj.id = 'kunkun-' + Math.random().toString(16).slice(2, 8);
+        obj.ts = Date.now();
+        document.getElementById('cmd-json').value = JSON.stringify(obj, null, 2);
+        showToast('已刷新 tid / ts');
+      } catch {
+        showToast('JSON 格式有误，请检查');
+      }
+    }
+
+    function sendCurrentCommand() {
+      const d = DEVICE_DATA[state.device];
+      const cur = d.commands.find(c => c.method === state.selectedCmdMethod) || d.commands[0];
+      fireQuickCmd(cur.method, cur.module);
+    }
+
+    function renderTracePipeline(t) {
+      state.activeTrace = t;
+      const isErr = t.status === '失败' || t.status === '无 ACK';
+      const badge = document.getElementById('trace-badge');
+      badge.textContent = `${t.status} · ${t.latency}`;
+      badge.style.color = isErr ? 'var(--ios-red)' : 'var(--ios-green)';
+      badge.style.background = isErr ? 'rgba(255,59,48,0.14)' : 'rgba(52,199,89,0.15)';
+
+      document.getElementById('trace-pipeline').innerHTML = t.steps.map((s, i) => `
+        <div class="flex gap-3">
+          <div class="flex flex-col items-center">
+            <div class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style="background:${i === t.steps.length - 1 && isErr ? 'var(--ios-red)' : 'var(--ios-blue)'}">${i + 1}</div>
+            ${i < t.steps.length - 1 ? '<div class="w-0.5 flex-1 bg-[var(--border-strong)] my-1"></div>' : ''}
+          </div>
+          <div class="pb-3 flex-1 min-w-0">
+            <div class="text-[12.5px] font-semibold">${s}</div>
+            <div class="mono text-[11px] text-[var(--text-tertiary)] mt-0.5">${i === 0 ? 'tid=' + t.id : i === 3 ? t.summary : 'QoS 1 · 已确认'}</div>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('trace-diag-text').textContent = t.diag || t.summary;
+    }
+
+    function jumpLogsByTrace() {
+      const tid = state.activeTrace ? state.activeTrace.id : '';
+      switchTab('logs');
+      document.getElementById('log-search').value = tid;
+      renderLogs();
+      showToast(`已按请求 ${tid} 过滤前后日志`);
+    }
+
+    function simulateFault() {
+      inspectTrace(1);
+      showToast('已加载演示故障：Media 推流通道占用 (-12)');
+    }
+
+    // ==================== MISSION & INTERACTIVE WAYPOINT CANVAS ====================
+    function renderMission(d) {
+      const svg = document.getElementById('mission-svg');
+      const pts = d.waypoints.map(w => `${w.x},${w.y}`).join(' ');
+      document.getElementById('mission-progress').textContent = `共 ${d.waypoints.length} 个航点 · 状态: 巡检中`;
+      svg.innerHTML = `
+        <defs>
+          <pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse">
+            <path d="M 25 0 L 0 0 0 25" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+          </pattern>
+        </defs>
+        <rect width="500" height="220" fill="url(#grid)" />
+        <polyline points="${pts}" fill="none" stroke="#0A84FF" stroke-width="3" stroke-dasharray="6 4" stroke-linecap="round"/>
+        ${d.waypoints.map((w, i) => `
+          <g>
+            <circle cx="${w.x}" cy="${w.y}" r="${i === 1 ? 10 : 7}" fill="${i === 0 ? '#30D158' : i === 1 ? '#0A84FF' : '#636366'}" stroke="#fff" stroke-width="2"/>
+            <text x="${w.x}" y="${w.y - 14}" text-anchor="middle" fill="#F2F2F7" font-size="11" font-weight="600">${w.name}</text>
+          </g>
+        `).join('')}
+      `;
+
+      document.getElementById('waypoint-chips').innerHTML = d.waypoints.map((w, i) => `
+        <div class="rounded-[11px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-2.5 flex items-center justify-between">
+          <div class="min-w-0">
+            <div class="text-[12px] font-semibold truncate">${w.name}</div>
+            <div class="text-[11px] mt-0.5 ${i === 0 ? 'text-[var(--ios-green)]' : i === 1 ? 'text-[var(--ios-blue)]' : 'text-[var(--text-tertiary)]'}">${w.status}</div>
+          </div>
+          <span class="mono text-[10.5px] text-[var(--text-tertiary)]">(${w.x},${w.y})</span>
+        </div>
+      `).join('');
+
+      document.getElementById('file-sync-list').innerHTML = FILES_LIST.map(f => `
+        <div class="rounded-[12px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-3 flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="mono text-[12px] font-semibold truncate">${f.name}</div>
+            <div class="text-[11px] text-[var(--text-tertiary)]">${f.mod} · ${f.size}</div>
+          </div>
+          <span class="text-[11px] font-medium shrink-0" style="color:${f.color}">${f.status}</span>
+        </div>
+      `).join('');
+    }
+
+    function addCanvasWaypoint(e) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = Math.round(((e.clientX - rect.left) / rect.width) * 500);
+      const y = Math.round(((e.clientY - rect.top) / rect.height) * 220);
+      const d = DEVICE_DATA[state.device];
+      const idx = d.waypoints.length + 1;
+      d.waypoints.push({ name: `WP${idx} 新增点`, status: '待执行', x: Math.max(30, Math.min(470, x)), y: Math.max(30, Math.min(195, y)) });
+      renderMission(d);
+      showToast(`已添加航点 WP${idx} (${x}, ${y})`);
+    }
+
+    function resetWaypoints() {
+      const d = DEVICE_DATA[state.device];
+      d.waypoints = d.waypoints.slice(0, 4);
+      renderMission(d);
+      showToast('已恢复默认 4 个航点');
+    }
+
+    function renderSuite() {
+      document.getElementById('suite-list').innerHTML = SUITE_CASES.map(c => `
+        <div class="rounded-[10px] bg-[var(--bg-elevated)] border border-[var(--border-hairline)] p-2.5 flex items-center justify-between text-[12px]">
+          <div class="truncate">
+            <span class="font-semibold">${c.name}</span>
+          </div>
+          <span class="text-[11px] text-[var(--ios-green)] font-medium shrink-0">✓ ${c.status}</span>
+        </div>
+      `).join('');
+    }
+
+    function runRegressionSuite() {
+      const btn = document.getElementById('suite-run-btn');
+      btn.textContent = '运行中…';
+      setTimeout(() => {
+        btn.textContent = '▶ 运行全部';
+        renderSuite();
+        showToast('6 组模块回归测试用例全部通过 (0 失败)');
+      }, 600);
+    }
+
+    function setLogFilter(f, btn) {
+      state.logFilter = f;
+      btn.parentElement.querySelectorAll('.ios-segment-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderLogs();
+    }
+
+    function renderLogs() {
+      const q = (document.getElementById('log-search').value || '').toLowerCase();
+      const rows = LOGS_LIST.filter(l =>
+        (state.logFilter === 'all' || (state.logFilter === 'error' && l.level === 'ERROR') || (state.logFilter === 'ack' && l.level === 'ACK')) &&
+        (!q || l.text.toLowerCase().includes(q) || l.mod.includes(q) || (l.tid && l.tid.toLowerCase().includes(q)))
+      );
+      document.getElementById('log-rows').innerHTML = rows.map(l => `
+        <div onclick="openLogTrace('${l.tid}')" class="px-3 py-2 rounded-[10px] bg-[var(--bg-elevated)] hover:bg-[var(--bg-hover)] border border-[var(--border-hairline)] flex gap-2.5 items-start justify-between cursor-pointer transition">
+          <div class="flex gap-2.5 items-start min-w-0">
+            <span class="text-[var(--text-tertiary)] shrink-0">${l.ts}</span>
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0 ${l.level === 'ERROR' ? 'bg-[#FF3B30]/15 text-[var(--ios-red)]' : l.level === 'ACK' ? 'bg-[#34C759]/15 text-[var(--ios-green)]' : 'bg-[var(--bg-segment)] text-[var(--text-secondary)]'}">${l.level}</span>
+            <span class="break-all ${l.level === 'ERROR' ? 'text-[var(--ios-red)]' : ''}">${l.text}</span>
+          </div>
+          <span class="text-[10.5px] text-[var(--ios-blue)] shrink-0">关联请求 →</span>
+        </div>
+      `).join('');
+    }
+
+    function openLogTrace(tid) {
+      const idx = TRACES.findIndex(t => t.id === tid);
+      inspectTrace(idx >= 0 ? idx : 0);
+      showToast(`已从日志定位到请求 ${tid} 的证据链`);
+    }
+
+    function showCfg(name, btn) {
+      if (btn) {
+        document.querySelectorAll('#cfg-tabs button').forEach(b => {
+          b.classList.remove('ios-btn-primary');
+          b.classList.add('ios-btn-secondary');
+        });
+        btn.classList.remove('ios-btn-secondary');
+        btn.classList.add('ios-btn-primary');
+      }
+      document.getElementById('cfg-content').textContent = CFG_FILES[name];
+    }
+
+    function toggleLiveFollow() {
+      state.liveFollow = !state.liveFollow;
+      document.getElementById('live-follow-btn').textContent = state.liveFollow ? '● 实时跟随: 开' : '○ 实时跟随: 停';
+      showToast(state.liveFollow ? '已开启 SSH tail -F 实时日志跟随' : '已暂停实时跟随');
+    }
+
+    function exportDiagZip() {
+      showToast('已生成脱敏诊断包 TTA_Diag_20261117.zip (含 summary.md + session.jsonl)');
+    }
+
+    function openStreamPreview() {
+      showToast('已打开 ZLM RTSP 预览画面 (TCP 隧道)');
+    }
+
+    function toggleVizMode() {
+      state.vizMode = state.vizMode === '3d' ? 'pcd' : '3d';
+      document.getElementById('viz-mode-btn').textContent = state.vizMode === '3d' ? '切换点云' : '切换 3D 模型';
+      showToast(state.vizMode === '3d' ? '显示 3D 姿态模型' : '显示雷达点云 (map 坐标系)');
+    }
+
+    // ==================== OSD REPLAY BAR ====================
+    function toggleReplayBar() {
+      const bar = document.getElementById('replay-bar');
+      const hidden = bar.classList.contains('hidden');
+      bar.classList.toggle('hidden', !hidden);
+      bar.classList.toggle('flex', hidden);
+      showToast(hidden ? '已进入 OSD 历史轨迹回放模式' : '已返回实时遥测模式');
+    }
+
+    function scrubReplay(val) {
+      document.getElementById('replay-timestamp').textContent = `14:20:${String(Math.floor(val / 10)).padStart(2, '0')}.${(val % 10) * 100} (帧 ${val} / 400)`;
+      state.orbit.yaw = val * 0.02;
+    }
+
+    function stepReplay(delta) {
+      const slider = document.getElementById('replay-slider');
+      slider.value = Math.max(1, Math.min(400, Number(slider.value) + delta));
+      scrubReplay(slider.value);
+    }
+
+    // ==================== MODALS & SHORTCUTS ====================
+    function openConnModal() {
+      document.getElementById('conn-modal').classList.remove('hidden');
+      document.getElementById('conn-modal').classList.add('flex');
+    }
+    function closeConnModal() {
+      document.getElementById('conn-modal').classList.add('hidden');
+      document.getElementById('conn-modal').classList.remove('flex');
+    }
+    function setConnMode(mode, btn) {
+      state.connMode = mode;
+      btn.parentElement.querySelectorAll('.ios-segment-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    function loadPresetProfile(preset) {
+      if (preset === 'cloud_dog') {
+        document.getElementById('inp-host').value = '124.126.230.115';
+        document.getElementById('inp-port').value = '1883';
+        document.getElementById('inp-sn').value = 'TEST_DOG_001';
+        state.connMode = 'cloud';
+      } else if (preset === 'lan_dog') {
+        document.getElementById('inp-host').value = '192.168.10.88';
+        document.getElementById('inp-port').value = '1883';
+        document.getElementById('inp-sn').value = 'L2_DOG_LAN';
+        state.connMode = 'direct';
+      } else {
+        document.getElementById('inp-host').value = '192.168.20.100';
+        document.getElementById('inp-port').value = '1883';
+        document.getElementById('inp-sn').value = 'UAV_BRIDGE_01';
+        state.connMode = 'direct';
+      }
+      showToast('已载入预设连接配置');
+    }
+    function applyConnection() {
+      state.sn = document.getElementById('inp-sn').value.trim() || state.sn;
+      closeConnModal();
+      switchDevice(state.device);
+      showToast(`已应用连接配置 (${state.sn})`);
+    }
+
+    function openCmdPalette() {
+      document.getElementById('cmd-palette').classList.remove('hidden');
+      document.getElementById('cmd-palette').classList.add('flex');
+      const inp = document.getElementById('palette-input');
+      inp.value = '';
+      inp.focus();
+      renderPalette();
+    }
+    function closeCmdPalette() {
+      document.getElementById('cmd-palette').classList.add('hidden');
+      document.getElementById('cmd-palette').classList.remove('flex');
+    }
+    function renderPalette() {
+      const d = DEVICE_DATA[state.device];
+      const q = (document.getElementById('palette-input').value || '').toLowerCase();
+      const items = d.commands.filter(c => !q || c.method.toLowerCase().includes(q) || c.title.includes(q));
+      document.getElementById('palette-results').innerHTML = items.map(c => `
+        <button onclick="state.selectedCmdMethod='${c.method}';closeCmdPalette();switchTab('commands');renderCmdCatalog()"
+                class="w-full text-left px-3 py-2 rounded-[10px] hover:bg-[var(--bg-hover)] flex items-center justify-between cursor-pointer">
+          <div>
+            <div class="text-[13px] font-semibold">${c.title}</div>
+            <div class="mono text-[11.5px] text-[var(--text-tertiary)]">${c.method}</div>
+          </div>
+          <span class="text-[11px] px-2 py-0.5 rounded bg-[var(--bg-segment)] uppercase">${c.module}</span>
+        </button>
+      `).join('');
+    }
+
+    // Global Keyboard Shortcuts: Cmd+K, 1-5 tabs, and WASD teleop
+    document.addEventListener('keydown', e => {
+      const tag = (e.target && e.target.tagName) || '';
+      const inInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openCmdPalette();
+        return;
+      }
+      if (e.key === 'Escape') {
+        closeCmdPalette();
+        closeConnModal();
+        closeModuleDrawer();
+        return;
+      }
+      if (inInput) return;
+
+      const tabMap = { '1': 'overview', '2': 'teleop', '3': 'commands', '4': 'mission', '5': 'logs' };
+      if (tabMap[e.key]) {
+        switchTab(tabMap[e.key]);
+        return;
+      }
+
+      if (state.tab === 'teleop') {
+        const k = e.key.toLowerCase();
+        if (k === 'w') sendTeleop('前进 (W)', 0.8, 0, 0);
+        else if (k === 's') sendTeleop('后退 (S)', -0.6, 0, 0);
+        else if (k === 'a') sendTeleop('左移 (A)', 0, 0.5, 0);
+        else if (k === 'd') sendTeleop('右移 (D)', 0, -0.5, 0);
+        else if (k === 'q') sendTeleop('左旋 (Q)', 0, 0, 0.6);
+        else if (k === 'e') sendTeleop('右旋 (E)', 0, 0, -0.6);
+        else if (k === ' ') { e.preventDefault(); emergencyStop(); }
+      }
+    });
+
+    // ==================== INTERACTIVE ORBIT 3D / TELEMETRY CANVAS ====================
+    function startOrbitDrag(e) {
+      state.orbit.dragging = true;
+      state.orbit.lastX = e.clientX;
+      state.orbit.lastY = e.clientY;
+    }
+    function moveOrbitDrag(e) {
+      if (!state.orbit.dragging) return;
+      const dx = e.clientX - state.orbit.lastX;
+      const dy = e.clientY - state.orbit.lastY;
+      state.orbit.lastX = e.clientX;
+      state.orbit.lastY = e.clientY;
+      state.orbit.yaw += dx * 0.012;
+      state.orbit.pitch = Math.max(-0.4, Math.min(1.3, state.orbit.pitch + dy * 0.01));
+    }
+    function endOrbitDrag() {
+      state.orbit.dragging = false;
+    }
+    function setOrbitPreset(yaw, pitch) {
+      state.orbit.yaw = yaw;
+      state.orbit.pitch = pitch;
+    }
+
+    function drawTelemetryCanvas() {
+      const canvas = document.getElementById('telemetry-canvas');
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width > 0 && (canvas.width !== rect.width || canvas.height !== rect.height)) {
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+      }
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      state.angleTick += 0.025;
+      const cx = w / 2, cy = h / 2 + 10;
+      const cosY = Math.cos(state.orbit.yaw), sinY = Math.sin(state.orbit.yaw);
+
+      // Ground perspective grid rotated by orbit.yaw
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      for (let i = -4; i <= 4; i++) {
+        const x1 = i * 32 * cosY - (-90) * sinY;
+        const y1 = (i * 32 * sinY + (-90) * cosY) * 0.42;
+        const x2 = i * 32 * cosY - (90) * sinY;
+        const y2 = (i * 32 * sinY + (90) * cosY) * 0.42;
+        ctx.beginPath();
+        ctx.moveTo(cx + x1, cy + 36 + y1);
+        ctx.lineTo(cx + x2, cy + 36 + y2);
+        ctx.stroke();
+      }
+
+      if (state.vizMode === 'pcd') {
+        for (let i = 0; i < 180; i++) {
+          const a = i * 0.38 + state.orbit.yaw + state.angleTick * 0.2;
+          const r = 32 + (i % 8) * 11;
+          const px = cx + Math.cos(a) * r * 1.35;
+          const py = cy + Math.sin(a) * r * 0.45 - (i % 5) * 6;
+          ctx.fillStyle = i % 3 === 0 ? '#30D158' : '#0A84FF';
+          ctx.fillRect(px, py, 2.5, 2.5);
+        }
+      } else if (state.device === 'dog') {
+        const bob = Math.sin(state.angleTick * 2) * 2.2;
+        const bw = 46 * cosY;
+        ctx.strokeStyle = '#0A84FF';
+        ctx.lineWidth = 2.6;
+        ctx.strokeRect(cx - 46, cy - 22 + bob, 92, 26);
+        // Legs
+        [cx - 38, cx - 20, cx + 20, cx + 38].forEach((lx, idx) => {
+          ctx.beginPath();
+          ctx.moveTo(lx, cy + 4 + bob);
+          ctx.lineTo(lx + (idx % 2 ? 6 : -6) + sinY * 8, cy + 24);
+          ctx.lineTo(lx, cy + 42);
+          ctx.stroke();
+        });
+        // LiDAR dome + FoV cone
+        ctx.fillStyle = 'rgba(48, 209, 88, 0.16)';
+        ctx.beginPath();
+        ctx.moveTo(cx + 36, cy - 26 + bob);
+        ctx.lineTo(cx + 115, cy - 52 + bob);
+        ctx.lineTo(cx + 115, cy + 4 + bob);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#30D158';
+        ctx.beginPath();
+        ctx.arc(cx + 34 + bw * 0.1, cy - 26 + bob, 5, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Quadrotor UAV + Artificial Horizon Ring
+        const hover = Math.sin(state.angleTick * 2) * 3.5;
+        ctx.strokeStyle = 'rgba(64, 203, 224, 0.22)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy + hover, 68, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = '#40CBE0';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(cx - 52, cy - 12 + hover);
+        ctx.lineTo(cx + 52, cy + 12 + hover);
+        ctx.moveTo(cx + 52, cy - 12 + hover);
+        ctx.lineTo(cx - 52, cy + 12 + hover);
+        ctx.stroke();
+        [[-52, -12], [52, 12], [52, -12], [-52, 12]].forEach(([rx, ry]) => {
+          ctx.beginPath();
+          ctx.ellipse(cx + rx, cy + ry + hover, 20, 7, 0, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255,255,255,0.48)';
+          ctx.stroke();
+        });
+        ctx.fillStyle = '#0A84FF';
+        ctx.fillRect(cx - 14, cy - 8 + hover, 28, 16);
+      }
+      requestAnimationFrame(drawTelemetryCanvas);
+    }
+
+    window.onload = () => {
+      renderAll();
+      drawTelemetryCanvas();
+    };
+  </script>
+</body>
+</html>
