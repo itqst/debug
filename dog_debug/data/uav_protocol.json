@@ -11,9 +11,10 @@
     "method": "start_multi_nav_by_points",
     "tid": "",
     "bid": "",
+    "profile": "known_navigation",
     "ts": 0,
     "data": {
-     "map_id": "20261023_142339",
+     "map_id": "2026_07_25_15_16_06",
      "task_name": "test_route",
      "points": [
       {
@@ -34,9 +35,9 @@
     }
    },
    "title": "开始航线",
-   "summary": "下发航线：模式由 map_id 定，带 map_id 是已知地图（要带，默认填选用的那张；和板上选的不同 VFC 会先自动选这张），不带是未知环境；ack 只表示受理。收尾全自动：末点后自动返航、自动降落、落地停环境，全程 Active，最后才报 Succeeded，“航线完成”不是结束。按航向角编辑航点用“航线任务”页",
-   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
-   "unverified": "顶层 bid 必填，作为任务 ID，空着发送时自动生成；顶层 profile 第六轮起 VFC 不看了；orientation 是四元数，只绕 z 轴转（z=sin(yaw/2)、w=cos(yaw/2)），不能全 0；z 是相对起飞点高度，Bridge 只收 0.20～4.50 m；航点动作：pause 到点停留 N 秒（{\"action\":\"pause\",\"param\":[N]}），载荷动作报 skipped；起飞：机载开了 MQTT 起飞时 VFC 自动解锁、切 OFFBOARD（全程 Initializing，看 msg），没开就等飞手"
+   "summary": "下发多点航线：已知地图 profile=known_navigation 且带 map_id，未知环境 profile=online_navigation 且不带 map_id；ack 只表示受理，进度看 nav_status、nav_status_progress 和 nav_action_progress",
+   "source": "SLAM无人机-MQTT通信协议.md 导航控制；Bridge 0.2.0-rc2（2026-11-12 起取消固定限高）",
+   "unverified": "顶层 bid 必填（任务 ID，空着发送时自动生成）；orientation 为绕 z 轴四元数（z=sin(yaw/2)、w=cos(yaw/2)）；开地板时规划坐标系 z >= 0.30 m，已知地图关地板 z 可为负；支持动作：take_photo / start_record / stop_record / pause [秒] / gimbal_action [type,dir] / start_ai [1,2,3] / stop_ai"
   },
   {
    "id": "uav.vfc.pause_nav",
@@ -53,9 +54,9 @@
     "data": {}
    },
    "title": "暂停航线",
-   "summary": "在航线上（Active）时暂停",
-   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": ""
+   "summary": "仅在 nav_status 为 Active 时有效；飞机原地悬停，nav_status 变为 Pause",
+   "source": "SLAM无人机-MQTT通信协议.md 导航控制",
+   "unverified": "bid 带当前航线任务的 bid"
   },
   {
    "id": "uav.vfc.continue_nav",
@@ -72,9 +73,9 @@
     "data": {}
    },
    "title": "继续航线",
-   "summary": "已暂停，或因放行结果不确定停在 Holding 时继续",
-   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": ""
+   "summary": "仅在 nav_status 为 Pause 时有效；从暂停处继续飞往当前目标航点，nav_status 变回 Active",
+   "source": "SLAM无人机-MQTT通信协议.md 导航控制",
+   "unverified": "bid 带当前航线任务的 bid"
   },
   {
    "id": "uav.vfc.stop_nav",
@@ -90,10 +91,10 @@
     "ts": 0,
     "data": {}
    },
-   "title": "结束航线",
-   "summary": "只暂停并取消剩余航点，不停任务环境，原地悬停（Bridge navigation.pause）；空闲时回 1“没有进行中的导航”，降落中会被拒；落地上锁后 VFC 自动停环境回 StandBy",
-   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": ""
+   "title": "停止导航",
+   "summary": "Initializing / Active / Pause 时有效；结束本次航线任务，飞机原地悬停（不自动返航），nav_status 报 Cancelled 后回 StandBy",
+   "source": "SLAM无人机-MQTT通信协议.md 导航控制",
+   "unverified": "result 非 0 表示没有进行中的导航"
   },
   {
    "id": "uav.vfc.start_nav_return_home",
@@ -109,10 +110,10 @@
     "ts": 0,
     "data": {}
    },
-   "title": "返航",
-   "summary": "在空中任何状态都可以，bid 新生成（新任务，原任务报 Cancelled reason=return_home）（Bridge navigation.return_home）",
-   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": ""
+   "title": "一键返航",
+   "summary": "新生成 bid；航线进行中收到会先报 Cancelled（reason=return_home）再返航，飞回起飞点上空悬停（不自动降落，需再发 land）",
+   "source": "SLAM无人机-MQTT通信协议.md 导航控制",
+   "unverified": "result：0 成功，1 已在返航，2 正在建图不能返航，3 定位丢失不能返航，4 已在起飞点"
   },
   {
    "id": "uav.vfc.land",
@@ -128,10 +129,10 @@
     "ts": 0,
     "data": {}
    },
-   "title": "降落",
-   "summary": "只在航点上悬停或返航完成时接受；bid 新生成：原任务报 Cancelled（reason=land），再用新 bid 报 Active“降落中”，落地上锁报 Succeeded（Bridge flight.land）",
-   "source": "nav/docs/无人机MQTT协议_云端-GW-VFC_草案.md 第 3 节；本地外壳以 nav/tta_vfc TTA_VFC_MqttProtocol.cpp 为准",
-   "unverified": "无人机新增指令，平台暂时不发"
+   "title": "一键降落",
+   "summary": "新生成 bid；飞机在空中时可发，先取消原任务（reason=land）再垂直降落，落地上锁后自动关闭任务环境",
+   "source": "SLAM无人机-MQTT通信协议.md 导航控制",
+   "unverified": "降落过程报 Active（降落中）→ Succeeded / Failed；中止由飞手遥控器接管"
   },
   {
    "id": "uav.vfc.start_mapping",
@@ -148,9 +149,9 @@
     "data": {}
    },
    "title": "开始建图",
-   "summary": "VFC 启动建图任务环境；ack 只表示受理，进度看 nav_status 和 mapping_status（session_id 生成地图时要用）",
-   "source": "nav 指挥家 11-10 给的最终格式（VFC 本机黑盒验收 53/53）；本地外壳和航线一样",
-   "unverified": "tid、bid 必填，bid 是这次建图任务的 ID，空着发送时自动生成；上一个任务没收尾、环境启停在途、Bridge 离线时会被拒"
+   "summary": "启动建图任务环境；ack 只表示受理，进度看 mapping_status（1~8）和 pcd 稀疏点云（result=5 时约 2 Hz 上报）",
+   "source": "SLAM无人机-MQTT通信协议.md 建图控制",
+   "unverified": "tid、bid 必填，空着发送时自动生成"
   },
   {
    "id": "uav.vfc.stop_mapping",
@@ -169,28 +170,9 @@
     }
    },
    "title": "停止建图",
-   "summary": "停止 VFC 起的建图并关闭任务环境；save 选是否保存地图，保没保存成功看 mapping_status（SAVING → SAVED / SAVE_FAILED）",
-   "source": "nav 指挥家 11-10 给的最终格式（VFC 本机黑盒验收 53/53）；本地外壳和航线一样",
-   "unverified": "save 取值 true 或 false；VFC 1.0.0 起不带 save 时默认保存，上位机仍要先选“保存地图”或“不保存”才发；bid 带当前任务的；飞机没落地时 Bridge 会回 STOP_REFUSED；也能停 VFC 起的 online_navigation 环境"
-  },
-  {
-   "id": "uav.vfc.get_map_list",
-   "method": "get_map_list",
-   "module": "vfc",
-   "category": "command",
-   "label": "VFC 任务（模拟 GW 发） · get_map_list",
-   "topic": "local/uav/vfc/command",
-   "template": {
-    "method": "get_map_list",
-    "tid": "",
-    "bid": "",
-    "ts": 0,
-    "data": {}
-   },
-   "title": "查地图列表",
-   "summary": "VFC 转 Bridge map.list；ack 的 data 是地图数组：map_id、name、size（MB），另有 selected、has_assets、has_raw、incomplete、error，顶层带 quota、selection_error；建图或保存中的不列",
-   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
-   "unverified": ""
+   "summary": "停止建图并关闭任务环境；save 选是否保存地图，保存完成后机载自动建资产，进度看 mapping_status 与 map_status",
+   "source": "SLAM无人机-MQTT通信协议.md 建图控制；Bridge 0.2.0-rc2 自动建资产",
+   "unverified": "save 取 true / false 或不带（按默认保存）；飞机未落地时会被拒绝"
   },
   {
    "id": "uav.vfc.loc_load_map",
@@ -208,10 +190,29 @@
      "map_id": ""
     }
    },
-   "title": "加载地图",
-   "summary": "选图 → 起已知地图环境 → 地面重定位，定位就绪才回 ack（最长约 450 s，按 600 s 等）；等待中进度看 nav_status 的 msg；成功回 0“地图 X 已加载，定位就绪”，失败 msg 写卡在哪一步；起来的环境用“停止录制”结束",
-   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
-   "unverified": "map_id 必填"
+   "title": "加载定位地图",
+   "summary": "选图 → 起已知地图环境 → 地面重定位，定位就绪才回 ack（最长约 450 s，按 600 s 等）；等待中进度看 loc_status / nav_status",
+   "source": "SLAM无人机-MQTT通信协议.md 定位",
+   "unverified": "map_id 必填；加载后不要重复发，结束环境发 stop_record"
+  },
+  {
+   "id": "uav.vfc.loc_reset",
+   "method": "loc_reset",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC 任务（模拟 GW 发） · loc_reset",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "loc_reset",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "重置定位",
+   "summary": "重置当前定位状态（按当前机载版本支持情况返回 result）",
+   "source": "SLAM无人机-MQTT通信协议.md 定位",
+   "unverified": ""
   },
   {
    "id": "uav.vfc.start_record",
@@ -226,13 +227,13 @@
     "bid": "",
     "ts": 0,
     "data": {
-     "map_id": []
+     "map_id": ""
     }
    },
    "title": "开始录制航线",
-   "summary": "无图录制 data.map_id 为空数组（或不带）；有图录制 map_id 是只有一项的数组，默认填当前加载的图，要先“加载地图”且 ack 回 0；没加载回 1“请先加载地图”，图不同回“录制地图 X 和已加载的地图 Y 不一致”。录制期间看 osd 位置和 flyState",
-   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
-   "unverified": "录制环境没停就发新任务，VFC 回“上一个任务的环境还没停：录制环境请先发 stop_record”"
+   "summary": "data 不带 map_id（或留空发送时自动省略）为无图录制；data.map_id 填地图 ID 字符串时为有图录制（需先 loc_load_map）",
+   "source": "SLAM无人机-MQTT通信协议.md 录制航线",
+   "unverified": "按云端协议 data.map_id 为字符串（如 \"2026_07_25_15_16_06\"）；录制期间看 osd 位置和 flyState"
   },
   {
    "id": "uav.vfc.stop_record",
@@ -249,16 +250,59 @@
     "data": {}
    },
    "title": "停止录制",
-   "summary": "停本次录制（无图录制不保存、有图录制按默认）以及“加载地图”起的环境；没有录制回“没有进行中的录制”，停完回 StandBy",
-   "source": "nav/tta_vfc c19373a（第六轮）README；nav/SLAM无人机-MQTT通信协议1.md 工况 1～4",
+   "summary": "停止本次录制以及 loc_load_map 起的定位环境，停完回 StandBy",
+   "source": "SLAM无人机-MQTT通信协议.md 录制航线",
    "unverified": ""
+  },
+  {
+   "id": "uav.vfc.get_map_list",
+   "method": "get_map_list",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC / FSVR 地图管理 · get_map_list",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "get_map_list",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {}
+   },
+   "title": "获取地图列表",
+   "summary": "按创建时间倒序返回地图列表（map_id、name、size MB、created_ts、collect_mode、points、confidence、files 等）；正在录制或保存中的不列",
+   "source": "SLAM无人机-MQTT通信协议.md 3.4 地图管理",
+   "unverified": "云端协议 target 为 fsvr（当前板端如由 VFC 代转可在右侧 target 下拉改 vfc）"
+  },
+  {
+   "id": "uav.vfc.sync_map_file",
+   "method": "sync_map_file",
+   "module": "vfc",
+   "category": "command",
+   "label": "VFC / FSVR 地图管理 · sync_map_file",
+   "topic": "local/uav/vfc/command",
+   "template": {
+    "method": "sync_map_file",
+    "tid": "",
+    "bid": "",
+    "ts": 0,
+    "data": {
+     "map_id": [
+      "2026_07_25_15_16_06"
+     ],
+     "upload_path": "http://192.168.144.20:18080/upload/3f9a1c"
+    }
+   },
+   "title": "同步地图文件",
+   "summary": "将指定地图打包为 {map_id}.zip 后 HTTP POST 到 upload_path；回执只表示收下指令，上传进度与结果看 sync_map_file_status",
+   "source": "SLAM无人机-MQTT通信协议.md 3.4 地图管理",
+   "unverified": "map_id 为字符串数组（每次通常 1 张），upload_path 为一次性 HTTP 接收地址；云端默认 target=fsvr（旧 GW 可切 gw）"
   },
   {
    "id": "uav.vfc.build_map",
    "method": "build_map",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务（模拟 GW 发） · build_map",
+   "label": "VFC / FSVR 地图管理 · build_map",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "build_map",
@@ -270,16 +314,16 @@
     }
    },
    "title": "生成地图资产",
-   "summary": "转 Bridge map.build，受理就回 ack，结果看 map_status（BUILDING → MAP_ASSETS_READY 或 MAP_BUILD_FAILED 等）",
-   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
-   "unverified": "session_id 必填，是建图会话号（地图列表里的 map_id）"
+   "summary": "转 Bridge map.build，受理即回 ack，结果看 map_status（BUILDING → MAP_ASSETS_READY / MAP_BUILD_FAILED）",
+   "source": "tta_vfc 1.0.0；MQTT接口字段说明 6.4 map.build",
+   "unverified": "session_id 必填，即地图列表里的 map_id"
   },
   {
    "id": "uav.vfc.rename_map_name",
    "method": "rename_map_name",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务（模拟 GW 发） · rename_map_name",
+   "label": "VFC / FSVR 地图管理 · rename_map_name",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "rename_map_name",
@@ -291,9 +335,9 @@
      "new_name": ""
     }
    },
-   "title": "地图改名",
-   "summary": "转 Bridge map.rename，改的是显示名",
-   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
+   "title": "修改地图名称",
+   "summary": "修改地图显示名称；new_name 不能为空、不超过 30 字且不重名（result: 0 成功 / 1 不存在 / 2 空或超长 / 3 重名）",
+   "source": "SLAM无人机-MQTT通信协议.md 3.4 地图管理",
    "unverified": "map_id、new_name 必填"
   },
   {
@@ -301,7 +345,7 @@
    "method": "remove_map_by_id",
    "module": "vfc",
    "category": "command",
-   "label": "VFC 任务（模拟 GW 发） · remove_map_by_id",
+   "label": "VFC / FSVR 地图管理 · remove_map_by_id",
    "topic": "local/uav/vfc/command",
    "template": {
     "method": "remove_map_by_id",
@@ -313,28 +357,9 @@
     }
    },
    "title": "删除地图",
-   "summary": "逐个转 Bridge map.delete，ack 的 data.results 是每个地图的结果；删了不能恢复",
-   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
-   "unverified": "map_ids 是字符串数组"
-  },
-  {
-   "id": "uav.vfc.loc_reset",
-   "method": "loc_reset",
-   "module": "vfc",
-   "category": "command",
-   "label": "VFC 任务（模拟 GW 发） · loc_reset",
-   "topic": "local/uav/vfc/command",
-   "template": {
-    "method": "loc_reset",
-    "tid": "",
-    "bid": "",
-    "ts": 0,
-    "data": {}
-   },
-   "title": "定位重置",
-   "summary": "机载暂不支持，VFC 直接回失败",
-   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
-   "unverified": ""
+   "summary": "按 map_ids 数组删除整张地图（原始点云、ESDF、导航资产与 Cloudmap 一起删），删后不可恢复",
+   "source": "SLAM无人机-MQTT通信协议.md 3.4 地图管理",
+   "unverified": "map_ids 为字符串数组"
   },
   {
    "id": "uav.vfc.start_self_check",
@@ -351,16 +376,16 @@
     "data": {}
    },
    "title": "开始自检",
-   "summary": "机载暂不支持，VFC 直接回失败",
-   "source": "nav/tta_vfc 1.0.0 TTA_VFC_CommandService.cpp、README（11-17）；地图指令按《SLAM无人机-MQTT通信协议》照转 Bridge map.*",
-   "unverified": ""
+   "summary": "仅在未飞行（flightState=0）时有效；回执表示开始自检，累计结果看 state 的 self_check_result（SELFTEST-001~006，15 秒超时视同禁飞）",
+   "source": "SLAM无人机-MQTT通信协议.md 自检",
+   "unverified": "bid 为本次自检 ID，自检结果原样带回；分级：pass / warn / degraded / ban"
   },
   {
    "id": "uav.bridge.system.status",
    "method": "system.status",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · system.status",
+   "label": "Bridge（局域网直连） · system.status",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -372,8 +397,8 @@
     "ts": 0
    },
    "title": "读状态快照",
-   "summary": "只读，回 confirmed/STATUS_SNAPSHOT，detail 里是六个领域的完整状态",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "summary": "只读，回 confirmed/STATUS_SNAPSHOT，detail 含六个领域的完整状态（含 flight_commands 开关状态）",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
    "unverified": ""
   },
   {
@@ -381,7 +406,7 @@
    "method": "system.start",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · system.start",
+   "label": "Bridge（局域网直连） · system.start",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -391,22 +416,27 @@
     "args": {
      "profile": "online_navigation",
      "waypoint_file": "kino_waypoints.yaml",
+     "planner_max_vel": 1.0,
+     "bridge_max_speed": 2.0,
+     "auto_takeoff_height": 0.8,
+     "floor_guard_enabled": true,
+     "dry_run": false,
      "confirm": true
     },
     "client": "kunkun",
     "ts": 0
    },
    "title": "启动任务环境",
-   "summary": "异步：先 accepted，再 succeeded/failed；只在 READY 且没有别的任务时启动",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
-   "unverified": "confirm 必须为 true，表示操作员确认飞机在地面静止"
+   "summary": "异步（accepted → succeeded/failed）；支持 online_navigation / known_navigation / manual_mapping / localization_only",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（0.2.0-rc2）",
+   "unverified": "auto_takeoff_height < 0.8 直接回 BAD_ARGS；floor_guard_enabled=false 仅限 known_navigation；manual_mapping 仅接受 profile/auto_takeoff_height/dry_run/confirm；localization_only 仅接受 profile/confirm；每机配置错回 AIRCRAFT_CONFIG_INVALID"
   },
   {
    "id": "uav.bridge.system.stop",
    "method": "system.stop",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · system.stop",
+   "label": "Bridge（局域网直连） · system.stop",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -414,14 +444,15 @@
     "type": "system",
     "action": "system.stop",
     "args": {
+     "save": true,
      "confirm": true
     },
     "client": "kunkun",
     "ts": 0
    },
    "title": "停止任务环境",
-   "summary": "异步；只能停 Bridge 管理的环境。VFC 自己起的环境落地后会自动停，别人起的由起的人去停；VFC 没有停环境的指令（stop_nav 是取消剩余航点、原地悬停）",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "summary": "异步；严禁空中发送！建图/在线导航 save=true 保存成功后自动建资产（见 detail.auto_map_build 与 events type=map）；known_navigation / localization_only 可去掉 save",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（2026-11-17）",
    "unverified": "confirm 必须为 true，表示已确认落地上锁"
   },
   {
@@ -429,7 +460,7 @@
    "method": "job.cancel",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · job.cancel",
+   "label": "Bridge（局域网直连） · job.cancel",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -443,16 +474,133 @@
     "ts": 0
    },
    "title": "取消启动任务",
-   "summary": "只能取消正在进行的 system.start",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
-   "unverified": "job_id 填 system.start 回执里的 job_id"
+   "summary": "只能取消正在进行的 system.start（不能取消 map.build 或停止任务）",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
+   "unverified": "job_id 填 system.start 受理回执里的 job_id"
+  },
+  {
+   "id": "uav.bridge.map.list",
+   "method": "map.list",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · map.list",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "map",
+    "action": "map.list",
+    "args": {},
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "查看地图列表",
+   "summary": "列出 map/ 下全部会话目录（含 has_raw、has_assets、bytes、mapping_active、selected 及顶层 quota）；地图忙时回 JOB_ACTIVE",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（2026-11-16）",
+   "unverified": "2026-11-16 起已去掉 version 字段"
+  },
+  {
+   "id": "uav.bridge.map.build",
+   "method": "map.build",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · map.build",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "map",
+    "action": "map.build",
+    "args": {
+     "session_id": "",
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "构建地图资产",
+   "summary": "从建图会话构建导航资产（正常 MQTT 停止保存会自动建，此命令用于失败重试或旧图补建）；不自动选图，覆盖当前选用图会清除选用",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（2026-11-17）",
+   "unverified": "仅 system=READY 且地图不忙时受理；默认超时 1800 s，不可 job.cancel"
+  },
+  {
+   "id": "uav.bridge.map.select",
+   "method": "map.select",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · map.select",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "map",
+    "action": "map.select",
+    "args": {
+     "map_id": "",
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "选用地图",
+   "summary": "选用已构建资产的地图供 known_navigation 使用；仅 system=READY 且地图不忙时受理",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（2026-11-16）",
+   "unverified": "只传 map_id 和 confirm，再带 version 会直接回 rejected/BAD_ARGS"
+  },
+  {
+   "id": "uav.bridge.map.rename",
+   "method": "map.rename",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · map.rename",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "map",
+    "action": "map.rename",
+    "args": {
+     "map_id": "",
+     "display_name": ""
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "地图改显示名",
+   "summary": "修改地图显示名（1~100 字符），不改 map_id 和路径；地图不忙即可执行",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.map.delete",
+   "method": "map.delete",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · map.delete",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "map",
+    "action": "map.delete",
+    "args": {
+     "map_id": "",
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "删除未选中地图",
+   "summary": "删除整张图 map/<会话ID>/（含原始点云、ESDF、资产和 Cloudmap）；不能删当前选用或建图中的图",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（2026-11-16）",
+   "unverified": "删后无法再 map.build"
   },
   {
    "id": "uav.bridge.relocalization.start",
    "method": "relocalization.start",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · relocalization.start",
+   "label": "Bridge（局域网直连） · relocalization.start",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -463,9 +611,9 @@
     "client": "kunkun",
     "ts": 0
    },
-   "title": "延后重定位",
-   "summary": "known_navigation + relocalization=deferred、stage=BASE_READY 且稳定悬停时可用",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "title": "延后重定位（已禁用）",
+   "summary": "空中延后重定位已停用，机载配置返回 rejected/ACTION_DISABLED；已知地图导航统一使用地面重定位",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
    "unverified": ""
   },
   {
@@ -473,7 +621,7 @@
    "method": "navigation.next",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · navigation.next",
+   "label": "Bridge（局域网直连） · navigation.next",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -487,16 +635,16 @@
     "ts": 0
    },
    "title": "放行下一个航点",
-   "summary": "confirmed/GOAL_RECEIPT 只表示航点指令被接收；uncertain 时不要盲目重发",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
-   "unverified": "expect_state 可删掉，不做状态相等检查"
+   "summary": "confirmed/GOAL_RECEIPT 只表示航点指令被接收；到点看 waypoint_complete 与 state/navigation；uncertain 时不要盲目重发",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
+   "unverified": "首点需 flight=4 TAKEOFF_HOLD，后续点需 navigation=5 且 flight=6 HOLD/WAITING_TRAJECTORY"
   },
   {
    "id": "uav.bridge.navigation.pause",
    "method": "navigation.pause",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · navigation.pause",
+   "label": "Bridge（局域网直连） · navigation.pause",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -508,8 +656,8 @@
     "ts": 0
    },
    "title": "暂停导航",
-   "summary": "同步，FSM 接受回 confirmed/FSM_ACCEPTED",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "summary": "同步，FSM 接受回 confirmed/FSM_ACCEPTED，不检查请求时间窗",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
    "unverified": ""
   },
   {
@@ -517,7 +665,7 @@
    "method": "navigation.resume",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · navigation.resume",
+   "label": "Bridge（局域网直连） · navigation.resume",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -529,8 +677,8 @@
     "ts": 0
    },
    "title": "恢复导航",
-   "summary": "同步，发送前检查起飞完成、重定位就绪、坐标锁定",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "summary": "同步，发送前检查起飞完成、重定位就绪、坐标锁定；可用于从 GLOBAL_ROUTE_FAILED_HOLD_MANUAL_RESUME 恢复",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
    "unverified": ""
   },
   {
@@ -538,7 +686,7 @@
    "method": "navigation.return_home",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · navigation.return_home",
+   "label": "Bridge（局域网直连） · navigation.return_home",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -550,8 +698,8 @@
     "ts": 0
    },
    "title": "返航",
-   "summary": "同步，只表示返航请求被接受；返航完成看 state/navigation=8",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "summary": "同步，只表示返航请求被接受；返航完成看 state/navigation=8（RETURN_COMPLETE），不检查请求时间窗",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
    "unverified": ""
   },
   {
@@ -559,7 +707,7 @@
    "method": "navigation.uncertain_clear",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · navigation.uncertain_clear",
+   "label": "Bridge（局域网直连） · navigation.uncertain_clear",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -571,8 +719,77 @@
     "ts": 0
    },
    "title": "解除 next 不确定锁",
-   "summary": "操作员先核实飞机实际状态再执行；不自动重发航点",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "summary": "操作员先核实飞机实际状态再执行；只解除锁，不自动重发航点",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
+   "unverified": ""
+  },
+  {
+   "id": "uav.bridge.flight.arm",
+   "method": "flight.arm",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · flight.arm",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "flight",
+    "action": "flight.arm",
+    "args": {
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "飞控解锁（受开关控制）",
+   "summary": "默认关闭（需机载 bridge.json 的 mqtt_flight_control=true，飞手和遥控器必须在场）；仅用于地面导航就绪后配合 flight.offboard 起飞",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（0.2.0-rc2，2026-11-19）",
+   "unverified": "回执 detail.auto_disarm_s 内须发 flight.offboard，否则 PX4 自动上锁；被拒看 detail.fcu_text 和 FCU_STATUSTEXT"
+  },
+  {
+   "id": "uav.bridge.flight.offboard",
+   "method": "flight.offboard",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · flight.offboard",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "flight",
+    "action": "flight.offboard",
+    "args": {
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "切 OFFBOARD 自动起飞",
+   "summary": "默认关闭（需 mqtt_flight_control=true，飞手在场）；已解锁在地面时切入后原地垂直爬升至 auto_takeoff_height（不避障）",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（0.2.0-rc2，2026-11-19）",
+   "unverified": "OFFBOARD_CONFIRMED 只确认模式，起飞看 state/flight（3 起飞中 → 4 TAKEOFF_HOLD；8 TAKEOFF_ABORTED 为拒飞）"
+  },
+  {
+   "id": "uav.bridge.flight.disarm",
+   "method": "flight.disarm",
+   "module": "bridge",
+   "category": "command",
+   "label": "Bridge（局域网直连） · flight.disarm",
+   "topic": "local/uav/bridge/command",
+   "template": {
+    "sn": "",
+    "id": "",
+    "type": "flight",
+    "action": "flight.disarm",
+    "args": {
+     "confirm": true
+    },
+    "client": "kunkun",
+    "ts": 0
+   },
+   "title": "地面上锁（撤回解锁）",
+   "summary": "默认关闭（需 mqtt_flight_control=true）；仅在地面有效，用于误解锁后撤回，空中停飞请用 flight.land",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4（0.2.0-rc2，2026-11-19）",
    "unverified": ""
   },
   {
@@ -580,7 +797,7 @@
    "method": "flight.land",
    "module": "bridge",
    "category": "command",
-   "label": "Bridge（模拟 VFC 发） · flight.land",
+   "label": "Bridge（局域网直连） · flight.land",
    "topic": "local/uav/bridge/command",
    "template": {
     "sn": "",
@@ -594,8 +811,8 @@
     "ts": 0
    },
    "title": "降落（AUTO.LAND）",
-   "summary": "MODE_CONFIRMED 不是落地确认，还要看 state/flight 的 landed 和 armed",
-   "source": "nav/MQTT接口字段说明_20261105_源码版.md 第 6 节；system.stop 不再带 save、航点高度上限 4.50 m（nav 指挥家 11-06）",
+   "summary": "MODE_CONFIRMED 不是落地确认，还要看 state/flight 与 fcu 的 landed 和 armed；落地上锁后须再发 system.stop",
+   "source": "MQTT接口字段说明_20261105_源码版(3).md 6.4",
    "unverified": ""
   }
  ]

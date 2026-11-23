@@ -101,8 +101,8 @@ class ControlPage:
         self.target_label = label("target", "caption")
         self.target_box = QComboBox()
         self.target_box.setEditable(True)
-        self.target_box.addItems(["vfc", "gw", "ptz", "vision", "audio", "fsvr"])
-        self.target_box.setToolTip("GW（61a1649）只认 gw、vfc、ptz、vision、audio；填 fsvr 等别的会被 GW 直接拒掉、不回执，可以用来看 GW 的拒绝")
+        self.target_box.addItems(["vfc", "fsvr", "gw", "ptz", "vision", "audio"])
+        self.target_box.setToolTip("云端 services 路由目标：任务/建图/导航/自检默认 vfc，地图管理按协议默认 fsvr（旧版 GW 可按需切 vfc 或 gw）")
         self.target_box.setFixedWidth(96)
         self.target_box.currentTextChanged.connect(self._target_edited)
         topic_row.addWidget(self.target_label)
@@ -519,9 +519,9 @@ class ControlPage:
                 chosen = self.app.uav.selected_map()
                 data = payload.get("data")
                 if self.selected["method"] == "start_record":
-                    # 有图录制的 map_id 是只有一项的数组，默认当前加载的那张；没加载过就留空数组（无图录制）
+                    # 按《SLAM无人机-MQTT通信协议.md》：有图录制 data.map_id 为字符串；留空发送时自动省略即为无图录制
                     loaded = getattr(self.app.uav, "loaded_map", "")
-                    data["map_id"] = [loaded] if loaded else []
+                    data["map_id"] = loaded or ""
                 elif chosen and isinstance(data, dict) and "map_id" in data:
                     data["map_id"] = chosen
                 if self.app.uav_cloud():
@@ -552,6 +552,9 @@ class ControlPage:
             refresh_ids(payload, keep_bid=True)
             if self.selected["module"] == "vfc":
                 payload["bid"] = self._vfc_bid(payload)
+                if payload.get("method") == "start_record" and isinstance(payload.get("data"), dict):
+                    if payload["data"].get("map_id") in ("", None):
+                        payload["data"].pop("map_id", None)
             text = json.dumps(payload, ensure_ascii=False, indent=2)
             self.editor.setPlainText(text)
         record = payload if isinstance(payload, dict) else {}

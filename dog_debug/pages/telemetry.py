@@ -139,7 +139,26 @@ class TelemetryCard:
                 data.update({k: fly.payload["info"].get(k) for k in ("flightState", "ctrlMode", "mode")})
                 # 已飞时长（第七轮，VFC 按离地时刻算，地面是 0）取 flyState 的；GW 转的 OSD 里的 flyingTime 是补的 0，不用
                 data["flyTime"] = fly.payload["info"].get("flyingTime")
+            fcu = self.app.uav.latest.get("fcu") if current else None
+            fcu_detail = ((fcu.payload.get("info") or {}).get("detail") or {}) if fcu and isinstance(fcu.payload.get("info"), dict) else {}
+            if isinstance(fcu_detail, dict) and fcu_detail:
+                att = fcu_detail.get("attitude") if isinstance(fcu_detail.get("attitude"), dict) else {}
+                if "pitch" not in data and att.get("pitch_deg") is not None:
+                    data["pitch"] = att.get("pitch_deg")
+                if "roll" not in data and att.get("roll_deg") is not None:
+                    data["roll"] = att.get("roll_deg")
+                if "heading" not in data and att.get("yaw_deg") is not None:
+                    data["heading"] = att.get("yaw_deg")
+                if "batteryRemain" not in data and fcu_detail.get("battery_percent") is not None:
+                    data["batteryRemain"] = fcu_detail.get("battery_percent")
+                if "speed" not in data and fcu_detail.get("speed") is not None:
+                    data["speed"] = fcu_detail.get("speed")
+                if not data.get("mode") and fcu_detail.get("mode"):
+                    data["mode"] = fcu_detail.get("mode")
             if not event:
+                if fcu:
+                    live = mqtt.connected and time.time() - fcu.timestamp < LIVE_SECONDS
+                    return data, live, f"Bridge FCU · {time.strftime('%H:%M:%S', time.localtime(fcu.timestamp))} 收到", True
                 return data, False, f"tta/uav/{mqtt.cloud_sn}/osd" if mqtt.cloud_sn else "local/uav/vfc/osd", False
             # 断开后立刻标“已停”，不等时效过期
             live = mqtt.connected and time.time() - event.timestamp < LIVE_SECONDS

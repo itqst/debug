@@ -124,3 +124,12 @@ QMenu::item {padding:7px 18px;border-radius:8px;color:#1C1C1E}
 QMenu::item:selected {background:#007AFF;color:white}
 QPushButton#primary::menu-indicator {image:none;width:0}
 QLabel#detailBlock {background:#F7F7FA;border-radius:12px;padding:10px}
+QFrame#presetRow {background:#F7F7FA;border:1px solid #E6E7EC;border-radius:12px}
+QFrame#presetRow:hover {background:#EFF4FF;border-color:#B8D6FF}
+QFrame#presetRowActive {background:#EAF3FF;border:1.5px solid #007AFF;border-radius:12px}
+QLabel#presetTitle {font-size:13px;font-weight:600;color:#1C1C1E}
+QPushButton#presetDel {background:transparent;border:0;border-radius:12px;color:#8E8E93;font-size:15px;font-weight:700;padding:0}
+QPushButton#presetDel:hover {background:#FFE9E8;color:#FF3B30}
+QPushButton#eyeBtn {background:#EAEAEF;border:1px solid #E1E2E8;border-radius:9px;padding:5px 6px;font-size:12px;color:#545458}
+QPushButton#eyeBtn:hover {background:#E5F0FF;border-color:#B8D6FF;color:#007AFF}
+QPushButton#eyeBtn:checked {background:#EAF3FF;border-color:#9CC8FF;color:#007AFF}

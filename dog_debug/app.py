@@ -31,7 +31,7 @@ from .transport import MqttTransport, simulate
 from .uav import cloud_command, cloud_topic, VFC as UAV_VFC
 from .ui import (
     APP_NAME, apply_theme, button, DEVICES, dot, FAILED, GRAY, GREEN, guard_wheel, label, logo_icon, logo_image,
-    DeviceStack, MODES, NavDelegate, ORANGE, press_feedback, SCENARIOS, Segmented, settings, setup_fonts, Sheet, Switch, tint,
+    DeviceStack, MODES, NavDelegate, ORANGE, press_feedback, SCENARIOS, scroller, Segmented, settings, setup_fonts, Sheet, Switch, tint,
     Toast, tone,
 )
 from .pages.connection import ConnectionPanel
@@ -371,6 +371,8 @@ class Studio(QMainWindow):
         self.uav_sn.setPlaceholderText("无人机 SN")
         self.uav_sn.editingFinished.connect(lambda: settings().setValue("uav_sn", self.uav_sn.text().strip()))
         self.uav_sn.textChanged.connect(self.control._update_topic)
+        self.uav_sn.textChanged.connect(self.connection._connection_hint)
+        self.uav_sn.textChanged.connect(lambda _: self._update_pill())
         self.cloud_answer = Switch("")
         self.cloud_answer.setChecked(stored.value("cloud_answer", True, type=bool))
         self.cloud_answer.toggled.connect(lambda on: settings().setValue("cloud_answer", on))
@@ -391,40 +393,82 @@ class Studio(QMainWindow):
         self.connection._load_profiles()
         return side
 
+    @staticmethod
+    def _password_field(edit):
+        """密码输入框 + 轻量显示/隐藏切换按钮"""
+        box = QWidget()
+        row = QHBoxLayout(box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        row.addWidget(edit, 1)
+        eye = QPushButton("显示")
+        eye.setObjectName("eyeBtn")
+        eye.setCheckable(True)
+        eye.setFixedWidth(48)
+        eye.setCursor(Qt.PointingHandCursor)
+        eye.toggled.connect(lambda on: (edit.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password), eye.setText("隐藏" if on else "显示")))
+        row.addWidget(eye)
+        return box
+
     def _connection_card(self):
-        """连接与通道设置：预设配置、接入方式、Broker、SN、账号、FRP、TLS，下面是连接状态和连接 / 断开"""
+        """连接与通道设置：双设备独立配置、快速选择/删除历史与预设、接入模式、动态联网表单和连接控制"""
         sheet = QFrame()
         sheet.setObjectName("sheet")
-        sheet.setFixedWidth(500)
+        sheet.setFixedWidth(540)
         form = QVBoxLayout(sheet)
         form.setContentsMargins(22, 18, 22, 20)
-        form.setSpacing(8)
+        form.setSpacing(10)
+
         head = QHBoxLayout()
+        head.setSpacing(8)
         head.addWidget(label("连接与通道设置", "heading"))
+        self.sheet_device_badge = label("机器狗 DOG", "badge")
+        head.addWidget(self.sheet_device_badge, 0, Qt.AlignVCenter)
         head.addStretch()
         head.addWidget(button("完成", lambda: self.connection_sheet.close()))
         form.addLayout(head)
-        form.addWidget(label("预设连接配置（选一个就填好下面各项，密码不保存）", "caption"))
-        saved = QHBoxLayout()
-        saved.addWidget(self.profile_box, 1)
-        more = QPushButton("⋯")
-        more.setFixedWidth(42)
-        # 去掉菜单箭头，窄按钮里只放“⋯”
-        more.setStyleSheet("QPushButton{font-size:18px;padding:0 0 4px 0}QPushButton::menu-indicator{image:none;width:0px}")
-        more.setToolTip("保存或删除连接配置")
-        menu = QMenu(more)
-        menu.addAction("把当前填写存为配置…", self.connection._save_profile)
-        menu.addAction("删除选中的配置", self.connection._delete_profile)
-        more.setMenu(menu)
-        saved.addWidget(more)
-        form.addLayout(saved)
+
+        # 常用与历史配置（仅显示当前设备的配置：点行秒切、右侧 × 一键删除、右上角手动保存）
+        preset_head = QHBoxLayout()
+        preset_head.addWidget(label("常用与历史配置（仅当前设备，点击秒切）", "caption"))
+        preset_head.addStretch()
+        save_btn = button("＋ 保存当前", self.connection._save_profile, "link")
+        save_btn.setToolTip("将当前填写保存为命名预设（密码不保存）")
+        preset_head.addWidget(save_btn)
+        form.addLayout(preset_head)
+
+        # 保留 profile_box 与数据模型同步（隐藏展示，由下方直观卡片列表交互）
+        self.profile_box.hide()
+        form.addWidget(self.profile_box)
+
+        preset_holder = QWidget()
+        self.profile_list_layout = QVBoxLayout(preset_holder)
+        self.profile_list_layout.setContentsMargins(2, 2, 4, 2)
+        self.profile_list_layout.setSpacing(6)
+        self.profile_scroll = scroller(preset_holder)
+        self.profile_scroll.setObjectName("presetScroll")
+        self.profile_scroll.setFixedHeight(52)
+        form.addWidget(self.profile_scroll)
+
         form.addWidget(label("接入模式", "caption"))
-        # 分段只是接入方式下拉的另一个样子，切换逻辑还在下拉上
         self.mode_seg = Segmented(["沙盒模拟", "云端 → GW", "局域网直连", "离线分析"])
         self.mode_seg.set_index(self.mode_box.currentIndex())
         self.mode_seg.changed.connect(self.mode_box.setCurrentIndex)
         self.mode_box.currentIndexChanged.connect(lambda index: self.mode_seg.index() != index and self.mode_seg.set_index(index))
         form.addWidget(self.mode_seg)
+
+        # 沙盒 / 离线时的精简说明（自动收起下方联网输入区）
+        self.offline_hint = label("", "caption", True)
+        self.offline_hint.setObjectName("detailBlock")
+        self.offline_hint.hide()
+        form.addWidget(self.offline_hint)
+
+        # 仅「云端 → GW」和「局域网直连」展开的联网表单区
+        self.network_box = QWidget()
+        net = QVBoxLayout(self.network_box)
+        net.setContentsMargins(0, 2, 0, 0)
+        net.setSpacing(8)
+
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(4)
@@ -432,43 +476,58 @@ class Studio(QMainWindow):
         grid.addWidget(label("端口", "caption"), 0, 1)
         grid.addWidget(self.host, 1, 0)
         grid.addWidget(self.port, 1, 1)
-        form.addLayout(grid)
+        net.addLayout(grid)
+
         self.sn_caption = label("设备 SN（Topic 路由键）", "caption")
-        form.addWidget(self.sn_caption)
-        form.addWidget(self.sn)
-        # 无人机“云端 → GW”就是模拟云端：往 tta/uav/{sn}/services 发，收 GW 转上来的回执、状态和 OSD
+        net.addWidget(self.sn_caption)
+        net.addWidget(self.sn)
+
         self.cloud_box = QWidget()
         cloud = QVBoxLayout(self.cloud_box)
         cloud.setContentsMargins(0, 0, 0, 0)
         cloud.setSpacing(4)
-        cloud.addWidget(label("无人机 SN（板上 db/deviceInfo.cfg）", "caption"))
+        cloud.addWidget(label("无人机 SN（Topic：tta/uav/{sn}/...）", "caption"))
         cloud.addWidget(self.uav_sn)
-        cloud.addWidget(label("Broker 要和板上 GW 云端那一侧连的一致：db/GatewayOnlineInfo.cfg 里 OnlineType=Offline 时的 Mqtt_Ip、Mqtt_Port，"
-                              "否则收不到上报", "caption", True))
-        cloud.addLayout(self._switch_row(self.cloud_answer, "扮演云端应答上线和心跳", "不回的话 GW 一直显示离线"))
-        form.addWidget(self.cloud_box)
-        account = QHBoxLayout()
-        account.addWidget(self.user)
-        account.addWidget(self.password)
-        form.addLayout(account)
+        cloud.addWidget(label("Broker 须与板上 GW 云端侧（db/GatewayOnlineInfo.cfg）一致，否则收不到上线与上报", "caption", True))
+        cloud.addLayout(self._switch_row(self.cloud_answer, "扮演云端应答上线和心跳", "自动回复 online_reply 和 heartbeat_reply"))
+        net.addWidget(self.cloud_box)
+
+        account_grid = QGridLayout()
+        account_grid.setHorizontalSpacing(10)
+        account_grid.setVerticalSpacing(4)
+        account_grid.addWidget(label("用户名（可选）", "caption"), 0, 0)
+        account_grid.addWidget(label("密码（可选）", "caption"), 0, 1)
+        account_grid.addWidget(self.user, 1, 0)
+        account_grid.addWidget(self._password_field(self.password), 1, 1)
+        net.addLayout(account_grid)
+
         self.ssh_row = QWidget()
         ssh = QVBoxLayout(self.ssh_row)
         ssh.setContentsMargins(0, 4, 0, 0)
         ssh.setSpacing(6)
         ssh.addLayout(self._switch_row(self.frp, "经远程 FRP（SSH 端口转发）", "把狗上的 1883 和 ZLM 80 转到本机，之后和直连一样用"))
-        account = QHBoxLayout()
-        account.addWidget(self.ssh_user)
-        account.addWidget(self.ssh_password)
-        ssh.addLayout(account)
-        form.addWidget(self.ssh_row)
-        form.addLayout(self._switch_row(self.tls, "启用 TLS 加密传输", "云端生产 Broker 建议开启"))
+        ssh_grid = QGridLayout()
+        ssh_grid.setHorizontalSpacing(10)
+        ssh_grid.setVerticalSpacing(4)
+        ssh_grid.addWidget(label("SSH 用户名", "caption"), 0, 0)
+        ssh_grid.addWidget(label("SSH 密码", "caption"), 0, 1)
+        ssh_grid.addWidget(self.ssh_user, 1, 0)
+        ssh_grid.addWidget(self._password_field(self.ssh_password), 1, 1)
+        ssh.addLayout(ssh_grid)
+        net.addWidget(self.ssh_row)
+
+        net.addLayout(self._switch_row(self.tls, "启用 TLS 加密传输", "云端生产 Broker 建议开启"))
+        form.addWidget(self.network_box)
+
         state = QHBoxLayout()
         state.addWidget(self.link_dot)
         state.addWidget(self.link, 1)
         state.addWidget(self.rate_label, 0, Qt.AlignTop)
         form.addLayout(state)
-        self.connect_btn.setMinimumHeight(38)
+
+        self.connect_btn.setMinimumHeight(40)
         form.addWidget(self.connect_btn)
+        self.connection._render_profile_list()
         return sheet
 
     @staticmethod
@@ -666,21 +725,22 @@ class Studio(QMainWindow):
         self.nav.blockSignals(False)
 
     def _device_changed(self):
-        """换设备（顶栏分段或连接配置）：5 个页不换，各页换成这种设备的内容和协议目录，顶栏和连接面板跟着换"""
+        """换设备（顶栏分段或连接配置）：5 个页不换，切换独立设备配置、预设列表、页面内容和协议目录"""
+        old_device = getattr(self.connection, "_active_device", "dog")
         device = DEVICES[self.device_box.currentText()]
+        self.connection.on_device_changed(old_device, device)
         self.teleop_stack.show_device(device)
         self.mission_stack.show_device(device)
         self.uav_lock.setVisible(device == "uav")
         if self.device_seg.index() != list(DEVICES.values()).index(device):
             self.device_seg.set_index(list(DEVICES.values()).index(device))
-        # 无人机的主题里不带 SN，也不走 FRP
+        if hasattr(self, "sheet_device_badge"):
+            self.sheet_device_badge.setText("无人机 UAV" if device == "uav" else "机器狗 DOG")
         self.sn.setVisible(device == "dog")
         self.sn_caption.setVisible(device == "dog")
-        self.cloud_box.setVisible(device == "uav" and self.mode == "gw")
         if device == "uav":
             self.frp.setChecked(False)
-        self.ssh_row.setVisible(device == "dog" and self.mode == "direct")
-        # 各行显示与否都定了再量连接面板的高度
+        self.connection._update_network_visibility()
         if hasattr(self, "connection_sheet"):
             self.connection_sheet.refit()
         self.scene3d._device_card()

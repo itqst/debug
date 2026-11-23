@@ -901,14 +901,14 @@ def test_map_card_lists_maps_and_sends_map_commands(window, monkeypatch):
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
     window.uav._delete_map()
     assert sent()["method"] == "remove_map_by_id" and sent()["data"] == {"map_ids": ["M10"]}
-    # 航线用这张图：已知地图带 map_id；第六轮模式由 map_id 定，顶层不再带 profile，未知环境不带 map_id
+    # 航线用这张图：按云端协议，已知地图 profile=known_navigation 且带 map_id，未知环境 profile=online_navigation 且不带 map_id
     window.uav._route_map()
     window.uav._send_route()
     route = sent()
-    assert route["method"] == "start_multi_nav_by_points" and "profile" not in route and route["data"]["map_id"] == "M10"
+    assert route["method"] == "start_multi_nav_by_points" and route["profile"] == "known_navigation" and route["data"]["map_id"] == "M10"
     window.uav.route.profile.set_index(1)
     window.uav._send_route()
-    assert "profile" not in sent() and "map_id" not in sent()["data"]
+    assert sent()["profile"] == "online_navigation" and "map_id" not in sent()["data"]
 
 
 def test_key_telemetry_card_shared_by_dog_and_uav(window):
@@ -1152,9 +1152,9 @@ def test_record_route_and_load_map_wait(window):
     window._ingest(Event("local/uav/vfc/ack", {"method": "loc_load_map", "tid": "L1", "result": 0, "msg": "地图 M7 已加载，定位就绪"}, **live))
     assert window.uav.loaded() == "M7" and not window.uav.loading
     window.uav._start_record(True)
-    assert sent()["data"] == {"map_id": ["M7"]}
+    assert sent()["data"] == {"map_id": "M7"}
     window.control._open_command("start_record")
-    assert json.loads(window.control.editor.toPlainText())["data"] == {"map_id": ["M7"]}
+    assert json.loads(window.control.editor.toPlainText())["data"] == {"map_id": "M7"}
     window.uav._stop_record()
     assert sent()["method"] == "stop_record" and sent()["data"] == {}
 

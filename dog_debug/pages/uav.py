@@ -178,9 +178,22 @@ class UavPage:
         elif event.topic == "local/uav/vfc/ack" and event.payload.get("method") == "get_map_list" and isinstance(event.payload.get("data"), list):
             self.maps = (event, event.payload["data"])
             self._follow_selected()
-        elif event.topic == BRIDGE + "events" and event.payload.get("type") == "waypoint_complete":
+        elif event.topic == BRIDGE + "events":
+            ev_type = event.payload.get("type")
             info = event.payload.get("info") if isinstance(event.payload.get("info"), dict) else {}
-            self._note(event, f"Bridge 到点事件：{info.get('data', '')}", True)
+            code = str(info.get("data") or "")
+            msg = str(info.get("msg") or "")
+            if ev_type == "waypoint_complete":
+                self._note(event, f"Bridge 到点事件：{code}", True)
+            elif ev_type == "flight" and code == "FCU_STATUSTEXT":
+                detail = info.get("detail") if isinstance(info.get("detail"), dict) else {}
+                sev = detail.get("severity")
+                loud = isinstance(sev, int) and sev <= 3 or info.get("result") == 1
+                self._note(event, f"PX4 提示（sev {sev if sev is not None else '?'}）：{msg}", loud)
+            elif ev_type == "map":
+                self._note(event, f"Bridge 地图事件 {code}：{msg}", code != "MAP_AUTO_BUILD_STARTED")
+            elif ev_type == "warning":
+                self._note(event, f"Bridge 告警 {code}：{msg}", True)
         elif event.topic == BRIDGE + "ack" and event.payload.get("duplicate"):
             self._note(event, f"Bridge 把 {event.payload.get('action')}（id {event.payload.get('id')}）当重复请求，回了旧的缓存结果，这次没有执行", True)
         elif event.topic == BRIDGE + "command" and event.payload.get("action") == "navigation.next":
@@ -338,14 +351,16 @@ class UavPage:
         """当前任务的 bid；还没有任务时新生成一个"""
         return self.current_task() or str(uuid.uuid4())
 
-    def _command(self, method, data=None, bid=None):
-        """按无人机目录生成一条 VFC 指令（新 tid、ts），模拟 GW 发出；开关没开时由 MQTT 出口拒绝并提示"""
+    def _command(self, method, data=None, bid=None, extra=None):
+        """按无人机目录生成一条 VFC 指令（新 tid、ts）；开关没开时由 MQTT 出口拒绝并提示"""
         item = next(entry for entry in self.app.control.uav_catalog if entry["method"] == method)
         payload = make_command(item)
-        # 开始航线、建图、录制、返航、降落是新任务，bid 新生成；其他带当前任务的
+        # 开始航线、建图、录制、返航、降落、自检是新任务，bid 新生成；其他带当前任务的
         payload["bid"] = bid or (str(uuid.uuid4()) if method in NEW_TASK else self._task_bid())
         if data is not None:
             payload["data"] = data
+        if isinstance(extra, dict):
+            payload.update(extra)
         # 模拟云端时改发 tta/uav/{sn}/services 并带 target
         topic, payload = self.app.uav_wire(payload, item["topic"])
         return self.app._emit(payload, json.dumps(payload, ensure_ascii=False), topic, "vfc")
@@ -539,7 +554,7 @@ class UavPage:
         if not map_id:
             self.app.notify("有图录制要先在地图卡里选一张图点“加载地图”，等回执 0 再开始")
             return
-        if self._command("start_record", {"map_id": [map_id]}):
+        if self._command("start_record", {"map_id": map_id}):
             self.app.notify(f"已发出开始有图录制（地图 {map_id}）；没加载或图不一致 VFC 会回 1 并写明")
 
     def _stop_record(self):
@@ -679,9 +694,10 @@ class UavPage:
             return
         self.route.error.setText("")
         if any(point["actions"] for point in data["points"]):
-            self.app.notify("航点动作：停留（pause N）到点照做，拍照、云台这些载荷动作现在报 skipped；进度看当前任务")
-        if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4())):
-            self.app.notify(f"已发出航线（bid {bid}），进度看状态总览的 VFC 卡片和关键变化")
+            self.app.notify("航点动作：停留（pause N）到点照做，载荷动作按机载支持情况执行；进度看 nav_action_progress")
+        profile = "known_navigation" if self.route.profile.index() == 0 else "online_navigation"
+        if self._command("start_multi_nav_by_points", data, bid or str(uuid.uuid4()), extra={"profile": profile}):
+            self.app.notify(f"已发出航线（{profile} · bid {bid}），进度看状态总览的 VFC 卡片和关键变化")
 
     def _loading_lines(self):
         """在等回执的加载地图：已等多久，进度按 nav_status 的 msg；600 s 还没回执才算没回"""
@@ -848,8 +864,8 @@ class PointsTable(QWidget):
         super().__init__()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(label("z 按 Bridge 只收 0.20～4.50 m；航向角发出时换成四元数（x=0、y=0、z=sin(yaw/2)、w=cos(yaw/2)）。"
-                               "动作写法如“pause 5”（到点停留 5 秒，做完才放行下一点），多个用分号隔开；拍照、云台这些载荷动作现在报 skipped；进度看 nav_action_progress", "caption", True))
+        layout.addWidget(label("Bridge 0.2.0-rc2 已取消固定限高（开地板时规划坐标系 z >= 0.30 m，已知地图关地板可为负）；航向角发出时自动换算为四元数。"
+                               "动作写法如“pause 5; take_photo; gimbal_action 1,1”，多个用分号隔开；进度看 nav_action_progress", "caption", True))
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.horizontalHeader().setStretchLastSection(True)

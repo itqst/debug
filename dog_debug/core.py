@@ -123,7 +123,7 @@ class Event:
         if self.topic == "tta/uav/status/online":
             return "状态"
         # Bridge 的状态分领域发在 state/<领域> 下
-        if self.topic.endswith(("/state", "/heartbeat", "/data", "/osd")) or self.topic.startswith(BRIDGE + "state/"):
+        if self.topic.endswith(("/state", "/heartbeat", "/data", "/osd", "/fcu")) or self.topic.startswith(BRIDGE + "state/"):
             return "状态"
         return "日志"
 
@@ -502,9 +502,16 @@ class Store:
         return {(sn, session, tid): json.loads(body)
                 for sn, session, tid, body in self.db.execute("SELECT sn, session, tid, body FROM notes ORDER BY updated")}
 
-    def connections(self):
-        """保存的连接配置 {名称: {mode, host, port, sn, user, tls}}，按名称排序；不含密码"""
-        return {name: json.loads(body) for name, body in self.db.execute("SELECT name, body FROM connections ORDER BY name")}
+    def connections(self, device=None):
+        """保存的连接配置 {名称: config}；传入 device（"dog"/"uav"）时只返回该设备的配置，手动预设置顶、最近使用在前"""
+        items = []
+        for name, body in self.db.execute("SELECT name, body FROM connections"):
+            cfg = json.loads(body)
+            if device and cfg.get("device", "dog") != device:
+                continue
+            items.append((name, cfg))
+        items.sort(key=lambda pair: (bool(pair[1].get("auto_history")), -(pair[1].get("updated_at") or 0), pair[0]))
+        return dict(items)
 
     def save_connection(self, name, config):
         self.db.execute("INSERT OR REPLACE INTO connections VALUES (?, ?)", (name, json.dumps(config, ensure_ascii=False)))
